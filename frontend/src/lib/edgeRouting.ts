@@ -1,6 +1,6 @@
 /**
  * Kanten-Routing & Label-Platzierung (generisch, unabhängig vom Graph-Inhalt).
- * Beeinflusst: InfraEdge.tsx, store/graph.ts (Handle-Richtung)
+ * Beeinflusst: InfraEdge.tsx (Handle-Richtung beim Routing)
  */
 import { Position } from '@xyflow/react';
 import type { FlowEdge, FlowNode } from '../api/types';
