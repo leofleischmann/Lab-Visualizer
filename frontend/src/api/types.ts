@@ -24,6 +24,15 @@ export type ApiNode = {
 
 export type LineStyle = 'solid' | 'dashed' | 'dotted';
 
+export type FlowPoint = { x: number; y: number };
+
+/** Manuelles Kanten-Routing (BPMN-ähnlich). Beeinflusst: InfraEdge, edgeRoutingState.ts */
+export type EdgeRouting = {
+  mode: 'auto' | 'manual';
+  waypoints: FlowPoint[];
+  label?: FlowPoint | null;
+};
+
 export type ApiEdge = {
   id: string;
   sourceId: string;
@@ -33,6 +42,7 @@ export type ApiEdge = {
   lineStyle: LineStyle;
   animated: boolean;
   notes: string;
+  routing: EdgeRouting;
   customFields: Record<string, string>;
   createdAt: string;
   updatedAt: string;

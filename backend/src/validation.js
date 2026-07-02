@@ -43,6 +43,12 @@ export const nodeCreateSchema = z.object({
 
 export const nodeUpdateSchema = nodeCreateSchema.omit({ id: true }).partial();
 
+const routingSchema = z.object({
+  mode: z.enum(['auto', 'manual']).default('auto'),
+  waypoints: z.array(positionSchema).max(32).default([]),
+  label: positionSchema.nullable().optional(),
+});
+
 export const edgeCreateSchema = z.object({
   id: idSchema.optional(),
   sourceId: idSchema,
@@ -52,6 +58,7 @@ export const edgeCreateSchema = z.object({
   lineStyle: z.enum(LINE_STYLES).default('solid'),
   animated: z.boolean().default(false),
   notes: z.string().max(200000).default(''),
+  routing: routingSchema.default({ mode: 'auto', waypoints: [] }),
   customFields: customFieldsSchema.default({}),
 });
 

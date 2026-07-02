@@ -107,6 +107,7 @@ Erfolg ohne Body: `204 No Content` (DELETE).
   "lineStyle": "solid",
   "animated": false,
   "notes": "",
+  "routing": { "mode": "auto", "waypoints": [], "label": null },
   "customFields": {},
   "createdAt": "2026-07-02T18:00:00.000Z",
   "updatedAt": "2026-07-02T18:00:00.000Z"
@@ -121,6 +122,9 @@ Erfolg ohne Body: `204 No Content` (DELETE).
 | `lineStyle` | nein | `solid` |
 | `animated` | nein | `false` |
 | `notes`, `customFields` | nein | wie Node |
+| `routing` | nein | `{ mode: "auto", waypoints: [], label?: {x,y} }` — manueller Kantenverlauf + Label-Position |
+
+**routing.mode:** `auto` (automatisch) | `manual` (Waypoints aus UI/API). Auto-Layout ändert `routing` nicht.
 
 **lineStyle:** `solid` | `dashed` | `dotted`
 

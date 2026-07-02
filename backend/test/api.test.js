@@ -101,6 +101,18 @@ test('edge CRUD und Kaskade beim Node-Löschen', async () => {
     label: 'a → b',
   });
   assert.equal(created.status, 201);
+  assert.deepEqual(created.body.routing, { mode: 'auto', waypoints: [] });
+
+  const routed = await api('PATCH', '/api/edges/e-ab', {
+    routing: {
+      mode: 'manual',
+      waypoints: [{ x: 120, y: 80 }],
+      label: { x: 140, y: 90 },
+    },
+  });
+  assert.equal(routed.status, 200);
+  assert.equal(routed.body.routing.mode, 'manual');
+  assert.equal(routed.body.routing.waypoints.length, 1);
 
   const missing = await api('POST', '/api/edges', { sourceId: 'svc-a', targetId: 'gibts-nicht' });
   assert.equal(missing.status, 400);

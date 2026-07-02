@@ -12,6 +12,7 @@ import type {
   ApiNode,
   Catalog,
   EdgePatch,
+  EdgeRouting,
   FlowEdge,
   FlowNode,
   NodePatch,
@@ -97,6 +98,8 @@ type GraphStore = {
   connect: (connection: Connection) => Promise<void>;
   saveEdge: (id: string, patch: EdgePatch) => Promise<boolean>;
   removeEdge: (id: string) => Promise<void>;
+  updateEdgeRouting: (id: string, routing: EdgeRouting, persist?: boolean) => Promise<void>;
+  resetEdgeRouting: (id: string) => Promise<void>;
 
   importGraph: (payload: { nodes: ApiNode[]; edges: ApiEdge[] }) => Promise<boolean>;
   clearGraph: () => Promise<boolean>;
@@ -342,6 +345,27 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       selection:
         state.selection?.kind === 'edge' && state.selection.id === id ? null : state.selection,
     }));
+  },
+
+  updateEdgeRouting: async (id, routing, persist = true) => {
+    set((state) => ({
+      edges: state.edges.map((e) =>
+        e.id === id && e.data?.entity
+          ? { ...e, data: { entity: { ...e.data.entity, routing } } }
+          : e
+      ),
+    }));
+    if (!persist) return;
+    try {
+      await api.updateEdge(id, { routing });
+      console.log('[Debug graph-store]: Edge-Routing gespeichert', id);
+    } catch (err) {
+      set({ error: errorMessage(err) });
+    }
+  },
+
+  resetEdgeRouting: async (id) => {
+    await get().updateEdgeRouting(id, { mode: 'auto', waypoints: [], label: null }, true);
   },
 
   importGraph: async (payload) => {

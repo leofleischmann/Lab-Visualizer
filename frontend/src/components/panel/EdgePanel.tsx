@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Save, Trash2 } from 'lucide-react';
+import { ArrowRight, RotateCcw, Save, Trash2 } from 'lucide-react';
 import type { ApiEdge, EdgePatch, LineStyle } from '../../api/types';
 import { kindOf } from '../../lib/catalog';
+import { normalizeRouting } from '../../lib/edgeRoutingState';
 import { useGraphStore } from '../../store/graph';
 import { CustomFieldsEditor, toRecord, toRows, type FieldRow } from './CustomFieldsEditor';
 import { MarkdownEditor } from './MarkdownEditor';
@@ -36,9 +37,13 @@ export function EdgePanel({ entity }: { entity: ApiEdge }) {
   const nodes = useGraphStore((s) => s.nodes);
   const saveEdge = useGraphStore((s) => s.saveEdge);
   const removeEdge = useGraphStore((s) => s.removeEdge);
+  const resetEdgeRouting = useGraphStore((s) => s.resetEdgeRouting);
 
   const [draft, setDraft] = useState<Draft>(() => toDraft(entity));
   const [saving, setSaving] = useState(false);
+  const routing = normalizeRouting(entity.routing);
+  const routingCustomized =
+    routing.mode === 'manual' || routing.waypoints.length > 0 || !!routing.label;
 
   useEffect(() => {
     setDraft(toDraft(entity));
@@ -137,6 +142,22 @@ export function EdgePanel({ entity }: { entity: ApiEdge }) {
           />
           Animiert (Datenfluss visualisieren)
         </label>
+
+        {routingCustomized && (
+          <div className="rounded-md border border-slate-700 bg-slate-900/60 px-3 py-2">
+            <p className="text-[11px] text-slate-400">
+              Verlauf oder Label manuell angepasst. Am Canvas: Segment-Handles ziehen, Doppelklick
+              fügt Eckpunkt ein, Label per Drag verschieben.
+            </p>
+            <button
+              type="button"
+              onClick={() => void resetEdgeRouting(entity.id)}
+              className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-amber-300 hover:text-amber-200"
+            >
+              <RotateCcw size={12} /> Automatisches Routing wiederherstellen
+            </button>
+          </div>
+        )}
 
         <Field label="Notizen (Markdown)">
           <MarkdownEditor value={draft.notes} onChange={(v) => set('notes', v)} />
