@@ -12,9 +12,8 @@ import {
   buildNodeBoxes,
   computeEdgeRoute,
   edgeBundleOffset,
-  inferHandlePositions,
   labelAlongPathOffset,
-  labelPosition,
+  labelPositionOnRoute,
 } from '../../lib/edgeRouting';
 import { useGraphStore } from '../../store/graph';
 
@@ -26,6 +25,8 @@ function InfraEdgeComponent({
   sourceY,
   targetX,
   targetY,
+  sourcePosition,
+  targetPosition,
   data,
   selected,
 }: EdgeProps<FlowEdge>) {
@@ -35,7 +36,6 @@ function InfraEdgeComponent({
   const select = useGraphStore((s) => s.select);
   const entity = data?.entity;
 
-  const { sourcePosition, targetPosition } = inferHandlePositions(nodes, source, target);
   const exclude = new Set([source, target]);
   const obstacles = buildNodeBoxes(nodes, exclude);
   const bundleOffset = edgeBundleOffset(id, source, target, edges);
@@ -65,16 +65,7 @@ function InfraEdgeComponent({
         : undefined;
 
   const alongT = labelAlongPathOffset(id, source, edges);
-  const labelPos = labelPosition(
-    labelX,
-    labelY,
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-    alongT,
-    obstacles
-  );
+  const labelPos = labelPositionOnRoute(route, labelX, labelY, alongT, obstacles);
 
   return (
     <>

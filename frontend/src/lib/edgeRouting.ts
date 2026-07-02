@@ -228,20 +228,39 @@ export function edgeBundleOffset(
   return (index - (bundle.length - 1) / 2) * step;
 }
 
-/** Labels gleicher Quelle entlang der Kante verteilen (weniger Stapel) */
-export function labelAlongPathOffset(
-  edgeId: string,
-  source: string,
-  edges: FlowEdge[]
-): number {
-  const siblings = edges
-    .filter((e) => e.source === source)
-    .map((e) => e.id)
-    .sort();
-  if (siblings.length <= 1) return 0.5;
-  const index = siblings.indexOf(edgeId);
-  const t = 0.22 + index * LABEL_SPREAD;
-  return Math.min(0.78, t);
+/** Orthogonale Segmente des Smooth-Step-Pfads (gleiche Logik wie computeEdgeRoute) */
+export function pathSegments(route: RoutePoint): [number, number, number, number][] {
+  const { sourceX, sourceY, targetX, targetY, centerX, centerY } = route;
+  const dx = targetX - sourceX;
+  const dy = targetY - sourceY;
+
+  if (centerY !== undefined && Math.abs(dy) >= Math.abs(dx)) {
+    return [
+      [sourceX, sourceY, sourceX, centerY],
+      [sourceX, centerY, targetX, centerY],
+      [targetX, centerY, targetX, targetY],
+    ];
+  }
+  if (centerX !== undefined) {
+    return [
+      [sourceX, sourceY, centerX, sourceY],
+      [centerX, sourceY, centerX, targetY],
+      [centerX, targetY, targetX, targetY],
+    ];
+  }
+  return [[sourceX, sourceY, targetX, targetY]];
+}
+
+function segmentLength(x1: number, y1: number, x2: number, y2: number): number {
+  return Math.hypot(x2 - x1, y2 - y1);
+}
+
+function longestSegment(segments: [number, number, number, number][]): [number, number, number, number] {
+  return segments.reduce((best, seg) =>
+    segmentLength(seg[0], seg[1], seg[2], seg[3]) > segmentLength(best[0], best[1], best[2], best[3])
+      ? seg
+      : best
+  );
 }
 
 export function pointOnSegment(
@@ -254,32 +273,58 @@ export function pointOnSegment(
   return { x: x1 + (x2 - x1) * t, y: y1 + (y2 - y1) * t };
 }
 
-export function labelPosition(
+/** Labels gleicher Quelle entlang der Kante verteilen (weniger Stapel) */
+export function labelAlongPathOffset(
+  edgeId: string,
+  source: string,
+  edges: FlowEdge[]
+): number {
+  const siblings = edges
+    .filter((e) => e.source === source)
+    .map((e) => e.id)
+    .sort();
+  if (siblings.length <= 1) return 0.5;
+  const index = siblings.indexOf(edgeId);
+  const t = 0.18 + index * LABEL_SPREAD;
+  return Math.min(0.82, t);
+}
+
+/**
+ * Label auf dem echten Kantenpfad platzieren (nicht auf der Source-Target-Diagonalen).
+ */
+export function labelPositionOnRoute(
+  route: RoutePoint,
   labelX: number,
   labelY: number,
-  sourceX: number,
-  sourceY: number,
-  targetX: number,
-  targetY: number,
   alongT: number,
   obstacles: NodeBox[]
 ): { x: number; y: number } {
-  const base = pointOnSegment(sourceX, sourceY, targetX, targetY, alongT);
-  let x = labelX + (base.x - labelX) * 0.55;
-  let y = labelY + (base.y - labelY) * 0.55;
+  const trunk = longestSegment(pathSegments(route));
+  const [x1, y1, x2, y2] = trunk;
 
-  const dx = targetX - sourceX;
-  const dy = targetY - sourceY;
-  const len = Math.hypot(dx, dy) || 1;
+  let x: number;
+  let y: number;
+  if (Math.abs(alongT - 0.5) < 0.001) {
+    x = labelX;
+    y = labelY;
+  } else {
+    const base = pointOnSegment(x1, y1, x2, y2, alongT);
+    x = base.x;
+    y = base.y;
+  }
+
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = segmentLength(x1, y1, x2, y2) || 1;
   const nx = -dy / len;
   const ny = dx / len;
-  x += nx * 16;
-  y += ny * 16;
+  x += nx * 14;
+  y += ny * 14;
 
   for (const box of obstacles.map((b) => padBox(b, 8))) {
     if (x >= box.x && x <= box.x + box.width && y >= box.y && y <= box.y + box.height) {
-      x += nx * 28;
-      y += ny * 28;
+      x += nx * 24;
+      y += ny * 24;
     }
   }
 
