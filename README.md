@@ -17,6 +17,7 @@ visuell pflegen und dokumentieren — mit interaktiver Canvas (React Flow), Deep
   Listen, Code) und ein **Key-Value-System (Custom Fields)** für alles, was nicht in starre
   Spalten passt („Cloudflare Access Policy“, „Portainer Agent Port“, …).
 - **API-First** — jede UI-Aktion läuft über die REST-API; alles lässt sich skripten.
+- **KI-Agenten:** vollständige API-Doku in [AGENTS.md](AGENTS.md)
 - **Suche** — filtert live über Name, IP, Hostname, URL, OS und Custom Fields.
 - **Export / Import** — kompletter Graph als JSON (Backup, Versionierung, Automatisierung).
 - **Offline-fähig** — keine externen CDNs/Fonts; läuft komplett lokal auf dem eigenen Host.
