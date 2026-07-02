@@ -49,6 +49,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ mode: 'replace', ...payload }),
     }),
+  autoLayout: (options?: { maxCols?: number; profile?: 'default' | 'wide' }) =>
+    request<{ updated: number }>('/graph/layout', {
+      method: 'POST',
+      body: JSON.stringify(options ?? {}),
+    }),
 
   createNode: (data: NodePatch & { name: string }) =>
     request<ApiNode>('/nodes', { method: 'POST', body: JSON.stringify(data) }),

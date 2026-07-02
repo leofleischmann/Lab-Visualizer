@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { ApiError } from './validation.js';
+import { computeLayout } from './layout.js';
 
 const now = () => new Date().toISOString();
 
@@ -37,6 +38,7 @@ function rowToEdge(row) {
     lineStyle: row.line_style,
     animated: !!row.animated,
     notes: row.notes,
+    routing: JSON.parse(row.routing || '{"mode":"auto","waypoints":[]}'),
     customFields: JSON.parse(row.custom_fields || '{}'),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -233,9 +235,9 @@ export function getEdge(db, id) {
 
 const INSERT_EDGE = `
   INSERT INTO edges (id, source_id, target_id, label, kind, line_style, animated, notes,
-                     custom_fields, created_at, updated_at)
+                     routing, custom_fields, created_at, updated_at)
   VALUES (@id, @source_id, @target_id, @label, @kind, @line_style, @animated, @notes,
-          @custom_fields, @created_at, @updated_at)`;
+          @routing, @custom_fields, @created_at, @updated_at)`;
 
 function edgeToRow(data, timestamps) {
   return {
@@ -247,6 +249,7 @@ function edgeToRow(data, timestamps) {
     line_style: data.lineStyle ?? 'solid',
     animated: data.animated ? 1 : 0,
     notes: data.notes ?? '',
+    routing: JSON.stringify(data.routing ?? { mode: 'auto', waypoints: [] }),
     custom_fields: JSON.stringify(data.customFields ?? {}),
     ...timestamps,
   };
@@ -272,11 +275,17 @@ export function updateEdge(db, id, patch) {
       throw new ApiError(400, `${field}: Node "${patch[field]}" existiert nicht`);
     }
   }
-  const merged = { ...existing, ...patch, customFields: patch.customFields ?? existing.customFields, id };
+  const merged = {
+    ...existing,
+    ...patch,
+    customFields: patch.customFields ?? existing.customFields,
+    routing: patch.routing ?? existing.routing,
+    id,
+  };
   db.prepare(`
     UPDATE edges SET source_id = @source_id, target_id = @target_id, label = @label, kind = @kind,
-      line_style = @line_style, animated = @animated, notes = @notes, custom_fields = @custom_fields,
-      updated_at = @updated_at
+      line_style = @line_style, animated = @animated, notes = @notes, routing = @routing,
+      custom_fields = @custom_fields, updated_at = @updated_at
     WHERE id = @id
   `).run(edgeToRow(merged, { created_at: existing.createdAt, updated_at: now() }));
   return getEdge(db, id);
@@ -336,4 +345,33 @@ export function importGraph(db, { nodes, edges }) {
   });
   tx();
   return { nodes: countNodes(db), edges: db.prepare('SELECT count(*) AS c FROM edges').get().c };
+}
+
+/**
+ * Wendet das deterministische Auto-Layout auf alle Nodes an (Positionen + Zonengrößen).
+ */
+export function applyLayout(db, options = {}) {
+  const nodes = listNodes(db);
+  const edges = listEdges(db);
+  const laid = computeLayout(nodes, edges, options);
+  const ts = now();
+  const stmt = db.prepare(`
+    UPDATE nodes SET pos_x = @x, pos_y = @y, width = @width, height = @height, updated_at = @updated_at
+    WHERE id = @id
+  `);
+  const tx = db.transaction(() => {
+    for (const n of laid) {
+      stmt.run({
+        id: n.id,
+        x: n.position.x,
+        y: n.position.y,
+        width: n.width ?? null,
+        height: n.height ?? null,
+        updated_at: ts,
+      });
+    }
+  });
+  tx();
+  console.log(`[Debug store]: Auto-Layout angewendet (${laid.length} Nodes)`);
+  return { updated: laid.length };
 }

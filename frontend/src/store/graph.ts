@@ -12,12 +12,12 @@ import type {
   ApiNode,
   Catalog,
   EdgePatch,
+  EdgeRouting,
   FlowEdge,
   FlowNode,
   NodePatch,
   Position,
 } from '../api/types';
-
 export type Selection = { kind: 'node' | 'edge'; id: string } | null;
 
 function toFlowNode(n: ApiNode): FlowNode {
@@ -98,9 +98,12 @@ type GraphStore = {
   connect: (connection: Connection) => Promise<void>;
   saveEdge: (id: string, patch: EdgePatch) => Promise<boolean>;
   removeEdge: (id: string) => Promise<void>;
+  updateEdgeRouting: (id: string, routing: EdgeRouting, persist?: boolean) => Promise<void>;
+  resetEdgeRouting: (id: string) => Promise<void>;
 
   importGraph: (payload: { nodes: ApiNode[]; edges: ApiEdge[] }) => Promise<boolean>;
   clearGraph: () => Promise<boolean>;
+  autoLayout: () => Promise<boolean>;
 };
 
 const errorMessage = (err: unknown) =>
@@ -119,9 +122,10 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const [catalog, graph] = await Promise.all([api.catalog(), api.graph()]);
+      const flowNodes = orderForFlow(graph.nodes.map(toFlowNode));
       set({
         catalog,
-        nodes: orderForFlow(graph.nodes.map(toFlowNode)),
+        nodes: flowNodes,
         edges: graph.edges.map(toFlowEdge),
         loading: false,
       });
@@ -139,14 +143,15 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
         (selection.kind === 'node'
           ? graph.nodes.some((n) => n.id === selection.id)
           : graph.edges.some((e) => e.id === selection.id));
+      const flowNodes = orderForFlow(
+        graph.nodes.map((n) => {
+          const flow = toFlowNode(n);
+          flow.selected = selection?.kind === 'node' && selection.id === n.id;
+          return flow;
+        })
+      );
       set({
-        nodes: orderForFlow(
-          graph.nodes.map((n) => {
-            const flow = toFlowNode(n);
-            flow.selected = selection?.kind === 'node' && selection.id === n.id;
-            return flow;
-          })
-        ),
+        nodes: flowNodes,
         edges: graph.edges.map((e) => {
           const flow = toFlowEdge(e);
           flow.selected = selection?.kind === 'edge' && selection.id === e.id;
@@ -179,10 +184,11 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   syncSelection: (selection) => set({ selection }),
 
   onNodesChange: (changes) => {
-    set({ nodes: applyNodeChanges(changes, get().nodes) });
+    const nextNodes = applyNodeChanges(changes, get().nodes);
     const movedIds = changes
       .filter((c) => c.type === 'position' && c.dragging === false)
       .map((c) => (c as { id: string }).id);
+    set({ nodes: nextNodes });
     if (movedIds.length) void get().persistPositions(movedIds);
   },
 
@@ -341,6 +347,27 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     }));
   },
 
+  updateEdgeRouting: async (id, routing, persist = true) => {
+    set((state) => ({
+      edges: state.edges.map((e) =>
+        e.id === id && e.data?.entity
+          ? { ...e, data: { entity: { ...e.data.entity, routing } } }
+          : e
+      ),
+    }));
+    if (!persist) return;
+    try {
+      await api.updateEdge(id, { routing });
+      console.log('[Debug graph-store]: Edge-Routing gespeichert', id);
+    } catch (err) {
+      set({ error: errorMessage(err) });
+    }
+  },
+
+  resetEdgeRouting: async (id) => {
+    await get().updateEdgeRouting(id, { mode: 'auto', waypoints: [], label: null }, true);
+  },
+
   importGraph: async (payload) => {
     try {
       await api.importGraph(payload);
@@ -359,6 +386,18 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       set({ selection: null });
       await get().reload();
       console.log('[Debug graph-store]: Graph geleert');
+      return true;
+    } catch (err) {
+      set({ error: errorMessage(err) });
+      return false;
+    }
+  },
+
+  autoLayout: async () => {
+    try {
+      const result = await api.autoLayout();
+      console.log('[Debug graph-store]: Auto-Layout angewendet', result);
+      await get().reload();
       return true;
     } catch (err) {
       set({ error: errorMessage(err) });

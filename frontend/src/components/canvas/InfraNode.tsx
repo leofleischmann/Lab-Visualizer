@@ -28,7 +28,8 @@ function InfraNodeComponent({ data, selected }: NodeProps<FlowNode>) {
       )}
       style={{ borderLeftWidth: 4, borderLeftColor: category.color }}
     >
-      <Handle type="target" position={Position.Top} />
+      <Handle type="target" position={Position.Top} id="top" />
+      <Handle type="target" position={Position.Left} id="left" />
       <div className="flex items-center gap-2.5">
         <span
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
@@ -59,7 +60,8 @@ function InfraNodeComponent({ data, selected }: NodeProps<FlowNode>) {
           {entity.hostname && <span className="truncate text-slate-500">{entity.hostname}</span>}
         </div>
       )}
-      <Handle type="source" position={Position.Bottom} />
+      <Handle type="source" position={Position.Bottom} id="bottom" />
+      <Handle type="source" position={Position.Right} id="right" />
     </div>
   );
 }

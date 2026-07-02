@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS edges (
   line_style    TEXT NOT NULL DEFAULT 'solid',
   animated      INTEGER NOT NULL DEFAULT 0,
   notes         TEXT NOT NULL DEFAULT '',
+  routing       TEXT NOT NULL DEFAULT '{"mode":"auto","waypoints":[]}',
   custom_fields TEXT NOT NULL DEFAULT '{}',
   created_at    TEXT NOT NULL,
   updated_at    TEXT NOT NULL
@@ -58,5 +59,15 @@ export function createDb(dbFile) {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA);
+  migrate(db);
   return db;
+}
+
+function migrate(db) {
+  const edgeCols = db.prepare('PRAGMA table_info(edges)').all();
+  if (!edgeCols.some((c) => c.name === 'routing')) {
+    db.exec(
+      `ALTER TABLE edges ADD COLUMN routing TEXT NOT NULL DEFAULT '{"mode":"auto","waypoints":[]}'`
+    );
+  }
 }
