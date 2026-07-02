@@ -1,0 +1,49 @@
+name: Deploy to Server
+
+on:
+  push:
+    branches:
+      - main
+
+# Verhindert, dass sich mehrere Deployments in die Quere kommen
+concurrency:
+  group: production-deployment
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Synchronisiere Dateien auf den Server
+        # rsync --delete: data/ ausschließen, sonst würde die SQLite-DB auf dem Server gelöscht
+        # (data/ ist nicht im Git-Checkout, liegt aber persistent unter /root/app/data)
+        run: |
+          rsync -a --delete \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='.env' \
+            --exclude='data/' \
+            . /root/app/
+
+      - name: Docker Container bauen und starten
+        working-directory: /root/app
+        run: docker compose up --build -d
+
+      - name: Alte Docker Images aufräumen (sanft)
+        run: docker image prune -af --filter "until=168h"
+
+      - name: Telegram Benachrichtigung senden
+        uses: appleboy/telegram-action@master
+        if: always()
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: |
+            Pipeline-Status: ${{ job.status == 'success' && '✅ Erfolgreich' || '❌ Fehlgeschlagen' }}
+            Projekt: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.event.head_commit.message }}
