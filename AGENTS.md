@@ -204,7 +204,11 @@ Unbekannte Kategorien werden in der UI mit Fallback-Icon gerendert.
 { "maxCols": 5 }
 ```
 
-Ordnet alle Nodes deterministisch an (Schichten entlang der Kanten, Barycenter-Sortierung, Raster in Zonen).
+Ordnet alle Nodes deterministisch an:
+- Schichten entlang der Kanten + Barycenter-Sortierung
+- **Zonen mit internen Kanten:** Spaltenfluss links→rechts (z.B. DNS → Tunnel → WAF)
+- Mehr Zellenabstand für lesbare Labels und weniger Überlappung
+
 **Antwort:** `{ "updated": 42 }`
 
 ### Nodes

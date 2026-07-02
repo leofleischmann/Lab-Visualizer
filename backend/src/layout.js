@@ -4,20 +4,20 @@
  *
  * Regeln (immer gleiche Eingabe -> gleiche Ausgabe):
  * 1. Layout-Einheiten = Zonen (group) oder freistehende Top-Level-Nodes
- * 2. Einheiten werden in Schichten angeordnet (Longest-Path entlang der Kantenrichtung)
- * 3. Reihenfolge innerhalb einer Schicht per Barycenter-Heuristik (weniger Kreuzungen)
- * 4. Kinder innerhalb einer Zone: sortiert nach externer Schicht + Grad, dann Raster
+ * 2. Einheiten in Schichten entlang der Kantenrichtung (Longest-Path)
+ * 3. Reihenfolge pro Schicht per Barycenter (weniger Kreuzungen)
+ * 4. Kinder in Zonen: Spalten entlang interner Kanten (links->rechts = Fluss), sonst Raster
+ * 5. Mehr Abstand zwischen Zellen, damit Pfade und Labels Luft haben
  */
 
 /** Raster-Abstände (px) — synchron zu React-Flow-Nodebreite ~230px */
-export const CELL_X = 300;
-export const CELL_Y = 150;
-export const PAD_X = 48;
-export const PAD_Y = 72;
-export const ENTITY_GAP_X = 120;
-export const LAYER_GAP_Y = 160;
+export const CELL_X = 340;
+export const CELL_Y = 180;
+export const PAD_X = 56;
+export const PAD_Y = 80;
+export const ENTITY_GAP_X = 160;
+export const LAYER_GAP_Y = 220;
 
-/** Kategorie-Hints für Schicht 0, wenn der Graph Zyklen hat oder keine Quellen */
 const CATEGORY_LAYER_HINT = {
   client: 0,
   internet: 0,
@@ -46,7 +46,6 @@ function isGroup(node) {
   return node.category === 'group';
 }
 
-/** Einheit, in der auf Top-Level platziert wird */
 function entityOf(node, byId) {
   if (node.parentId) return node.parentId;
   if (isGroup(node)) return node.id;
@@ -57,24 +56,6 @@ function compareIds(a, b) {
   return a.localeCompare(b, 'en');
 }
 
-function gridMetrics(count, cols) {
-  const columns = Math.max(1, cols);
-  const rows = Math.ceil(count / columns) || 1;
-  return {
-    cols: columns,
-    rows,
-    width: PAD_X * 2 + columns * CELL_X,
-    height: PAD_Y * 2 + rows * CELL_Y + 40,
-  };
-}
-
-function gridPosition(index, cols) {
-  const col = index % cols;
-  const row = Math.floor(index / cols);
-  return { x: PAD_X + col * CELL_X, y: PAD_Y + row * CELL_Y };
-}
-
-/** Median (deterministisch; bei gerader Länge unteres Mittel) */
 function median(values) {
   if (!values.length) return 0;
   const sorted = [...values].sort((a, b) => a - b);
@@ -103,8 +84,7 @@ function buildEntityGraph(nodes, edges) {
   const entities = new Set();
 
   for (const node of nodes) {
-    const e = entityOf(node, byId);
-    entities.add(e);
+    entities.add(entityOf(node, byId));
     if (node.parentId) {
       if (!childrenOf.has(node.parentId)) childrenOf.set(node.parentId, []);
       childrenOf.get(node.parentId).push(node.id);
@@ -161,8 +141,7 @@ function assignLayers(entities, adj, rev, byId, childrenOf) {
     const id = queue.shift();
     const base = layer.get(id);
     for (const next of [...(adj.get(id) ?? [])].sort(compareIds)) {
-      const nextLayer = Math.max(layer.get(next) ?? 0, base + 1);
-      layer.set(next, nextLayer);
+      layer.set(next, Math.max(layer.get(next) ?? 0, base + 1));
       if (!visited.has(next)) {
         visited.add(next);
         queue.push(next);
@@ -194,14 +173,16 @@ function orderWithinLayers(entities, layer, adj, rev) {
     byLayer.get(l).forEach((id, i) => indexInLayer.set(id, i));
   }
 
-  for (let pass = 0; pass < 4; pass++) {
+  for (let pass = 0; pass < 6; pass++) {
     for (const l of layers) {
       const ids = byLayer.get(l);
       const scored = ids.map((id) => {
-        const prev = [...(rev.get(id) ?? [])];
-        const next = [...(adj.get(id) ?? [])];
-        const prevIdx = prev.map((p) => indexInLayer.get(p)).filter((v) => v !== undefined);
-        const nextIdx = next.map((n) => indexInLayer.get(n)).filter((v) => v !== undefined);
+        const prevIdx = [...(rev.get(id) ?? [])]
+          .map((p) => indexInLayer.get(p))
+          .filter((v) => v !== undefined);
+        const nextIdx = [...(adj.get(id) ?? [])]
+          .map((n) => indexInLayer.get(n))
+          .filter((v) => v !== undefined);
         return {
           id,
           score: pass % 2 === 0 ? median(prevIdx) : median(nextIdx),
@@ -219,52 +200,144 @@ function orderWithinLayers(entities, layer, adj, rev) {
   return byLayer;
 }
 
-function orderChildren(parentId, childIds, edges, byId, entityLayer) {
-  if (childIds.length <= 1) return [...childIds].sort(compareIds);
-
+function buildIntraZoneGraph(childIds, edges) {
   const childSet = new Set(childIds);
-  const out = new Map(childIds.map((id) => [id, 0]));
-  const ext = new Map(childIds.map((id) => [id, []]));
+  const adj = new Map(childIds.map((id) => [id, new Set()]));
+  const rev = new Map(childIds.map((id) => [id, new Set()]));
+  let hasInternal = false;
 
   for (const edge of edges) {
-    const src = edge.sourceId;
-    const tgt = edge.targetId;
-    if (childSet.has(src) && childSet.has(tgt)) {
-      out.set(src, (out.get(src) ?? 0) + 1);
-    }
-    for (const [nodeId, otherId] of [
-      [src, tgt],
-      [tgt, src],
-    ]) {
-      if (!childSet.has(nodeId)) continue;
-      const other = byId.get(otherId);
-      if (!other) continue;
-      const ent = entityOf(other, byId);
-      if (ent === parentId) continue;
-      ext.get(nodeId).push(entityLayer.get(ent) ?? 0);
+    if (!childSet.has(edge.sourceId) || !childSet.has(edge.targetId)) continue;
+    hasInternal = true;
+    adj.get(edge.sourceId).add(edge.targetId);
+    rev.get(edge.targetId).add(edge.sourceId);
+  }
+
+  return { adj, rev, hasInternal, childSet };
+}
+
+/** Spalten innerhalb einer Zone entlang interner Kanten (Quelle links, Senke rechts). */
+function assignIntraZoneColumns(childIds, adj, rev) {
+  const col = new Map(childIds.map((id) => [id, 0]));
+  const indegree = new Map(childIds.map((id) => [id, rev.get(id).size]));
+  const queue = childIds.filter((id) => indegree.get(id) === 0).sort(compareIds);
+
+  if (queue.length) {
+    const visited = new Set();
+    while (queue.length) {
+      const id = queue.shift();
+      visited.add(id);
+      for (const next of [...adj.get(id)].sort(compareIds)) {
+        col.set(next, Math.max(col.get(next), col.get(id) + 1));
+        indegree.set(next, indegree.get(next) - 1);
+        if (indegree.get(next) === 0 && !visited.has(next)) queue.push(next);
+      }
+      queue.sort(compareIds);
     }
   }
 
-  return [...childIds].sort((a, b) => {
-    const ea = median(ext.get(a) ?? []);
-    const eb = median(ext.get(b) ?? []);
-    return ea - eb || (out.get(b) - out.get(a)) || compareIds(a, b);
+  const maxCol = Math.max(...col.values());
+  const columns = [];
+  for (let c = 0; c <= maxCol; c++) {
+    const ids = childIds.filter((id) => col.get(id) === c);
+    if (ids.length) columns.push(ids);
+  }
+  return columns;
+}
+
+function externalBarycenter(nodeId, edges, byId, parentId, entityOrder) {
+  const scores = [];
+  for (const edge of edges) {
+    for (const [here, there] of [
+      [edge.sourceId, edge.targetId],
+      [edge.targetId, edge.sourceId],
+    ]) {
+      if (here !== nodeId) continue;
+      const other = byId.get(there);
+      if (!other) continue;
+      const ent = entityOf(other, byId);
+      if (ent === parentId) continue;
+      if (entityOrder.has(ent)) scores.push(entityOrder.get(ent));
+    }
+  }
+  return median(scores);
+}
+
+function orderRowIds(rowIds, edges, byId, parentId, entityOrder) {
+  return [...rowIds].sort((a, b) => {
+    const ba = externalBarycenter(a, edges, byId, parentId, entityOrder);
+    const bb = externalBarycenter(b, edges, byId, parentId, entityOrder);
+    return ba - bb || compareIds(a, b);
   });
+}
+
+function chunkRow(ids, cols) {
+  const rows = [];
+  for (let i = 0; i < ids.length; i += cols) {
+    rows.push(ids.slice(i, i + cols));
+  }
+  return rows;
 }
 
 function defaultCols(count, maxCols) {
   if (count <= 1) return 1;
   if (count <= 3) return count;
-  const capped = Math.min(maxCols, 5);
+  const capped = Math.min(maxCols, 4);
   return Math.min(capped, Math.ceil(Math.sqrt(count)));
 }
 
 /**
- * Berechnet neue Positionen und Zonengrößen.
- * @param {import('./store.js').rowToNode extends Function ? object[] : object[]} nodes
- * @param {object[]} edges
- * @param {{ maxCols?: number }} [options]
+ * Layout für Kinder einer Zone: Spaltenfluss bei internen Kanten, sonst kompaktes Raster.
  */
+function layoutZoneChildren(parentId, childIds, edges, byId, entityOrder, maxCols) {
+  if (!childIds.length) {
+    return { positions: new Map(), width: 400, height: 200 };
+  }
+
+  const { adj, rev, hasInternal } = buildIntraZoneGraph(childIds, edges);
+
+  const positions = new Map();
+  let width = 0;
+  let height = 0;
+
+  if (hasInternal) {
+    const columns = assignIntraZoneColumns(childIds, adj, rev).map((column) =>
+      orderRowIds(column, edges, byId, parentId, entityOrder)
+    );
+    let x = PAD_X;
+    let maxHeight = 0;
+    for (const column of columns) {
+      let y = PAD_Y;
+      for (const id of column) {
+        positions.set(id, { x, y });
+        y += CELL_Y;
+      }
+      maxHeight = Math.max(maxHeight, y + 48);
+      x += CELL_X;
+    }
+    width = x + PAD_X;
+    height = maxHeight;
+  } else {
+    const ordered = orderRowIds(childIds, edges, byId, parentId, entityOrder);
+    const rows = chunkRow(ordered, defaultCols(ordered.length, maxCols));
+    let y = PAD_Y;
+    let maxRowWidth = 0;
+    for (const row of rows) {
+      let x = PAD_X;
+      for (const id of row) {
+        positions.set(id, { x, y });
+        x += CELL_X;
+      }
+      maxRowWidth = Math.max(maxRowWidth, x + PAD_X);
+      y += CELL_Y;
+    }
+    width = maxRowWidth;
+    height = y + 48;
+  }
+
+  return { positions, width, height };
+}
+
 export function computeLayout(nodes, edges, options = {}) {
   const maxCols = options.maxCols ?? 5;
   if (!nodes.length) return [];
@@ -273,6 +346,11 @@ export function computeLayout(nodes, edges, options = {}) {
   const entityLayer = assignLayers(entities, adj, rev, byId, childrenOf);
   const byLayer = orderWithinLayers(entities, entityLayer, adj, rev);
 
+  const entityOrder = new Map();
+  for (const [l, ids] of byLayer) {
+    ids.forEach((id, i) => entityOrder.set(id, l * 1000 + i));
+  }
+
   const entitySize = new Map();
   const childLayout = new Map();
 
@@ -280,15 +358,18 @@ export function computeLayout(nodes, edges, options = {}) {
     const node = byId.get(entityId);
     const rawChildren = childrenOf.get(entityId) ?? [];
     if (isGroup(node) && rawChildren.length) {
-      const ordered = orderChildren(entityId, rawChildren, edges, byId, entityLayer);
-      const cols = defaultCols(ordered.length, maxCols);
-      const { width, height } = gridMetrics(ordered.length, cols);
+      const { positions, width, height } = layoutZoneChildren(
+        entityId,
+        rawChildren,
+        edges,
+        byId,
+        entityOrder,
+        maxCols
+      );
       entitySize.set(entityId, { width, height });
-      const positions = new Map();
-      ordered.forEach((childId, i) => positions.set(childId, gridPosition(i, cols)));
       childLayout.set(entityId, positions);
     } else if (isGroup(node)) {
-      entitySize.set(entityId, { width: gridMetrics(1, 1).width, height: gridMetrics(1, 1).height });
+      entitySize.set(entityId, { width: PAD_X * 2 + CELL_X, height: PAD_Y * 2 + CELL_Y + 48 });
     } else {
       entitySize.set(entityId, { width: CELL_X + PAD_X * 2, height: CELL_Y + PAD_Y * 2 });
     }
@@ -303,7 +384,7 @@ export function computeLayout(nodes, edges, options = {}) {
     let x = 0;
     let rowHeight = 0;
     for (const id of ids) {
-      const size = entitySize.get(id) ?? { width: 400, height: 200 };
+      const size = entitySize.get(id) ?? { width: 440, height: 240 };
       entityPos.set(id, { x, y });
       x += size.width + ENTITY_GAP_X;
       rowHeight = Math.max(rowHeight, size.height);
@@ -312,7 +393,6 @@ export function computeLayout(nodes, edges, options = {}) {
   }
 
   return nodes.map((node) => {
-    const entityId = entityOf(node, byId);
     const copy = { ...node, position: { ...node.position } };
 
     if (node.parentId) {
@@ -332,7 +412,7 @@ export function computeLayout(nodes, edges, options = {}) {
       return copy;
     }
 
-    const pos = entityPos.get(entityId);
+    const pos = entityPos.get(entityOf(node, byId));
     if (pos) copy.position = { ...pos };
     return copy;
   });
