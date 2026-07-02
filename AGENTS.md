@@ -107,7 +107,7 @@ Erfolg ohne Body: `204 No Content` (DELETE).
   "lineStyle": "solid",
   "animated": false,
   "notes": "",
-  "routing": { "mode": "auto", "waypoints": [], "label": null },
+  "routing": { "mode": "auto", "waypoints": [], "labelT": null },
   "customFields": {},
   "createdAt": "2026-07-02T18:00:00.000Z",
   "updatedAt": "2026-07-02T18:00:00.000Z"
@@ -122,9 +122,12 @@ Erfolg ohne Body: `204 No Content` (DELETE).
 | `lineStyle` | nein | `solid` |
 | `animated` | nein | `false` |
 | `notes`, `customFields` | nein | wie Node |
-| `routing` | nein | `{ mode: "auto", waypoints: [], label?: {x,y} }` — manueller Kantenverlauf + Label-Position |
+| `routing` | nein | `{ mode: "auto", waypoints: [], labelT?: 0..1 }` — manueller Kantenverlauf + Label-Anker |
 
-**routing.mode:** `auto` (automatisch) | `manual` (Waypoints aus UI/API). Auto-Layout ändert `routing` nicht.
+**routing.mode:** `auto` (automatisch) | `manual` (Waypoints aus UI/API).
+**routing.waypoints:** absolute Canvas-Punkte; das Andocken an den Nodes wird von der UI automatisch repariert (orthogonal), auch wenn Nodes später verschoben werden.
+**routing.labelT:** Position des Labels **auf** der Linie (0 = Quelle, 1 = Ziel, Default 0.5).
+**Auto-Layout (`POST /graph/layout`) setzt `routing` aller Edges zurück** — manuelle Waypoints beziehen sich auf alte Positionen und wären danach wertlos.
 
 **lineStyle:** `solid` | `dashed` | `dotted`
 

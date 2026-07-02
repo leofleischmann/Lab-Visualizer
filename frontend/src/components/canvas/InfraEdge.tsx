@@ -1,572 +1,424 @@
 import { memo, useCallback, useMemo, useRef } from 'react';
-
-import {
-
-  BaseEdge,
-
-  EdgeLabelRenderer,
-
-  getSmoothStepPath,
-
-  useReactFlow,
-
-  type EdgeProps,
-
-} from '@xyflow/react';
-
+import { BaseEdge, EdgeLabelRenderer, useReactFlow, type EdgeProps } from '@xyflow/react';
 import clsx from 'clsx';
-
 import type { EdgeRouting, FlowEdge, FlowPoint } from '../../api/types';
-
-import { useFlowPointerDrag } from '../../hooks/useFlowPointerDrag';
-
+import { usePointerDrag } from '../../hooks/useFlowPointerDrag';
 import { kindOf } from '../../lib/catalog';
-
 import {
-
-  buildNodeBoxes,
-
-  computeEdgeRoute,
-
-  edgeBundleOffset,
-
-  labelAlongPathOffset,
-
-} from '../../lib/edgeRouting';
-
+  distance,
+  inflate,
+  pointInRect,
+  projectOntoPath,
+  segmentAxis,
+  simplifyPath,
+  type Rect,
+} from '../../lib/edge/geometry';
 import {
-
-  dragPathCorner,
-
-  dragPathSegment,
-
-  expandPathPoints,
-
-  insertWaypointOnSegment,
-
+  beginSegmentDrag,
+  insertBendpoint,
+  moveBendpoint,
+  moveSegment,
+  removeBendpoint,
+  repairManualPath,
+  waypointsFromPath,
+  type SegmentDragSession,
+} from '../../lib/edge/manual';
+import { chooseSides } from '../../lib/edge/dock';
+import { buildObstacles, nodeRect } from '../../lib/edge/nodes';
+import { routeOrthogonal } from '../../lib/edge/orthogonal';
+import { roundedPath } from '../../lib/edge/path';
+import { portShift } from '../../lib/edge/ports';
+import {
+  defaultLabelT,
+  labelPosition,
+  labelTFromPointer,
   normalizeRouting,
-
-  pathPointsToWaypoints,
-
-  pointsToSegments,
-
-  resolveLabelPosition,
-
-  resolveManualGeometry,
-
-  routeToWaypoints,
-
-  segmentMidpoint,
-
-  type ResolvedEdgeGeometry,
-
-} from '../../lib/edgeRoutingState';
-
+} from '../../lib/edge/routing';
 import { useGraphStore } from '../../store/graph';
 
-
-
-function InfraEdgeComponent({
-
-  id,
-
-  source,
-
-  target,
-
-  sourceX,
-
-  sourceY,
-
-  targetX,
-
-  targetY,
-
-  sourcePosition,
-
-  targetPosition,
-
-  data,
-
-  selected,
-
-}: EdgeProps<FlowEdge>) {
-
-  const catalog = useGraphStore((s) => s.catalog);
-
-  const nodes = useGraphStore((s) => s.nodes);
-
-  const edges = useGraphStore((s) => s.edges);
-
-  const select = useGraphStore((s) => s.select);
-
-  const updateEdgeRouting = useGraphStore((s) => s.updateEdgeRouting);
-
-  const entity = data?.entity;
-
-  const { startDrag, startDragAbsolute } = useFlowPointerDrag();
-
-  const { screenToFlowPosition } = useReactFlow();
-
-  const draftPointsRef = useRef<FlowPoint[] | null>(null);
-
-
-
-  const routing = normalizeRouting(entity?.routing);
-
-  const sourcePt = useMemo(() => ({ x: sourceX, y: sourceY }), [sourceX, sourceY]);
-
-  const targetPt = useMemo(() => ({ x: targetX, y: targetY }), [targetX, targetY]);
-
-
-
-  const exclude = useMemo(() => new Set([source, target]), [source, target]);
-
-  const obstacles = useMemo(() => buildNodeBoxes(nodes, exclude), [nodes, exclude]);
-
-  const bundleOffset = edgeBundleOffset(id, source, target, edges);
-
-
-
-  const autoRoute = useMemo(
-
-    () =>
-
-      computeEdgeRoute(
-
-        {
-
-          sourceX,
-
-          sourceY,
-
-          targetX,
-
-          targetY,
-
-          sourcePosition,
-
-          targetPosition,
-
-          offset: bundleOffset,
-
-        },
-
-        obstacles
-
-      ),
-
-    [
-
-      sourceX,
-
-      sourceY,
-
-      targetX,
-
-      targetY,
-
-      sourcePosition,
-
-      targetPosition,
-
-      bundleOffset,
-
-      obstacles,
-
-    ]
-
-  );
-
-
-
-  const geometry = useMemo((): ResolvedEdgeGeometry => {
-
-    if (routing.mode === 'manual') {
-
-      return resolveManualGeometry(sourcePt, targetPt, routing.waypoints);
-
-    }
-
-    const [path, labelX, labelY] = getSmoothStepPath(autoRoute);
-
-    const waypoints = routeToWaypoints(autoRoute);
-
-    const points = expandPathPoints(sourcePt, targetPt, waypoints);
-
-    return {
-
-      path,
-
-      points,
-
-      segments: pointsToSegments(points),
-
-      labelX,
-
-      labelY,
-
-      mode: 'auto',
-
-    };
-
-  }, [routing, sourcePt, targetPt, autoRoute]);
-
-
-
-  const alongT = labelAlongPathOffset(id, source, edges);
-
-  const labelPos = useMemo(
-
-    () => resolveLabelPosition(geometry, routing, alongT),
-
-    [geometry, routing, alongT]
-
-  );
-
-
-
-  const applyPoints = useCallback(
-
-    (points: FlowPoint[], label: FlowPoint | null | undefined, persist: boolean) => {
-
-      const next: EdgeRouting = {
-
-        mode: 'manual',
-
-        waypoints: pathPointsToWaypoints(points),
-
-        label: label ?? routing.label ?? null,
-
-      };
-
-      updateEdgeRouting(id, next, persist);
-
-      console.log('[Debug InfraEdge]: Routing aktualisiert', { id, persist, waypoints: next.waypoints.length });
-
-    },
-
-    [id, routing.label, updateEdgeRouting]
-
-  );
-
-
-
-  const ensureManualPoints = useCallback((): FlowPoint[] => {
-
-    if (draftPointsRef.current) return draftPointsRef.current.map((p) => ({ ...p }));
-
-    draftPointsRef.current = geometry.points.map((p) => ({ ...p }));
-
-    return draftPointsRef.current;
-
-  }, [geometry.points]);
-
-
-
-  const handleSegmentDrag = useCallback(
-
-    (segmentIndex: number) => (event: React.PointerEvent) => {
-
-      const snapshot = ensureManualPoints().map((p) => ({ ...p }));
-
-      startDrag(event, {
-
-        onMove: ({ x: dx, y: dy }) => {
-
-          const moved = dragPathSegment(snapshot, segmentIndex, dx, dy);
-
-          draftPointsRef.current = moved;
-
-          applyPoints(moved, routing.label, false);
-
-        },
-
-        onEnd: () => {
-
-          if (draftPointsRef.current) {
-
-            applyPoints(draftPointsRef.current, routing.label, true);
-
-          }
-
-          draftPointsRef.current = null;
-
-        },
-
-      });
-
-    },
-
-    [applyPoints, ensureManualPoints, routing.label, startDrag]
-
-  );
-
-
-
-  const handleCornerDrag = useCallback(
-
-    (cornerIndex: number) => (event: React.PointerEvent) => {
-
-      const base = ensureManualPoints().map((p) => ({ ...p }));
-
-      startDragAbsolute(event, {
-
-        onMove: (pos) => {
-
-          draftPointsRef.current = dragPathCorner(base, cornerIndex, pos.x, pos.y);
-
-          applyPoints(draftPointsRef.current, routing.label, false);
-
-        },
-
-        onEnd: () => {
-
-          if (draftPointsRef.current) {
-
-            applyPoints(draftPointsRef.current, routing.label, true);
-
-          }
-
-          draftPointsRef.current = null;
-
-        },
-
-      });
-
-    },
-
-    [applyPoints, ensureManualPoints, routing.label, startDragAbsolute]
-
-  );
-
-
-
-  const handleSegmentDoubleClick = useCallback(
-
-    (segmentIndex: number) => (event: React.MouseEvent) => {
-
-      event.preventDefault();
-
-      event.stopPropagation();
-
-      const flowPos = screenToFlowPosition({ x: event.clientX, y: event.clientY });
-
-      const base = geometry.points.map((p) => ({ ...p }));
-
-      const next = insertWaypointOnSegment(base, segmentIndex, flowPos);
-
-      applyPoints(next, routing.label, true);
-
-    },
-
-    [applyPoints, geometry.points, routing.label, screenToFlowPosition]
-
-  );
-
-
-
-  const handleLabelDrag = useCallback(
-
-    (event: React.PointerEvent) => {
-
-      event.stopPropagation();
-
-      const baseRouting = normalizeRouting(entity?.routing);
-
-      startDragAbsolute(event, {
-
-        onMove: (pos) => {
-
-          updateEdgeRouting(id, { ...baseRouting, label: pos }, false);
-
-        },
-
-        onEnd: () => {
-
-          const current = useGraphStore.getState().edges.find((e) => e.id === id)?.data?.entity
-            .routing;
-
-          if (current) updateEdgeRouting(id, normalizeRouting(current), true);
-
-        },
-
-      });
-
-    },
-
-    [entity?.routing, id, startDragAbsolute, updateEdgeRouting]
-
-  );
-
-
-
-  if (!entity) return <BaseEdge id={id} path={geometry.path} />;
-
-
-
-  const kind = kindOf(catalog, entity.kind);
-
-  const dashArray =
-
-    entity.animated || entity.lineStyle === 'dashed'
-
-      ? '7 5'
-
-      : entity.lineStyle === 'dotted'
-
-        ? '2 5'
-
-        : undefined;
-
-
-
-  return (
-
-    <>
-
-      <BaseEdge
-
-        id={id}
-
-        path={geometry.path}
-
-        style={{
-
-          stroke: kind.color,
-
-          strokeWidth: selected ? 2.5 : 1.5,
-
-          strokeDasharray: dashArray,
-
-          animation: entity.animated ? 'labviz-dash 0.7s linear infinite' : undefined,
-
-          opacity: selected ? 1 : 0.82,
-
-        }}
-
-      />
-
-      {selected && (
-
-        <EdgeLabelRenderer>
-
-          {geometry.segments.map(([a, b], index) => {
-
-            const mid = segmentMidpoint(a, b);
-
-            return (
-
-              <div
-
-                key={`seg-${index}`}
-
-                className="nodrag nopan pointer-events-auto absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 cursor-grab rounded-sm border border-sky-400/80 bg-sky-500/30 active:cursor-grabbing"
-
-                style={{ transform: `translate(-50%, -50%) translate(${mid.x}px, ${mid.y}px)`, zIndex: 7 }}
-
-                title="Segment verschieben (Doppelklick: Eckpunkt einfügen)"
-
-                onPointerDown={handleSegmentDrag(index)}
-
-                onDoubleClick={handleSegmentDoubleClick(index)}
-
-              />
-
-            );
-
-          })}
-
-          {geometry.points.map((point, index) => {
-
-            if (index === 0 || index === geometry.points.length - 1) return null;
-
-            return (
-
-              <div
-
-                key={`corner-${index}`}
-
-                className="nodrag nopan pointer-events-auto absolute h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 cursor-move rounded-full border-2 border-amber-400 bg-amber-300/40"
-
-                style={{ transform: `translate(-50%, -50%) translate(${point.x}px, ${point.y}px)`, zIndex: 8 }}
-
-                title="Eckpunkt verschieben"
-
-                onPointerDown={handleCornerDrag(index)}
-
-              />
-
-            );
-
-          })}
-
-        </EdgeLabelRenderer>
-
-      )}
-
-      {entity.label && (
-
-        <EdgeLabelRenderer>
-
-          <button
-
-            type="button"
-
-            onClick={() => select({ kind: 'edge', id })}
-
-            onPointerDown={(event) => {
-
-              if (event.button !== 0) return;
-
-              handleLabelDrag(event);
-
-            }}
-
-            className={clsx(
-
-              'nodrag nopan pointer-events-auto absolute max-w-[240px] cursor-grab rounded-md border px-2 py-1 text-[10px] leading-snug shadow-md shadow-black/40 active:cursor-grabbing',
-
-              selected
-
-                ? 'border-sky-400 bg-slate-950 text-sky-100'
-
-                : 'border-slate-600 bg-slate-950/95 text-slate-300 hover:border-slate-500 hover:text-slate-100'
-
-            )}
-
-            style={{
-
-              transform: `translate(-50%, -50%) translate(${labelPos.x}px, ${labelPos.y}px)`,
-
-              zIndex: 6,
-
-              whiteSpace: 'normal',
-
-              textAlign: 'center',
-
-            }}
-
-            title="Label verschieben"
-
-          >
-
-            {entity.label}
-
-          </button>
-
-        </EdgeLabelRenderer>
-
-      )}
-
-    </>
-
-  );
-
+/** Kleines Dreieck als Pfeilspitze am Zielpunkt der Kante. */
+function arrowHead(points: FlowPoint[]): string | null {
+  if (points.length < 2) return null;
+  const b = points[points.length - 1];
+  let a = points[points.length - 2];
+  // Bei Mini-Segmenten den davorliegenden Punkt nehmen (stabile Richtung)
+  if (distance(a, b) < 2 && points.length >= 3) a = points[points.length - 3];
+  const len = distance(a, b);
+  if (len < 0.5) return null;
+  const ux = (b.x - a.x) / len;
+  const uy = (b.y - a.y) / len;
+  const size = 9;
+  const half = 4;
+  const bx = b.x - ux * size;
+  const by = b.y - uy * size;
+  return `${b.x},${b.y} ${bx - uy * half},${by + ux * half} ${bx + uy * half},${by - ux * half}`;
 }
 
+/**
+ * Nach dem Drag: Pfad glätten und Waypoints entfernen, die im Inneren der
+ * End-Nodes liegen (Punkte AUF der Node-Kante sind legitime Dock-Anker).
+ */
+function cleanupPath(points: FlowPoint[], source: Rect | null, target: Rect | null): FlowPoint[] {
+  const simplified = simplifyPath(points, 2.5);
+  if (!source || !target || simplified.length <= 2) return simplified;
+  const sourceBox = inflate(source, -2);
+  const targetBox = inflate(target, -2);
+  const interior = simplified
+    .slice(1, -1)
+    .filter((p) => !pointInRect(p, sourceBox) && !pointInRect(p, targetBox));
+  return [simplified[0], ...interior, simplified[simplified.length - 1]];
+}
 
+const SEGMENT_CURSOR: Record<'h' | 'v' | 'd', string> = {
+  h: 'ns-resize',
+  v: 'ew-resize',
+  d: 'move',
+};
+
+function InfraEdgeComponent({
+  id,
+  source,
+  target,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  data,
+  selected,
+}: EdgeProps<FlowEdge>) {
+  const catalog = useGraphStore((s) => s.catalog);
+  const nodes = useGraphStore((s) => s.nodes);
+  const edges = useGraphStore((s) => s.edges);
+  const select = useGraphStore((s) => s.select);
+  const updateEdgeRouting = useGraphStore((s) => s.updateEdgeRouting);
+  const { startPointerDrag } = usePointerDrag();
+  const { screenToFlowPosition } = useReactFlow();
+
+  const entity = data?.entity;
+  const routing = normalizeRouting(entity?.routing);
+
+  const sourceRect = useMemo(() => nodeRect(nodes, source), [nodes, source]);
+  const targetRect = useMemo(() => nodeRect(nodes, target), [nodes, target]);
+
+  const points = useMemo((): FlowPoint[] => {
+    if (!sourceRect || !targetRect) {
+      return [
+        { x: sourceX, y: sourceY },
+        { x: targetX, y: targetY },
+      ];
+    }
+    const r = normalizeRouting(entity?.routing);
+    if (r.mode === 'manual' && r.waypoints.length) {
+      return repairManualPath(sourceRect, targetRect, r.waypoints);
+    }
+    const sides = chooseSides(sourceRect, targetRect);
+    return routeOrthogonal({
+      source: sourceRect,
+      target: targetRect,
+      obstacles: buildObstacles(nodes, new Set([source, target])),
+      sourceShift: portShift(id, source, sides.source, edges, nodes),
+      targetShift: portShift(id, target, sides.target, edges, nodes),
+    });
+  }, [
+    sourceRect,
+    targetRect,
+    nodes,
+    edges,
+    id,
+    source,
+    target,
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    entity?.routing,
+  ]);
+
+  // Für Callbacks, die während eines Drags die aktuelle Geometrie brauchen
+  const pointsRef = useRef(points);
+  pointsRef.current = points;
+
+  const path = useMemo(() => roundedPath(points, 8), [points]);
+  const arrow = useMemo(() => arrowHead(points), [points]);
+  const fallbackT = defaultLabelT(id, source, target, edges);
+  const labelPos = useMemo(
+    () => labelPosition(points, routing, fallbackT),
+    [points, routing, fallbackT]
+  );
+
+  const currentRouting = useCallback((): EdgeRouting => {
+    const stored = useGraphStore.getState().edges.find((e) => e.id === id)?.data?.entity.routing;
+    return normalizeRouting(stored);
+  }, [id]);
+
+  const applyPath = useCallback(
+    (nextPoints: FlowPoint[], persist: boolean) => {
+      const waypoints = waypointsFromPath(nextPoints);
+      const next: EdgeRouting = {
+        mode: waypoints.length ? 'manual' : 'auto',
+        waypoints,
+        labelT: currentRouting().labelT,
+      };
+      void updateEdgeRouting(id, next, persist);
+    },
+    [currentRouting, id, updateEdgeRouting]
+  );
+
+  const finalizePath = useCallback(
+    (nextPoints: FlowPoint[] | null) => {
+      if (!nextPoints) return;
+      applyPath(cleanupPath(nextPoints, sourceRect, targetRect), true);
+    },
+    [applyPath, sourceRect, targetRect]
+  );
+
+  const draftRef = useRef<FlowPoint[] | null>(null);
+  const sessionRef = useRef<SegmentDragSession | null>(null);
+
+  // preventDefault auf pointerdown unterdrückt native dblclick-Events,
+  // deshalb eigene Doppelklick-Erkennung über Zeit + Distanz.
+  const lastDownRef = useRef<{ time: number; x: number; y: number; key: string } | null>(null);
+  const isDoubleTap = useCallback((event: React.PointerEvent, key: string): boolean => {
+    const prev = lastDownRef.current;
+    const now = performance.now();
+    lastDownRef.current = { time: now, x: event.clientX, y: event.clientY, key };
+    return (
+      !!prev &&
+      prev.key === key &&
+      now - prev.time < 400 &&
+      Math.hypot(event.clientX - prev.x, event.clientY - prev.y) < 6
+    );
+  }, []);
+
+  /**
+   * Linie überall greifen: Klick = auswählen, Ziehen = Segment verschieben,
+   * Doppelklick = Eckpunkt einfügen.
+   */
+  const handleLinePointerDown = useCallback(
+    (event: React.PointerEvent) => {
+      if (event.button !== 0) return;
+      if (isDoubleTap(event, 'line')) {
+        event.preventDefault();
+        event.stopPropagation();
+        const pos = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+        const { points: next } = insertBendpoint(pointsRef.current, pos);
+        applyPath(next, true);
+        return;
+      }
+      draftRef.current = null;
+      sessionRef.current = null;
+      startPointerDrag(event, {
+        threshold: 4,
+        onStart: (pos) => {
+          const segmentIndex = projectOntoPath(pointsRef.current, pos).segmentIndex;
+          sessionRef.current = beginSegmentDrag(pointsRef.current, segmentIndex);
+          select({ kind: 'edge', id });
+        },
+        onMove: (_pos, delta) => {
+          if (!sessionRef.current) return;
+          draftRef.current = moveSegment(sessionRef.current, delta);
+          applyPath(draftRef.current, false);
+        },
+        onEnd: ({ moved }) => {
+          if (!moved) {
+            select({ kind: 'edge', id });
+            return;
+          }
+          finalizePath(draftRef.current);
+          draftRef.current = null;
+          sessionRef.current = null;
+        },
+      });
+    },
+    [applyPath, finalizePath, id, isDoubleTap, screenToFlowPosition, select, startPointerDrag]
+  );
+
+  const handleSegmentPointerDown = useCallback(
+    (segmentIndex: number) => (event: React.PointerEvent) => {
+      if (event.button !== 0) return;
+      sessionRef.current = beginSegmentDrag(pointsRef.current, segmentIndex);
+      draftRef.current = null;
+      startPointerDrag(event, {
+        onMove: (_pos, delta) => {
+          if (!sessionRef.current) return;
+          draftRef.current = moveSegment(sessionRef.current, delta);
+          applyPath(draftRef.current, false);
+        },
+        onEnd: () => {
+          finalizePath(draftRef.current);
+          draftRef.current = null;
+          sessionRef.current = null;
+        },
+      });
+    },
+    [applyPath, finalizePath, startPointerDrag]
+  );
+
+  const handleBendpointPointerDown = useCallback(
+    (index: number) => (event: React.PointerEvent) => {
+      if (event.button !== 0) return;
+      if (isDoubleTap(event, `bend-${index}`)) {
+        event.preventDefault();
+        event.stopPropagation();
+        finalizePath(removeBendpoint(pointsRef.current, index));
+        return;
+      }
+      const base = pointsRef.current.map((p) => ({ ...p }));
+      draftRef.current = null;
+      startPointerDrag(event, {
+        onMove: (pos) => {
+          draftRef.current = moveBendpoint(base, index, pos);
+          applyPath(draftRef.current, false);
+        },
+        onEnd: () => {
+          finalizePath(draftRef.current);
+          draftRef.current = null;
+        },
+      });
+    },
+    [applyPath, finalizePath, isDoubleTap, startPointerDrag]
+  );
+
+  /** Label bleibt beim Ziehen auf der Linie (Projektion auf den Pfad). */
+  const handleLabelPointerDown = useCallback(
+    (event: React.PointerEvent) => {
+      if (event.button !== 0) return;
+      startPointerDrag(event, {
+        threshold: 3,
+        onMove: (pos) => {
+          const next: EdgeRouting = {
+            ...currentRouting(),
+            labelT: labelTFromPointer(pointsRef.current, pos),
+          };
+          void updateEdgeRouting(id, next, false);
+        },
+        onEnd: ({ moved }) => {
+          if (!moved) {
+            select({ kind: 'edge', id });
+            return;
+          }
+          void updateEdgeRouting(id, currentRouting(), true);
+        },
+      });
+    },
+    [currentRouting, id, select, startPointerDrag, updateEdgeRouting]
+  );
+
+  if (!entity) return <BaseEdge id={id} path={path} />;
+
+  const kind = kindOf(catalog, entity.kind);
+  const dashArray =
+    entity.animated || entity.lineStyle === 'dashed'
+      ? '7 5'
+      : entity.lineStyle === 'dotted'
+        ? '2 5'
+        : undefined;
+
+  const segments: [FlowPoint, FlowPoint][] = [];
+  for (let i = 0; i < points.length - 1; i++) segments.push([points[i], points[i + 1]]);
+
+  return (
+    <>
+      <BaseEdge
+        id={id}
+        path={path}
+        style={{
+          stroke: kind.color,
+          strokeWidth: selected ? 2.4 : 1.6,
+          strokeDasharray: dashArray,
+          animation: entity.animated ? 'labviz-dash 0.7s linear infinite' : undefined,
+          opacity: selected ? 1 : 0.85,
+        }}
+      />
+      {arrow && (
+        <polygon points={arrow} fill={kind.color} opacity={selected ? 1 : 0.85} />
+      )}
+      {/*
+        Unsichtbare, breite Trefferfläche: Klick wählt aus, Ziehen verschiebt das
+        Segment, Doppelklick fügt einen Eckpunkt ein. Liegt im EdgeLabelRenderer,
+        weil dessen Inhalte ÜBER der Node-Ebene gerendert werden — nur so sind
+        Linien auch über Zonen greifbar (die Edge-SVG-Ebene liegt unter den Nodes).
+      */}
+      <EdgeLabelRenderer>
+        <svg
+          className="absolute overflow-visible"
+          style={{ zIndex: 9, top: 0, left: 0, width: 1, height: 1, pointerEvents: 'none' }}
+        >
+          <path
+            d={path}
+            fill="none"
+            stroke="transparent"
+            strokeWidth={14}
+            className="nodrag nopan"
+            style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
+            onPointerDown={handleLinePointerDown}
+          />
+        </svg>
+      </EdgeLabelRenderer>
+      {selected && (
+        <EdgeLabelRenderer>
+          {segments.map(([a, b], index) => {
+            const len = distance(a, b);
+            if (len < 26) return null;
+            const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+            const axis = segmentAxis(a, b);
+            return (
+              <div
+                key={`seg-${index}`}
+                className={clsx(
+                  'nodrag nopan pointer-events-auto absolute rounded-sm border border-sky-300 bg-sky-500/70 shadow-sm shadow-black/50',
+                  axis === 'h' ? 'h-2 w-4' : axis === 'v' ? 'h-4 w-2' : 'h-3 w-3'
+                )}
+                style={{
+                  transform: `translate(-50%, -50%) translate(${mid.x}px, ${mid.y}px)`,
+                  cursor: SEGMENT_CURSOR[axis],
+                  zIndex: 11,
+                }}
+                title="Segment verschieben"
+                onPointerDown={handleSegmentPointerDown(index)}
+              />
+            );
+          })}
+          {points.map((point, index) => {
+            if (index === 0 || index === points.length - 1) return null;
+            return (
+              <div
+                key={`bend-${index}`}
+                className="nodrag nopan pointer-events-auto absolute h-3 w-3 rounded-full border-2 border-sky-300 bg-slate-950 hover:bg-sky-500/60"
+                style={{
+                  transform: `translate(-50%, -50%) translate(${point.x}px, ${point.y}px)`,
+                  cursor: 'move',
+                  zIndex: 12,
+                }}
+                title="Eckpunkt verschieben (Doppelklick: entfernen)"
+                onPointerDown={handleBendpointPointerDown(index)}
+              />
+            );
+          })}
+        </EdgeLabelRenderer>
+      )}
+      {entity.label && (
+        <EdgeLabelRenderer>
+          <div
+            className={clsx(
+              'nodrag nopan pointer-events-auto absolute max-w-[220px] cursor-grab select-none rounded border px-1.5 py-0.5 text-center text-[10px] leading-snug active:cursor-grabbing',
+              selected
+                ? 'border-sky-400 bg-slate-950 text-sky-100'
+                : 'border-slate-700/80 bg-slate-950/90 text-slate-300 hover:border-slate-500 hover:text-slate-100'
+            )}
+            style={{
+              transform: `translate(-50%, -50%) translate(${labelPos.x}px, ${labelPos.y}px)`,
+              zIndex: 10,
+            }}
+            title="Label entlang der Linie verschieben"
+            onPointerDown={handleLabelPointerDown}
+          >
+            {entity.label}
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+}
 
 export const InfraEdge = memo(InfraEdgeComponent);
-
-

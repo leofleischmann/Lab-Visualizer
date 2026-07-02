@@ -29,6 +29,8 @@ function toFlowNode(n: ApiNode): FlowNode {
     parentId: n.parentId ?? undefined,
     width: isZone ? (n.width ?? 420) : undefined,
     height: isZone ? (n.height ?? 260) : undefined,
+    // Zonen unter die Kanten-Ebene legen, damit Linien über Zonen greifbar bleiben
+    zIndex: isZone ? -1 : undefined,
     data: { entity: n },
   };
 }
@@ -365,7 +367,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   },
 
   resetEdgeRouting: async (id) => {
-    await get().updateEdgeRouting(id, { mode: 'auto', waypoints: [], label: null }, true);
+    await get().updateEdgeRouting(id, { mode: 'auto', waypoints: [], labelT: null }, true);
   },
 
   importGraph: async (payload) => {

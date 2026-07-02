@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { Folder } from 'lucide-react';
 import type { FlowNode } from '../../api/types';
 import { useGraphStore } from '../../store/graph';
+import { ConnectionHandles } from './handles';
 
 function ZoneNodeComponent({ id, data, selected }: NodeProps<FlowNode>) {
   const entity = data.entity;
@@ -25,9 +26,10 @@ function ZoneNodeComponent({ id, data, selected }: NodeProps<FlowNode>) {
           })
         }
       />
+      <ConnectionHandles visible={!!selected} />
       <div
         className={clsx(
-          'h-full w-full rounded-2xl border-2 border-dashed transition-colors',
+          'group h-full w-full rounded-2xl border-2 border-dashed transition-colors',
           selected ? 'border-sky-400/80 bg-sky-950/20' : 'border-slate-700 bg-slate-800/15'
         )}
       >
