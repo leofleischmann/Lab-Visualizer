@@ -1,4 +1,4 @@
-import { Position, type EdgeProps } from '@xyflow/react';
+import { Position } from '@xyflow/react';
 import type { FlowEdge } from '../api/types';
 
 /** Abstand für orthogonalen Knick nahe am Quell-Node (vermeidet Mitte zwischen vielen Nodes) */
