@@ -1,46 +1,43 @@
 /**
- * Deterministisches Auto-Layout für den Infrastruktur-Graphen.
+ * Deterministisches Auto-Layout für den Infrastruktur-Graphen (generisch, nur Topologie).
  * Beeinflusst: backend/src/store.js (applyLayout), routes/graph.js, scripts/layout-lab.mjs
  *
  * Regeln (immer gleiche Eingabe -> gleiche Ausgabe):
  * 1. Layout-Einheiten = Zonen (group) oder freistehende Top-Level-Nodes
- * 2. Einheiten in Schichten entlang der Kantenrichtung (Longest-Path)
- * 3. Reihenfolge pro Schicht per Barycenter (weniger Kreuzungen)
- * 4. Kinder in Zonen: Spalten entlang interner Kanten (links->rechts = Fluss), sonst Raster
- * 5. Mehr Abstand zwischen Zellen, damit Pfade und Labels Luft haben
+ * 2. Schichten entlang der Kantenrichtung (Longest-Path), Zyklen ab kleinster ID
+ * 3. Hub-Nodes (hoher Grad) werden pro Schicht zur Mitte gezogen
+ * 4. Reihenfolge pro Schicht per Barycenter (weniger Kreuzungen)
+ * 5. Kinder in Zonen: Spaltenfluss bei internen Kanten, sonst Raster mit Hub-Mitte
+ * 6. Überlappende Koordinaten werden aufgelöst
  */
 
-/** Raster-Abstände (px) — synchron zu React-Flow-Nodebreite ~230px */
-export const CELL_X = 340;
-export const CELL_Y = 180;
-export const PAD_X = 56;
-export const PAD_Y = 80;
-export const ENTITY_GAP_X = 160;
-export const LAYER_GAP_Y = 220;
-
-const CATEGORY_LAYER_HINT = {
-  client: 0,
-  internet: 0,
-  domain: 1,
-  'cloud-service': 1,
-  email: 1,
-  dns: 1,
-  tunnel: 1,
-  firewall: 1,
-  auth: 1,
-  router: 2,
-  'reverse-proxy': 3,
-  vpn: 3,
-  ids: 3,
-  monitoring: 4,
-  database: 4,
-  'docker-stack': 5,
-  'web-app': 5,
-  lxc: 5,
-  vm: 5,
-  'proxmox-host': 5,
-  group: 2,
+const PROFILES = {
+  default: {
+    CELL_X: 340,
+    CELL_Y: 180,
+    PAD_X: 56,
+    PAD_Y: 80,
+    ENTITY_GAP_X: 160,
+    LAYER_GAP_Y: 220,
+    LANE_STEP: 28,
+  },
+  wide: {
+    CELL_X: 420,
+    CELL_Y: 220,
+    PAD_X: 72,
+    PAD_Y: 96,
+    ENTITY_GAP_X: 200,
+    LAYER_GAP_Y: 280,
+    LANE_STEP: 36,
+  },
 };
+
+export const CELL_X = PROFILES.default.CELL_X;
+export const CELL_Y = PROFILES.default.CELL_Y;
+export const PAD_X = PROFILES.default.PAD_X;
+export const PAD_Y = PROFILES.default.PAD_Y;
+export const ENTITY_GAP_X = PROFILES.default.ENTITY_GAP_X;
+export const LAYER_GAP_Y = PROFILES.default.LAYER_GAP_Y;
 
 function isGroup(node) {
   return node.category === 'group';
@@ -62,20 +59,53 @@ function median(values) {
   return sorted[Math.floor((sorted.length - 1) / 2)];
 }
 
-function layerHintForEntity(entityId, byId, childrenOf) {
-  const node = byId.get(entityId);
-  if (!node) return 99;
-  if (isGroup(node)) {
-    const kids = childrenOf.get(entityId) ?? [];
-    if (!kids.length) return CATEGORY_LAYER_HINT.group ?? 2;
-    return Math.min(...kids.map((id) => layerHintForNode(byId.get(id))));
-  }
-  return layerHintForNode(node);
+function totalDegree(id, adj, rev) {
+  return (adj.get(id)?.size ?? 0) + (rev.get(id)?.size ?? 0);
 }
 
-function layerHintForNode(node) {
-  if (!node) return 99;
-  return CATEGORY_LAYER_HINT[node.category] ?? 4;
+function buildDegreeMap(entities, adj, rev) {
+  const map = new Map();
+  for (const id of entities) map.set(id, totalDegree(id, adj, rev));
+  return map;
+}
+
+/** Slot-Indizes: höchster Score (Rank 0) landet in der Mitte */
+function centerSlotIndices(n) {
+  if (n <= 0) return [];
+  const slots = Array.from({ length: n }, (_, i) => i);
+  const center = (n - 1) / 2;
+  slots.sort(
+    (a, b) => Math.abs(a - center) - Math.abs(b - center) || a - b
+  );
+  return slots;
+}
+
+function orderByCenterHeavy(ids, scoreFn) {
+  const sorted = [...ids].sort((a, b) => scoreFn(b) - scoreFn(a) || compareIds(a, b));
+  const slots = centerSlotIndices(sorted.length);
+  const result = new Array(sorted.length);
+  sorted.forEach((id, rank) => {
+    result[slots[rank]] = id;
+  });
+  return result;
+}
+
+function resolveOverlaps(positions, stepX, stepY) {
+  const entries = [...positions.entries()].sort((a, b) => compareIds(a[0], b[0]));
+  const used = new Set();
+  for (const [id, pos] of entries) {
+    let { x, y } = pos;
+    let guard = 0;
+    while (guard++ < 300) {
+      const key = `${Math.round(x * 10) / 10},${Math.round(y * 10) / 10}`;
+      if (!used.has(key)) {
+        used.add(key);
+        positions.set(id, { x, y });
+        break;
+      }
+      y += stepY;
+    }
+  }
 }
 
 function buildEntityGraph(nodes, edges) {
@@ -102,9 +132,10 @@ function buildEntityGraph(nodes, edges) {
   };
 
   for (const edge of edges) {
-    const from = entityOf(byId.get(edge.sourceId), byId);
-    const to = entityOf(byId.get(edge.targetId), byId);
-    addEdge(from, to);
+    const fromNode = byId.get(edge.sourceId);
+    const toNode = byId.get(edge.targetId);
+    if (!fromNode || !toNode) continue;
+    addEdge(entityOf(fromNode, byId), entityOf(toNode, byId));
   }
 
   for (const id of entities) {
@@ -115,26 +146,21 @@ function buildEntityGraph(nodes, edges) {
   return { byId, childrenOf, entities: [...entities].sort(compareIds), adj, rev };
 }
 
-function assignLayers(entities, adj, rev, byId, childrenOf) {
+function assignLayers(entities, adj, rev, degreeMap) {
   const layer = new Map();
   const indegree = new Map(entities.map((id) => [id, rev.get(id)?.size ?? 0]));
 
-  const queue = entities
+  let queue = entities
     .filter((id) => indegree.get(id) === 0)
-    .sort((a, b) => {
-      const ha = layerHintForEntity(a, byId, childrenOf);
-      const hb = layerHintForEntity(b, byId, childrenOf);
-      return ha - hb || compareIds(a, b);
-    });
+    .sort((a, b) => (degreeMap.get(b) ?? 0) - (degreeMap.get(a) ?? 0) || compareIds(a, b));
 
   if (!queue.length) {
-    for (const id of entities) {
-      layer.set(id, layerHintForEntity(id, byId, childrenOf));
-    }
-    return layer;
+    const seed = entities[0];
+    layer.set(seed, 0);
+    queue = [seed];
+  } else {
+    for (const id of queue) layer.set(id, 0);
   }
-
-  for (const id of queue) layer.set(id, 0);
 
   const visited = new Set(queue);
   while (queue.length) {
@@ -151,13 +177,17 @@ function assignLayers(entities, adj, rev, byId, childrenOf) {
   }
 
   for (const id of entities) {
-    if (!layer.has(id)) layer.set(id, layerHintForEntity(id, byId, childrenOf));
+    if (!layer.has(id)) {
+      const preds = [...(rev.get(id) ?? [])];
+      const fromPreds = preds.length ? Math.max(...preds.map((p) => layer.get(p) ?? 0)) + 1 : 0;
+      layer.set(id, fromPreds);
+    }
   }
 
   return layer;
 }
 
-function orderWithinLayers(entities, layer, adj, rev) {
+function orderWithinLayers(entities, layer, adj, rev, degreeMap) {
   const byLayer = new Map();
   for (const id of entities) {
     const l = layer.get(id);
@@ -197,6 +227,11 @@ function orderWithinLayers(entities, layer, adj, rev) {
     }
   }
 
+  for (const l of layers) {
+    const ids = byLayer.get(l);
+    byLayer.set(l, orderByCenterHeavy(ids, (id) => degreeMap.get(id) ?? 0));
+  }
+
   return byLayer;
 }
 
@@ -216,7 +251,15 @@ function buildIntraZoneGraph(childIds, edges) {
   return { adj, rev, hasInternal, childSet };
 }
 
-/** Spalten innerhalb einer Zone entlang interner Kanten (Quelle links, Senke rechts). */
+function childDegree(id, adj, rev, edges, childSet) {
+  let deg = (adj.get(id)?.size ?? 0) + (rev.get(id)?.size ?? 0);
+  for (const edge of edges) {
+    if (edge.sourceId === id && !childSet.has(edge.targetId)) deg += 1;
+    if (edge.targetId === id && !childSet.has(edge.sourceId)) deg += 1;
+  }
+  return deg;
+}
+
 function assignIntraZoneColumns(childIds, adj, rev) {
   const col = new Map(childIds.map((id) => [id, 0]));
   const indegree = new Map(childIds.map((id) => [id, rev.get(id).size]));
@@ -236,7 +279,7 @@ function assignIntraZoneColumns(childIds, adj, rev) {
     }
   }
 
-  const maxCol = Math.max(...col.values());
+  const maxCol = Math.max(...col.values(), 0);
   const columns = [];
   for (let c = 0; c <= maxCol; c++) {
     const ids = childIds.filter((id) => col.get(id) === c);
@@ -263,11 +306,13 @@ function externalBarycenter(nodeId, edges, byId, parentId, entityOrder) {
   return median(scores);
 }
 
-function orderRowIds(rowIds, edges, byId, parentId, entityOrder) {
+function orderRowIds(rowIds, edges, byId, parentId, entityOrder, adj, rev, childSet) {
   return [...rowIds].sort((a, b) => {
     const ba = externalBarycenter(a, edges, byId, parentId, entityOrder);
     const bb = externalBarycenter(b, edges, byId, parentId, entityOrder);
-    return ba - bb || compareIds(a, b);
+    const da = childDegree(a, adj, rev, edges, childSet);
+    const db = childDegree(b, adj, rev, edges, childSet);
+    return ba - bb || db - da || compareIds(a, b);
   });
 }
 
@@ -286,23 +331,31 @@ function defaultCols(count, maxCols) {
   return Math.min(capped, Math.ceil(Math.sqrt(count)));
 }
 
-/**
- * Layout für Kinder einer Zone: Spaltenfluss bei internen Kanten, sonst kompaktes Raster.
- */
-function layoutZoneChildren(parentId, childIds, edges, byId, entityOrder, maxCols) {
+function externalOutCount(nodeId, edges, childSet) {
+  let c = 0;
+  for (const edge of edges) {
+    if (edge.sourceId === nodeId && !childSet.has(edge.targetId)) c += 1;
+  }
+  return c;
+}
+
+function layoutZoneChildren(parentId, childIds, edges, byId, entityOrder, maxCols, metrics) {
+  const { CELL_X, CELL_Y, PAD_X, PAD_Y, LANE_STEP } = metrics;
   if (!childIds.length) {
     return { positions: new Map(), width: 400, height: 200 };
   }
 
-  const { adj, rev, hasInternal } = buildIntraZoneGraph(childIds, edges);
-
+  const { adj, rev, hasInternal, childSet } = buildIntraZoneGraph(childIds, edges);
   const positions = new Map();
   let width = 0;
   let height = 0;
 
   if (hasInternal) {
     const columns = assignIntraZoneColumns(childIds, adj, rev).map((column) =>
-      orderRowIds(column, edges, byId, parentId, entityOrder)
+      orderByCenterHeavy(
+        orderRowIds(column, edges, byId, parentId, entityOrder, adj, rev, childSet),
+        (id) => childDegree(id, adj, rev, edges, childSet)
+      )
     );
     let x = PAD_X;
     let maxHeight = 0;
@@ -310,7 +363,7 @@ function layoutZoneChildren(parentId, childIds, edges, byId, entityOrder, maxCol
       let y = PAD_Y;
       for (const id of column) {
         positions.set(id, { x, y });
-        y += CELL_Y;
+        y += CELL_Y + externalOutCount(id, edges, childSet) * LANE_STEP;
       }
       maxHeight = Math.max(maxHeight, y + 48);
       x += CELL_X;
@@ -318,13 +371,17 @@ function layoutZoneChildren(parentId, childIds, edges, byId, entityOrder, maxCol
     width = x + PAD_X;
     height = maxHeight;
   } else {
-    const ordered = orderRowIds(childIds, edges, byId, parentId, entityOrder);
+    const ordered = orderByCenterHeavy(
+      orderRowIds(childIds, edges, byId, parentId, entityOrder, adj, rev, childSet),
+      (id) => childDegree(id, adj, rev, edges, childSet)
+    );
     const rows = chunkRow(ordered, defaultCols(ordered.length, maxCols));
     let y = PAD_Y;
     let maxRowWidth = 0;
     for (const row of rows) {
+      const centered = orderByCenterHeavy(row, (id) => childDegree(id, adj, rev, edges, childSet));
       let x = PAD_X;
-      for (const id of row) {
+      for (const id of centered) {
         positions.set(id, { x, y });
         x += CELL_X;
       }
@@ -335,16 +392,19 @@ function layoutZoneChildren(parentId, childIds, edges, byId, entityOrder, maxCol
     height = y + 48;
   }
 
+  resolveOverlaps(positions, CELL_X, CELL_Y);
   return { positions, width, height };
 }
 
 export function computeLayout(nodes, edges, options = {}) {
+  const profile = PROFILES[options.profile] ?? PROFILES.default;
   const maxCols = options.maxCols ?? 5;
   if (!nodes.length) return [];
 
   const { byId, childrenOf, entities, adj, rev } = buildEntityGraph(nodes, edges);
-  const entityLayer = assignLayers(entities, adj, rev, byId, childrenOf);
-  const byLayer = orderWithinLayers(entities, entityLayer, adj, rev);
+  const degreeMap = buildDegreeMap(entities, adj, rev);
+  const entityLayer = assignLayers(entities, adj, rev, degreeMap);
+  const byLayer = orderWithinLayers(entities, entityLayer, adj, rev, degreeMap);
 
   const entityOrder = new Map();
   for (const [l, ids] of byLayer) {
@@ -356,7 +416,7 @@ export function computeLayout(nodes, edges, options = {}) {
 
   for (const entityId of entities) {
     const node = byId.get(entityId);
-    const rawChildren = childrenOf.get(entityId) ?? [];
+    const rawChildren = (childrenOf.get(entityId) ?? []).sort(compareIds);
     if (isGroup(node) && rawChildren.length) {
       const { positions, width, height } = layoutZoneChildren(
         entityId,
@@ -364,14 +424,21 @@ export function computeLayout(nodes, edges, options = {}) {
         edges,
         byId,
         entityOrder,
-        maxCols
+        maxCols,
+        profile
       );
       entitySize.set(entityId, { width, height });
       childLayout.set(entityId, positions);
     } else if (isGroup(node)) {
-      entitySize.set(entityId, { width: PAD_X * 2 + CELL_X, height: PAD_Y * 2 + CELL_Y + 48 });
+      entitySize.set(entityId, {
+        width: profile.PAD_X * 2 + profile.CELL_X,
+        height: profile.PAD_Y * 2 + profile.CELL_Y + 48,
+      });
     } else {
-      entitySize.set(entityId, { width: CELL_X + PAD_X * 2, height: CELL_Y + PAD_Y * 2 });
+      entitySize.set(entityId, {
+        width: profile.CELL_X + profile.PAD_X * 2,
+        height: profile.CELL_Y + profile.PAD_Y * 2,
+      });
     }
   }
 
@@ -386,11 +453,13 @@ export function computeLayout(nodes, edges, options = {}) {
     for (const id of ids) {
       const size = entitySize.get(id) ?? { width: 440, height: 240 };
       entityPos.set(id, { x, y });
-      x += size.width + ENTITY_GAP_X;
+      x += size.width + profile.ENTITY_GAP_X;
       rowHeight = Math.max(rowHeight, size.height);
     }
-    y += rowHeight + LAYER_GAP_Y;
+    y += rowHeight + profile.LAYER_GAP_Y;
   }
+
+  resolveOverlaps(entityPos, profile.CELL_X, profile.CELL_Y);
 
   return nodes.map((node) => {
     const copy = { ...node, position: { ...node.position } };

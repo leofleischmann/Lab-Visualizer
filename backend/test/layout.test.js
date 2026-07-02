@@ -44,3 +44,44 @@ test('Auto-Layout ist deterministisch', () => {
   const twice = computeLayout(nodes, edges);
   assert.deepEqual(once, twice);
 });
+
+test('überlappende Zone-Kinder erhalten unterschiedliche Positionen', () => {
+  const nodes = [
+    {
+      id: 'zone',
+      name: 'Zone',
+      category: 'group',
+      parentId: null,
+      position: { x: 0, y: 0 },
+    },
+    { id: 'a', name: 'A', category: 'x', parentId: 'zone', position: { x: 0, y: 0 } },
+    { id: 'b', name: 'B', category: 'x', parentId: 'zone', position: { x: 0, y: 0 } },
+    { id: 'c', name: 'C', category: 'x', parentId: 'zone', position: { x: 0, y: 0 } },
+  ];
+  const laid = computeLayout(nodes, []);
+  const positions = laid
+    .filter((n) => n.parentId === 'zone')
+    .map((n) => `${n.position.x},${n.position.y}`);
+  assert.equal(new Set(positions).size, 3);
+});
+
+test('Hub-Kind in Zone wird zur Zeilenmitte gelegt', () => {
+  const nodes = [
+    { id: 'zone', name: 'Z', category: 'group', parentId: null, position: { x: 0, y: 0 } },
+    { id: 'leaf1', name: 'L1', category: 'x', parentId: 'zone', position: { x: 0, y: 0 } },
+    { id: 'leaf2', name: 'L2', category: 'x', parentId: 'zone', position: { x: 0, y: 0 } },
+    { id: 'hub', name: 'Hub', category: 'x', parentId: 'zone', position: { x: 0, y: 0 } },
+    { id: 'ext', name: 'Ext', category: 'y', parentId: null, position: { x: 0, y: 0 } },
+  ];
+  const edges = [
+    { id: 'e1', sourceId: 'hub', targetId: 'ext' },
+    { id: 'e2', sourceId: 'hub', targetId: 'leaf1' },
+    { id: 'e3', sourceId: 'leaf2', targetId: 'ext' },
+  ];
+  const laid = computeLayout(nodes, edges);
+  const kids = laid.filter((n) => n.parentId === 'zone');
+  const hub = kids.find((n) => n.id === 'hub');
+  const xs = kids.map((n) => n.position.x).sort((a, b) => a - b);
+  const mid = (xs[0] + xs[xs.length - 1]) / 2;
+  assert.ok(Math.abs(hub.position.x - mid) <= Math.abs(xs[0] - mid));
+});

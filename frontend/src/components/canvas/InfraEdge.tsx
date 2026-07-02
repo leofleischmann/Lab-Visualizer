@@ -8,7 +8,13 @@ import {
 import clsx from 'clsx';
 import type { FlowEdge } from '../../api/types';
 import { kindOf } from '../../lib/catalog';
-import { computeEdgeRoute, edgeBundleOffset, labelNudge } from '../../lib/edgeRouting';
+import {
+  buildNodeBoxes,
+  computeEdgeRoute,
+  edgeBundleOffset,
+  labelAlongPathOffset,
+  labelPosition,
+} from '../../lib/edgeRouting';
 import { useGraphStore } from '../../store/graph';
 
 function InfraEdgeComponent({
@@ -25,20 +31,26 @@ function InfraEdgeComponent({
   selected,
 }: EdgeProps<FlowEdge>) {
   const catalog = useGraphStore((s) => s.catalog);
+  const nodes = useGraphStore((s) => s.nodes);
   const edges = useGraphStore((s) => s.edges);
   const select = useGraphStore((s) => s.select);
   const entity = data?.entity;
 
+  const exclude = new Set([source, target]);
+  const obstacles = buildNodeBoxes(nodes, exclude);
   const bundleOffset = edgeBundleOffset(id, source, target, edges);
-  const route = computeEdgeRoute({
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-    sourcePosition,
-    targetPosition,
-    offset: bundleOffset,
-  });
+  const route = computeEdgeRoute(
+    {
+      sourceX,
+      sourceY,
+      targetX,
+      targetY,
+      sourcePosition,
+      targetPosition,
+      offset: bundleOffset,
+    },
+    obstacles
+  );
 
   const [path, labelX, labelY] = getSmoothStepPath(route);
 
@@ -52,7 +64,17 @@ function InfraEdgeComponent({
         ? '2 5'
         : undefined;
 
-  const labelPos = labelNudge(labelX, labelY, sourceX, sourceY, targetX, targetY);
+  const alongT = labelAlongPathOffset(id, source, edges);
+  const labelPos = labelPosition(
+    labelX,
+    labelY,
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    alongT,
+    obstacles
+  );
 
   return (
     <>

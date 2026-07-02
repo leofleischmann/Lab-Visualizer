@@ -17,6 +17,7 @@ import type {
   NodePatch,
   Position,
 } from '../api/types';
+import { inferHandlePositions } from '../lib/edgeRouting';
 
 export type Selection = { kind: 'node' | 'edge'; id: string } | null;
 
@@ -33,14 +34,28 @@ function toFlowNode(n: ApiNode): FlowNode {
   };
 }
 
-function toFlowEdge(e: ApiEdge): FlowEdge {
+function toFlowEdge(e: ApiEdge, nodes: FlowNode[]): FlowEdge {
+  const handles = inferHandlePositions(nodes, e.sourceId, e.targetId);
   return {
     id: e.id,
     source: e.sourceId,
     target: e.targetId,
     type: 'infra',
+    sourcePosition: handles.sourcePosition,
+    targetPosition: handles.targetPosition,
     data: { entity: e },
   };
+}
+
+function enrichFlowEdges(nodes: FlowNode[], edges: FlowEdge[]): FlowEdge[] {
+  return edges.map((edge) => {
+    const handles = inferHandlePositions(nodes, edge.source, edge.target);
+    return {
+      ...edge,
+      sourcePosition: handles.sourcePosition,
+      targetPosition: handles.targetPosition,
+    };
+  });
 }
 
 /**
@@ -120,10 +135,11 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const [catalog, graph] = await Promise.all([api.catalog(), api.graph()]);
+      const flowNodes = orderForFlow(graph.nodes.map(toFlowNode));
       set({
         catalog,
-        nodes: orderForFlow(graph.nodes.map(toFlowNode)),
-        edges: graph.edges.map(toFlowEdge),
+        nodes: flowNodes,
+        edges: enrichFlowEdges(flowNodes, graph.edges.map((e) => toFlowEdge(e, flowNodes))),
         loading: false,
       });
     } catch (err) {
@@ -140,19 +156,23 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
         (selection.kind === 'node'
           ? graph.nodes.some((n) => n.id === selection.id)
           : graph.edges.some((e) => e.id === selection.id));
+      const flowNodes = orderForFlow(
+        graph.nodes.map((n) => {
+          const flow = toFlowNode(n);
+          flow.selected = selection?.kind === 'node' && selection.id === n.id;
+          return flow;
+        })
+      );
       set({
-        nodes: orderForFlow(
-          graph.nodes.map((n) => {
-            const flow = toFlowNode(n);
-            flow.selected = selection?.kind === 'node' && selection.id === n.id;
+        nodes: flowNodes,
+        edges: enrichFlowEdges(
+          flowNodes,
+          graph.edges.map((e) => {
+            const flow = toFlowEdge(e, flowNodes);
+            flow.selected = selection?.kind === 'edge' && selection.id === e.id;
             return flow;
           })
         ),
-        edges: graph.edges.map((e) => {
-          const flow = toFlowEdge(e);
-          flow.selected = selection?.kind === 'edge' && selection.id === e.id;
-          return flow;
-        }),
         selection: stillExists ? selection : null,
       });
     } catch (err) {
@@ -180,10 +200,14 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   syncSelection: (selection) => set({ selection }),
 
   onNodesChange: (changes) => {
-    set({ nodes: applyNodeChanges(changes, get().nodes) });
+    const nextNodes = applyNodeChanges(changes, get().nodes);
     const movedIds = changes
       .filter((c) => c.type === 'position' && c.dragging === false)
       .map((c) => (c as { id: string }).id);
+    set({
+      nodes: nextNodes,
+      edges: movedIds.length ? enrichFlowEdges(nextNodes, get().edges) : get().edges,
+    });
     if (movedIds.length) void get().persistPositions(movedIds);
   },
 
@@ -298,7 +322,8 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
         sourceId: connection.source,
         targetId: connection.target,
       });
-      const flow = toFlowEdge(created);
+      const { nodes } = get();
+      const flow = toFlowEdge(created, nodes);
       flow.selected = true;
       set((state) => ({
         nodes: state.nodes.map((n) => ({ ...n, selected: false })),
@@ -315,7 +340,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       const updated = await api.updateEdge(id, patch);
       set((state) => ({
         edges: state.edges.map((e) =>
-          e.id === id ? { ...toFlowEdge(updated), selected: e.selected } : e
+          e.id === id ? { ...toFlowEdge(updated, state.nodes), selected: e.selected } : e
         ),
       }));
       return true;

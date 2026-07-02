@@ -85,6 +85,7 @@ export const importSchema = z.object({
 
 export const layoutSchema = z.object({
   maxCols: z.number().int().min(1).max(10).default(5),
+  profile: z.enum(['default', 'wide']).default('default'),
 });
 
 /** Validiert `data` gegen `schema`, wirft bei Fehlern eine ApiError(400). */
