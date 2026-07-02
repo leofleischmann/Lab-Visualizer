@@ -43,6 +43,12 @@ export const nodeCreateSchema = z.object({
 
 export const nodeUpdateSchema = nodeCreateSchema.omit({ id: true }).partial();
 
+const routingSchema = z.object({
+  mode: z.enum(['auto', 'manual']).default('auto'),
+  waypoints: z.array(positionSchema).max(32).default([]),
+  label: positionSchema.nullable().optional(),
+});
+
 export const edgeCreateSchema = z.object({
   id: idSchema.optional(),
   sourceId: idSchema,
@@ -52,6 +58,7 @@ export const edgeCreateSchema = z.object({
   lineStyle: z.enum(LINE_STYLES).default('solid'),
   animated: z.boolean().default(false),
   notes: z.string().max(200000).default(''),
+  routing: routingSchema.default({ mode: 'auto', waypoints: [] }),
   customFields: customFieldsSchema.default({}),
 });
 
@@ -81,6 +88,11 @@ export const importSchema = z.object({
   mode: z.enum(['replace']).default('replace'),
   nodes: z.array(nodeCreateSchema.extend({ id: idSchema, ...importTimestamps })).max(50000),
   edges: z.array(edgeCreateSchema.extend(importTimestamps)).max(200000).default([]),
+});
+
+export const layoutSchema = z.object({
+  maxCols: z.number().int().min(1).max(10).default(5),
+  profile: z.enum(['default', 'wide']).default('default'),
 });
 
 /** Validiert `data` gegen `schema`, wirft bei Fehlern eine ApiError(400). */
