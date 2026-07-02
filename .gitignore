@@ -4,4 +4,4 @@ data/
 *.log
 .env
 .DS_Store
-lab.json
+/networks
