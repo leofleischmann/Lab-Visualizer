@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useRef } from 'react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { BaseEdge, EdgeLabelRenderer, useReactFlow, type EdgeProps } from '@xyflow/react';
 import clsx from 'clsx';
 import type { EdgeRouting, FlowEdge, FlowPoint } from '../../api/types';
@@ -174,6 +174,7 @@ function InfraEdgeComponent({
 
   const draftRef = useRef<FlowPoint[] | null>(null);
   const sessionRef = useRef<SegmentDragSession | null>(null);
+  const [hovered, setHovered] = useState(false);
 
   // preventDefault auf pointerdown unterdrückt native dblclick-Events,
   // deshalb eigene Doppelklick-Erkennung über Zeit + Distanz.
@@ -324,10 +325,11 @@ function InfraEdgeComponent({
         path={path}
         style={{
           stroke: kind.color,
-          strokeWidth: selected ? 2.4 : 1.6,
+          strokeWidth: selected ? 2.4 : hovered ? 2.2 : 1.6,
           strokeDasharray: dashArray,
           animation: entity.animated ? 'labviz-dash 0.7s linear infinite' : undefined,
-          opacity: selected ? 1 : 0.85,
+          opacity: selected || hovered ? 1 : 0.85,
+          transition: 'stroke-width 80ms, opacity 80ms',
         }}
       />
       {arrow && (
@@ -352,6 +354,8 @@ function InfraEdgeComponent({
             className="nodrag nopan"
             style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
             onPointerDown={handleLinePointerDown}
+            onPointerEnter={() => setHovered(true)}
+            onPointerLeave={() => setHovered(false)}
           />
         </svg>
       </EdgeLabelRenderer>

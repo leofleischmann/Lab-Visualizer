@@ -76,6 +76,37 @@ function scorePath(points: FlowPoint[], blockers: Rect[]): number {
   return collisions * 1000 + pathLength(points) + countCorners(points) * 24;
 }
 
+const DOCK_INSET = 10;
+
+/**
+ * Bei gegenüberliegenden Seiten die Dockpunkte aufeinander ausrichten, wenn
+ * sich die Seitenbereiche überlappen → gerade Linie statt Mini-S-Versatz.
+ * Der Dock der weniger belegten Seite (Shift 0) folgt dem verschobenen Dock.
+ */
+function alignFacingDocks(
+  axis: 'h' | 'v',
+  source: Rect,
+  target: Rect,
+  start: FlowPoint,
+  end: FlowPoint,
+  sourceShift: number,
+  targetShift: number
+): void {
+  const key = axis === 'h' ? 'y' : 'x';
+  const size = axis === 'h' ? 'height' : 'width';
+  const lo = Math.max(source[key] + DOCK_INSET, target[key] + DOCK_INSET);
+  const hi = Math.min(source[key] + source[size] - DOCK_INSET, target[key] + target[size] - DOCK_INSET);
+  if (lo > hi) return;
+
+  const clamp = (v: number) => Math.min(hi, Math.max(lo, v));
+  let aligned: number;
+  if (sourceShift === 0 && targetShift !== 0) aligned = clamp(end[key]);
+  else if (targetShift === 0 && sourceShift !== 0) aligned = clamp(start[key]);
+  else aligned = clamp((start[key] + end[key]) / 2);
+  start[key] = aligned;
+  end[key] = aligned;
+}
+
 export function routeOrthogonal(input: AutoRouteInput): FlowPoint[] {
   const { source, target, obstacles } = input;
   const stub = input.stub ?? 24;
@@ -86,6 +117,11 @@ export function routeOrthogonal(input: AutoRouteInput): FlowPoint[] {
   const sides = chooseSides(source, target);
   const start = dockPoint(source, sides.source, sourceShift);
   const end = dockPoint(target, sides.target, targetShift);
+  if (sides.source === 'right' || sides.source === 'left') {
+    alignFacingDocks('h', source, target, start, end, sourceShift, targetShift);
+  } else {
+    alignFacingDocks('v', source, target, start, end, sourceShift, targetShift);
+  }
   const stubStart = addScaled(start, outwardNormal(sides.source), stub);
   const stubEnd = addScaled(end, outwardNormal(sides.target), stub);
 
