@@ -1,0 +1,20 @@
+services:
+  backend:
+    build: ./backend
+    container_name: labviz-backend
+    restart: unless-stopped
+    volumes:
+      # SQLite-Datenbank → Backup = diesen Ordner kopieren
+      - ./data:/data
+    # Optional: API zusätzlich direkt (ohne Frontend-Proxy) freigeben:
+    # ports:
+    #   - "3000:3000"
+
+  frontend:
+    build: ./frontend
+    container_name: labviz-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
