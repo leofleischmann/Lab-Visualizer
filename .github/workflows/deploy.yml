@@ -20,17 +20,17 @@ jobs:
 
       - name: Synchronisiere Dateien auf den Server
         # rsync --delete: data/ ausschließen, sonst würde die SQLite-DB auf dem Server gelöscht
-        # (data/ ist nicht im Git-Checkout, liegt aber persistent unter /root/app/data)
+        # (data/ ist nicht im Git-Checkout, liegt aber persistent unter /opt/lab-visualizer/data)
         run: |
           rsync -a --delete \
             --exclude='.git/' \
             --exclude='.github/' \
             --exclude='.env' \
             --exclude='data/' \
-            . /root/app/
+            . /opt/lab-visualizer/
 
       - name: Docker Container bauen und starten
-        working-directory: /root/app
+        working-directory: /opt/lab-visualizer
         run: docker compose up --build -d
 
       - name: Alte Docker Images aufräumen (sanft)
