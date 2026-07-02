@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { Download, Network, Search, Trash2, Upload } from 'lucide-react';
+import { Download, LayoutGrid, Network, Search, Trash2, Upload } from 'lucide-react';
 import { api } from '../api/client';
 import { useGraphStore } from '../store/graph';
 
@@ -9,6 +9,7 @@ export function TopBar() {
   const setError = useGraphStore((s) => s.setError);
   const importGraph = useGraphStore((s) => s.importGraph);
   const clearGraph = useGraphStore((s) => s.clearGraph);
+  const autoLayout = useGraphStore((s) => s.autoLayout);
   const nodeCount = useGraphStore((s) => s.nodes.length);
   const edgeCount = useGraphStore((s) => s.edges.length);
   const isEmpty = nodeCount === 0 && edgeCount === 0;
@@ -27,6 +28,12 @@ export function TopBar() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Export fehlgeschlagen');
     }
+  };
+
+  const handleAutoLayout = async () => {
+    if (isEmpty) return;
+    console.log('[Debug TopBar]: Auto-Align gestartet');
+    await autoLayout();
   };
 
   const handleClearAll = async () => {
@@ -108,6 +115,15 @@ export function TopBar() {
             e.target.value = '';
           }}
         />
+        <button
+          type="button"
+          disabled={isEmpty}
+          onClick={() => void handleAutoLayout()}
+          title="Graph automatisch anordnen (deterministisch)"
+          className="flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:border-emerald-500 hover:text-emerald-300 disabled:cursor-not-allowed disabled:border-slate-800 disabled:text-slate-600 disabled:hover:border-slate-800 disabled:hover:text-slate-600"
+        >
+          <LayoutGrid size={13} /> Auto-Align
+        </button>
         <button
           type="button"
           disabled={isEmpty}

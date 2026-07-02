@@ -83,6 +83,10 @@ export const importSchema = z.object({
   edges: z.array(edgeCreateSchema.extend(importTimestamps)).max(200000).default([]),
 });
 
+export const layoutSchema = z.object({
+  maxCols: z.number().int().min(1).max(10).default(5),
+});
+
 /** Validiert `data` gegen `schema`, wirft bei Fehlern eine ApiError(400). */
 export function parseOrThrow(schema, data) {
   const result = schema.safeParse(data);

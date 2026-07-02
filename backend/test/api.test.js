@@ -135,6 +135,54 @@ test('bulk-Positionsupdate', async () => {
   assert.deepEqual(node.body.position, { x: 500, y: 600 });
 });
 
+test('auto-layout verteilt überlappende Nodes deterministisch', async () => {
+  await api('POST', '/api/nodes', {
+    id: 'client-a',
+    name: 'Client',
+    category: 'client',
+    position: { x: 0, y: 0 },
+  });
+  await api('POST', '/api/nodes', {
+    id: 'zone-net',
+    name: 'Netz',
+    category: 'group',
+    position: { x: 0, y: 0 },
+    width: 200,
+    height: 200,
+  });
+  await api('POST', '/api/nodes', {
+    id: 'svc-c',
+    name: 'Service C',
+    category: 'native-service',
+    parentId: 'zone-net',
+    position: { x: 0, y: 0 },
+  });
+  await api('POST', '/api/edges', {
+    id: 'e-client-c',
+    sourceId: 'client-a',
+    targetId: 'svc-c',
+    kind: 'https',
+  });
+
+  const layout1 = await api('POST', '/api/graph/layout', {});
+  assert.equal(layout1.status, 200);
+  assert.ok(layout1.body.updated >= 4);
+
+  const graph1 = (await api('GET', '/api/graph')).body;
+  const layout2 = await api('POST', '/api/graph/layout', {});
+  assert.equal(layout2.status, 200);
+  const graph2 = (await api('GET', '/api/graph')).body;
+
+  const pos1 = Object.fromEntries(graph1.nodes.map((n) => [n.id, n.position]));
+  const pos2 = Object.fromEntries(graph2.nodes.map((n) => [n.id, n.position]));
+  assert.deepEqual(pos1, pos2);
+
+  const client = graph2.nodes.find((n) => n.id === 'client-a');
+  const zone = graph2.nodes.find((n) => n.id === 'zone-net');
+  assert.notDeepEqual(client.position, zone.position);
+  assert.ok(zone.width >= 300);
+});
+
 test('export/import Roundtrip', async () => {
   const fresh = createApp({ dbFile: ':memory:' });
   const freshServer = fresh.app.listen(0);

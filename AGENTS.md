@@ -184,6 +184,7 @@ Unbekannte Kategorien werden in der UI mit Fallback-Icon gerendert.
 | `GET` | `/graph` | Kompletter Graph |
 | `GET` | `/graph/export` | Backup-JSON (mit `version`, `exportedAt`) |
 | `POST` | `/graph/import` | Graph ersetzen |
+| `POST` | `/graph/layout` | Auto-Align (Positionen + Zonengrößen) |
 
 **Import-Body:**
 
@@ -196,6 +197,15 @@ Unbekannte Kategorien werden in der UI mit Fallback-Icon gerendert.
 ```
 
 **Antwort:** `{ "nodes": 42, "edges": 17 }`
+
+**Layout-Body (optional):**
+
+```json
+{ "maxCols": 5 }
+```
+
+Ordnet alle Nodes deterministisch an (Schichten entlang der Kanten, Barycenter-Sortierung, Raster in Zonen).
+**Antwort:** `{ "updated": 42 }`
 
 ### Nodes
 
@@ -322,6 +332,17 @@ Content-Type: application/json
 { "mode": "replace", "nodes": [], "edges": [] }
 ```
 
+### 8. Nach API-Import anordnen
+
+```http
+POST /api/graph/layout
+Content-Type: application/json
+
+{ "maxCols": 5 }
+```
+
+Empfohlen direkt nach Bulk-Import oder wenn viele Nodes bei (0,0) liegen.
+
 ---
 
 ## Katalog-Referenz (häufige Werte)
@@ -357,6 +378,7 @@ Vollständige Liste: `GET /meta/catalog`.
 | Gesamtzustand lesen | `GET /graph` |
 | Migration / Sync | `GET /graph/export` + `POST /graph/import` |
 | Nur Positionen (Layout) | `POST /nodes/positions` |
+| Auto-Align (gesamter Graph) | `POST /graph/layout` |
 | Verfügbare Kategorien | `GET /meta/catalog` |
 | API erreichbar? | `GET /health` |
 
@@ -367,6 +389,7 @@ Vollständige Liste: `GET /meta/catalog`.
 | Datei | Inhalt |
 |---|---|
 | `backend/src/validation.js` | Zod-Schemas, Limits |
+| `backend/src/layout.js` | Auto-Layout-Algorithmus |
 | `backend/src/store.js` | CRUD, Import, Parent-Logik |
 | `backend/src/catalog.js` | Kategorien, Status, Edge-Kinds |
 | `backend/src/routes/*.js` | Route-Definitionen |

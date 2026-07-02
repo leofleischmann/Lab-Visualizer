@@ -101,6 +101,7 @@ type GraphStore = {
 
   importGraph: (payload: { nodes: ApiNode[]; edges: ApiEdge[] }) => Promise<boolean>;
   clearGraph: () => Promise<boolean>;
+  autoLayout: () => Promise<boolean>;
 };
 
 const errorMessage = (err: unknown) =>
@@ -359,6 +360,18 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       set({ selection: null });
       await get().reload();
       console.log('[Debug graph-store]: Graph geleert');
+      return true;
+    } catch (err) {
+      set({ error: errorMessage(err) });
+      return false;
+    }
+  },
+
+  autoLayout: async () => {
+    try {
+      const result = await api.autoLayout();
+      console.log('[Debug graph-store]: Auto-Layout angewendet', result);
+      await get().reload();
       return true;
     } catch (err) {
       set({ error: errorMessage(err) });

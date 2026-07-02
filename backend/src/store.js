@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { ApiError } from './validation.js';
+import { computeLayout } from './layout.js';
 
 const now = () => new Date().toISOString();
 
@@ -336,4 +337,33 @@ export function importGraph(db, { nodes, edges }) {
   });
   tx();
   return { nodes: countNodes(db), edges: db.prepare('SELECT count(*) AS c FROM edges').get().c };
+}
+
+/**
+ * Wendet das deterministische Auto-Layout auf alle Nodes an (Positionen + Zonengrößen).
+ */
+export function applyLayout(db, options = {}) {
+  const nodes = listNodes(db);
+  const edges = listEdges(db);
+  const laid = computeLayout(nodes, edges, options);
+  const ts = now();
+  const stmt = db.prepare(`
+    UPDATE nodes SET pos_x = @x, pos_y = @y, width = @width, height = @height, updated_at = @updated_at
+    WHERE id = @id
+  `);
+  const tx = db.transaction(() => {
+    for (const n of laid) {
+      stmt.run({
+        id: n.id,
+        x: n.position.x,
+        y: n.position.y,
+        width: n.width ?? null,
+        height: n.height ?? null,
+        updated_at: ts,
+      });
+    }
+  });
+  tx();
+  console.log(`[Debug store]: Auto-Layout angewendet (${laid.length} Nodes)`);
+  return { updated: laid.length };
 }
