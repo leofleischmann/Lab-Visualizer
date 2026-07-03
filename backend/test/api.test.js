@@ -195,6 +195,29 @@ test('auto-layout verteilt überlappende Nodes deterministisch', async () => {
   assert.ok(zone.width >= 300);
 });
 
+test('routing: labelT wird gespeichert, Auto-Layout setzt Routing zurück', async () => {
+  await api('POST', '/api/nodes', { id: 'rt-a', name: 'RT A' });
+  await api('POST', '/api/nodes', { id: 'rt-b', name: 'RT B' });
+  await api('POST', '/api/edges', { id: 'e-rt', sourceId: 'rt-a', targetId: 'rt-b' });
+
+  const routed = await api('PATCH', '/api/edges/e-rt', {
+    routing: { mode: 'manual', waypoints: [{ x: 10, y: 20 }], labelT: 0.25 },
+  });
+  assert.equal(routed.status, 200);
+  assert.equal(routed.body.routing.labelT, 0.25);
+
+  const invalid = await api('PATCH', '/api/edges/e-rt', {
+    routing: { mode: 'manual', waypoints: [], labelT: 1.5 },
+  });
+  assert.equal(invalid.status, 400);
+
+  const layout = await api('POST', '/api/graph/layout', {});
+  assert.equal(layout.status, 200);
+  const after = await api('GET', '/api/edges/e-rt');
+  assert.equal(after.body.routing.mode, 'auto');
+  assert.deepEqual(after.body.routing.waypoints, []);
+});
+
 test('export/import Roundtrip', async () => {
   const fresh = createApp({ dbFile: ':memory:' });
   const freshServer = fresh.app.listen(0);
