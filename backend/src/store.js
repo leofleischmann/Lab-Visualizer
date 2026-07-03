@@ -379,6 +379,5 @@ export function applyLayout(db, options = {}) {
     resetRouting.run({ updated_at: ts });
   });
   tx();
-  console.log(`[Debug store]: Auto-Layout angewendet (${laid.length} Nodes)`);
   return { updated: laid.length };
 }

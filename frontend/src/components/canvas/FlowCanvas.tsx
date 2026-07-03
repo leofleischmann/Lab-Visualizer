@@ -17,6 +17,7 @@ import { categoryOf } from '../../lib/catalog';
 import { nodeSize, rectMap } from '../../lib/edge/nodes';
 import { useGraphStore } from '../../store/graph';
 import { AlignmentGuides } from './AlignmentGuides';
+import { EdgeHitLayer } from './EdgeHitLayer';
 import { InfraEdge } from './InfraEdge';
 import { InfraNode } from './InfraNode';
 import { ZoneNode } from './ZoneNode';
@@ -224,6 +225,7 @@ export function FlowCanvas() {
         bgColor="#0f172a"
       />
       <AlignmentGuides guides={guides} />
+      <EdgeHitLayer />
     </ReactFlow>
   );
 }
