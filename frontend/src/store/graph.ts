@@ -20,6 +20,27 @@ import type {
 } from '../api/types';
 export type Selection = { kind: 'node' | 'edge'; id: string } | null;
 
+/** Aktive Fokus-Hervorhebung: Nodes/Edges, die betont bleiben (Rest wird gedimmt). */
+export type FocusSet = { nodeIds: Set<string>; edgeIds: Set<string> } | null;
+
+/**
+ * Fokus rund um einen Node: der Node selbst, seine direkten Nachbarn und die
+ * verbindenden Kanten. `null`, wenn kein Node im Fokus ist (nichts wird gedimmt).
+ */
+function computeFocus(edges: FlowEdge[], focusNodeId: string | null): FocusSet {
+  if (!focusNodeId) return null;
+  const nodeIds = new Set<string>([focusNodeId]);
+  const edgeIds = new Set<string>();
+  for (const e of edges) {
+    if (e.source === focusNodeId || e.target === focusNodeId) {
+      edgeIds.add(e.id);
+      nodeIds.add(e.source);
+      nodeIds.add(e.target);
+    }
+  }
+  return { nodeIds, edgeIds };
+}
+
 function toFlowNode(n: ApiNode): FlowNode {
   const isZone = n.category === 'group';
   return {
@@ -29,6 +50,8 @@ function toFlowNode(n: ApiNode): FlowNode {
     parentId: n.parentId ?? undefined,
     width: isZone ? (n.width ?? 420) : undefined,
     height: isZone ? (n.height ?? 260) : undefined,
+    // Zonen unter die Kanten-Ebene legen, damit Linien über Zonen greifbar bleiben
+    zIndex: isZone ? -1 : undefined,
     data: { entity: n },
   };
 }
@@ -72,6 +95,14 @@ type GraphStore = {
   edges: FlowEdge[];
   catalog: Catalog | null;
   selection: Selection;
+  hoverNodeId: string | null;
+  focus: FocusSet;
+  /**
+   * Zählt hoch, wenn sich die Node-Geometrie strukturell ändert (Drop, Zonen-
+   * Resize, Layout). Kanten routen daraufhin einmalig komplett neu — auch die,
+   * deren eigene Endknoten sich nicht bewegt haben (Hindernis-Umgehung).
+   */
+  geometryVersion: number;
   search: string;
   loading: boolean;
   error: string | null;
@@ -82,6 +113,7 @@ type GraphStore = {
   setError: (message: string | null) => void;
   select: (selection: Selection) => void;
   syncSelection: (selection: Selection) => void;
+  setHoverNode: (id: string | null) => void;
 
   onNodesChange: (changes: NodeChange<FlowNode>[]) => void;
   onEdgesChange: (changes: EdgeChange<FlowEdge>[]) => void;
@@ -114,6 +146,9 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   edges: [],
   catalog: null,
   selection: null,
+  hoverNodeId: null,
+  focus: null,
+  geometryVersion: 0,
   search: '',
   loading: true,
   error: null,
@@ -127,6 +162,8 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
         catalog,
         nodes: flowNodes,
         edges: graph.edges.map(toFlowEdge),
+        hoverNodeId: null,
+        focus: null,
         loading: false,
       });
     } catch (err) {
@@ -150,14 +187,21 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
           return flow;
         })
       );
+      const nextEdges = graph.edges.map((e) => {
+        const flow = toFlowEdge(e);
+        flow.selected = selection?.kind === 'edge' && selection.id === e.id;
+        return flow;
+      });
+      const nextSelection = stillExists ? selection : null;
       set({
         nodes: flowNodes,
-        edges: graph.edges.map((e) => {
-          const flow = toFlowEdge(e);
-          flow.selected = selection?.kind === 'edge' && selection.id === e.id;
-          return flow;
-        }),
-        selection: stillExists ? selection : null,
+        edges: nextEdges,
+        selection: nextSelection,
+        hoverNodeId: null,
+        focus: computeFocus(
+          nextEdges,
+          nextSelection?.kind === 'node' ? nextSelection.id : null
+        ),
       });
     } catch (err) {
       set({ error: errorMessage(err) });
@@ -168,27 +212,49 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   setError: (message) => set({ error: message }),
 
   select: (selection) =>
-    set((state) => ({
-      selection,
-      nodes: state.nodes.map((n) => ({
-        ...n,
-        selected: selection?.kind === 'node' && n.id === selection.id,
-      })),
-      edges: state.edges.map((e) => ({
-        ...e,
-        selected: selection?.kind === 'edge' && e.id === selection.id,
-      })),
-    })),
+    set((state) => {
+      const focusNodeId = state.hoverNodeId ?? (selection?.kind === 'node' ? selection.id : null);
+      return {
+        selection,
+        focus: computeFocus(state.edges, focusNodeId),
+        nodes: state.nodes.map((n) => ({
+          ...n,
+          selected: selection?.kind === 'node' && n.id === selection.id,
+        })),
+        edges: state.edges.map((e) => ({
+          ...e,
+          selected: selection?.kind === 'edge' && e.id === selection.id,
+        })),
+      };
+    }),
 
   // Von React Flow getriebene Selektion (Klick, Rubber-Band) – ohne Echo zurück in RF.
-  syncSelection: (selection) => set({ selection }),
+  syncSelection: (selection) =>
+    set((state) => ({
+      selection,
+      focus: computeFocus(
+        state.edges,
+        state.hoverNodeId ?? (selection?.kind === 'node' ? selection.id : null)
+      ),
+    })),
+
+  setHoverNode: (id) =>
+    set((state) => {
+      if (id === state.hoverNodeId) return {};
+      const focusNodeId = id ?? (state.selection?.kind === 'node' ? state.selection.id : null);
+      return { hoverNodeId: id, focus: computeFocus(state.edges, focusNodeId) };
+    }),
 
   onNodesChange: (changes) => {
     const nextNodes = applyNodeChanges(changes, get().nodes);
     const movedIds = changes
       .filter((c) => c.type === 'position' && c.dragging === false)
       .map((c) => (c as { id: string }).id);
-    set({ nodes: nextNodes });
+    // Beim Loslassen (nicht während des Drags) einmalig alle Kanten neu routen
+    set((state) => ({
+      nodes: nextNodes,
+      geometryVersion: movedIds.length ? state.geometryVersion + 1 : state.geometryVersion,
+    }));
     if (movedIds.length) void get().persistPositions(movedIds);
   },
 
@@ -218,6 +284,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
 
   applyZoneGeometry: async (id, { x, y, width, height }) => {
     set((state) => ({
+      geometryVersion: state.geometryVersion + 1,
       nodes: state.nodes.map((n) =>
         n.id === id
           ? {
@@ -365,7 +432,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   },
 
   resetEdgeRouting: async (id) => {
-    await get().updateEdgeRouting(id, { mode: 'auto', waypoints: [], label: null }, true);
+    await get().updateEdgeRouting(id, { mode: 'auto', waypoints: [], labelT: null }, true);
   },
 
   importGraph: async (payload) => {

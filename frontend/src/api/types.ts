@@ -26,10 +26,16 @@ export type LineStyle = 'solid' | 'dashed' | 'dotted';
 
 export type FlowPoint = { x: number; y: number };
 
-/** Manuelles Kanten-Routing (BPMN-ähnlich). Beeinflusst: InfraEdge, edgeRoutingState.ts */
+/**
+ * Manuelles Kanten-Routing (BPMN-ähnlich). Beeinflusst: InfraEdge, lib/edge/*
+ * `labelT` verankert das Label auf dem Kantenpfad (0..1 entlang der Linie),
+ * dadurch bleibt es immer an der Linie, auch wenn Nodes verschoben werden.
+ */
 export type EdgeRouting = {
   mode: 'auto' | 'manual';
   waypoints: FlowPoint[];
+  labelT?: number | null;
+  /** Veraltet (absolute Label-Position) — wird ignoriert, nur für Alt-Daten. */
   label?: FlowPoint | null;
 };
 

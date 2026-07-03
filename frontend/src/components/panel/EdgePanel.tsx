@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, RotateCcw, Save, Trash2 } from 'lucide-react';
 import type { ApiEdge, EdgePatch, LineStyle } from '../../api/types';
 import { kindOf } from '../../lib/catalog';
-import { normalizeRouting } from '../../lib/edgeRoutingState';
+import { isRoutingCustomized, normalizeRouting } from '../../lib/edge/routing';
 import { useGraphStore } from '../../store/graph';
 import { CustomFieldsEditor, toRecord, toRows, type FieldRow } from './CustomFieldsEditor';
 import { MarkdownEditor } from './MarkdownEditor';
@@ -41,9 +41,7 @@ export function EdgePanel({ entity }: { entity: ApiEdge }) {
 
   const [draft, setDraft] = useState<Draft>(() => toDraft(entity));
   const [saving, setSaving] = useState(false);
-  const routing = normalizeRouting(entity.routing);
-  const routingCustomized =
-    routing.mode === 'manual' || routing.waypoints.length > 0 || !!routing.label;
+  const routingCustomized = isRoutingCustomized(normalizeRouting(entity.routing));
 
   useEffect(() => {
     setDraft(toDraft(entity));
@@ -146,8 +144,9 @@ export function EdgePanel({ entity }: { entity: ApiEdge }) {
         {routingCustomized && (
           <div className="rounded-md border border-slate-700 bg-slate-900/60 px-3 py-2">
             <p className="text-[11px] text-slate-400">
-              Verlauf oder Label manuell angepasst. Am Canvas: Segment-Handles ziehen, Doppelklick
-              fügt Eckpunkt ein, Label per Drag verschieben.
+              Verlauf oder Label manuell angepasst. Am Canvas: Linie greifen und ziehen,
+              Doppelklick auf die Linie fügt einen Eckpunkt ein (Doppelklick auf Eckpunkt
+              entfernt ihn), Label entlang der Linie verschieben.
             </p>
             <button
               type="button"
