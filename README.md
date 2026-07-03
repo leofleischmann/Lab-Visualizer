@@ -52,6 +52,13 @@ docker compose up -d --build
 
 → Web-UI: **http://localhost:8080** · API (über Frontend-Proxy): **http://localhost:8080/api**
 
+Beim **allerersten Start** (leere Datenbank) legt der Server automatisch ein
+Best-Practice-Beispielprojekt **„Homelab (Beispiel)"** an: eine dreistufige
+Drill-down-Infrastruktur (Übersicht *Internet → Cloudflare → Router → Proxmox → NAS*,
+Detailebene *Proxmox intern* mit Reverse-Proxy/SSO/DB, Detailebene *nginx Routing*).
+So ist sofort ein sinnvolles Beispiel zum Erkunden da, statt einer leeren Canvas.
+Sobald eigene Daten existieren (oder das Beispiel gelöscht wurde), kommt es nicht zurück.
+
 Die SQLite-Datenbank liegt in `./data/labviz.db` — **Backup = Datei/Ordner kopieren**
 (dank WAL-Modus am besten den ganzen `data/`-Ordner oder via
 `sqlite3 data/labviz.db ".backup backup.db"`).
