@@ -12,10 +12,27 @@ export default function App() {
   const loading = useGraphStore((s) => s.loading);
   const error = useGraphStore((s) => s.error);
   const setError = useGraphStore((s) => s.setError);
+  const undo = useGraphStore((s) => s.undo);
+  const redo = useGraphStore((s) => s.redo);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Tastenkürzel für Undo/Redo (nicht, während in Eingabefeldern getippt wird).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z') return;
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || el?.isContentEditable) return;
+      e.preventDefault();
+      if (e.shiftKey) void redo();
+      else void undo();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [undo, redo]);
 
   return (
     <div className="flex h-full flex-col bg-slate-950 text-slate-200">

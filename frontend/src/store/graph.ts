@@ -18,6 +18,8 @@ import type {
   GraphPayload,
   NodePatch,
   Position,
+  Project,
+  ProjectPatch,
   View,
   ViewPatch,
 } from '../api/types';
@@ -27,6 +29,18 @@ export type Selection = { kind: 'node' | 'edge'; id: string } | null;
 function pickRootView(views: View[]): string | null {
   return (views.find((v) => v.parentId === null) ?? views[0])?.id ?? null;
 }
+
+/**
+ * Ein rückgängig machbarer Schritt. `undo`/`redo` rufen die inversen API-Aktionen
+ * auf; danach wird die betroffene Ebene neu geladen. `viewId` sorgt dafür, dass
+ * Undo/Redo bei Bedarf in die richtige Ebene navigiert.
+ */
+export type HistoryEntry = {
+  label: string;
+  viewId: string;
+  undo: () => Promise<void>;
+  redo: () => Promise<void>;
+};
 
 /** Pfad Root → … → aktive Ebene über die parentId-Kette (für Breadcrumb). */
 export function viewPath(views: View[], id: string | null): View[] {
@@ -114,8 +128,12 @@ export function absolutePosition(nodes: FlowNode[], id: string): Position {
 type GraphStore = {
   nodes: FlowNode[];
   edges: FlowEdge[];
+  projects: Project[];
+  activeProjectId: string | null;
   views: View[];
   activeViewId: string | null;
+  past: HistoryEntry[];
+  future: HistoryEntry[];
   catalog: Catalog | null;
   selection: Selection;
   hoverNodeId: string | null;
@@ -137,6 +155,11 @@ type GraphStore = {
   select: (selection: Selection) => void;
   syncSelection: (selection: Selection) => void;
   setHoverNode: (id: string | null) => void;
+
+  setActiveProject: (id: string) => Promise<void>;
+  createProject: (data: ProjectPatch & { name: string }) => Promise<Project | null>;
+  saveProject: (id: string, patch: ProjectPatch) => Promise<boolean>;
+  removeProject: (id: string) => Promise<boolean>;
 
   setActiveView: (id: string) => Promise<void>;
   createView: (data: ViewPatch & { name: string }) => Promise<View | null>;
@@ -168,6 +191,10 @@ type GraphStore = {
   importGraph: (payload: GraphPayload) => Promise<boolean>;
   clearGraph: () => Promise<boolean>;
   autoLayout: () => Promise<boolean>;
+
+  record: (entry: HistoryEntry) => void;
+  undo: () => Promise<void>;
+  redo: () => Promise<void>;
 };
 
 const errorMessage = (err: unknown) =>
@@ -176,8 +203,12 @@ const errorMessage = (err: unknown) =>
 export const useGraphStore = create<GraphStore>((set, get) => ({
   nodes: [],
   edges: [],
+  projects: [],
+  activeProjectId: null,
   views: [],
   activeViewId: null,
+  past: [],
+  future: [],
   catalog: null,
   selection: null,
   hoverNodeId: null,
@@ -190,12 +221,19 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   load: async () => {
     set({ loading: true, error: null });
     try {
-      const [catalog, views] = await Promise.all([api.catalog(), api.listViews()]);
-      const wanted = get().activeViewId ?? pickRootView(views);
+      const [catalog, projects] = await Promise.all([api.catalog(), api.listProjects()]);
+      const activeProjectId =
+        (get().activeProjectId && projects.some((p) => p.id === get().activeProjectId)
+          ? get().activeProjectId
+          : projects[0]?.id) ?? null;
+      const views = activeProjectId ? await api.listViews(activeProjectId) : [];
+      const wanted = pickRootView(views);
       const graph = await api.graph(wanted ?? undefined);
       const flowNodes = orderForFlow(graph.nodes.map(toFlowNode));
       set({
         catalog,
+        projects,
+        activeProjectId,
         views,
         activeViewId: graph.viewId ?? wanted,
         nodes: flowNodes,
@@ -212,7 +250,11 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
 
   reload: async () => {
     try {
-      const [views, graph] = await Promise.all([api.listViews(), api.graph(get().activeViewId ?? undefined)]);
+      const [projects, views, graph] = await Promise.all([
+        api.listProjects(),
+        api.listViews(get().activeProjectId ?? undefined),
+        api.graph(get().activeViewId ?? undefined),
+      ]);
       const { selection } = get();
       const stillExists =
         selection &&
@@ -233,6 +275,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       });
       const nextSelection = stillExists ? selection : null;
       set({
+        projects,
         views,
         nodes: flowNodes,
         edges: nextEdges,
@@ -245,6 +288,69 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       });
     } catch (err) {
       set({ error: errorMessage(err) });
+    }
+  },
+
+  setActiveProject: async (id) => {
+    if (id === get().activeProjectId) return;
+    try {
+      const views = await api.listViews(id);
+      const rootId = pickRootView(views);
+      const graph = await api.graph(rootId ?? undefined);
+      set({
+        activeProjectId: id,
+        views,
+        activeViewId: graph.viewId ?? rootId,
+        nodes: orderForFlow(graph.nodes.map(toFlowNode)),
+        edges: graph.edges.map(toFlowEdge),
+        selection: null,
+        hoverNodeId: null,
+        focus: null,
+        // Undo-History gehört zum Projekt → beim Wechsel leeren
+        past: [],
+        future: [],
+      });
+    } catch (err) {
+      set({ error: errorMessage(err) });
+    }
+  },
+
+  createProject: async (data) => {
+    try {
+      const created = await api.createProject(data);
+      set((state) => ({ projects: [...state.projects, created] }));
+      await get().setActiveProject(created.id);
+      return created;
+    } catch (err) {
+      set({ error: errorMessage(err) });
+      return null;
+    }
+  },
+
+  saveProject: async (id, patch) => {
+    try {
+      const updated = await api.updateProject(id, patch);
+      set((state) => ({ projects: state.projects.map((p) => (p.id === id ? updated : p)) }));
+      return true;
+    } catch (err) {
+      set({ error: errorMessage(err) });
+      return false;
+    }
+  },
+
+  removeProject: async (id) => {
+    try {
+      await api.deleteProject(id);
+      const projects = await api.listProjects();
+      set({ projects });
+      if (id === get().activeProjectId) {
+        const next = projects[0]?.id;
+        if (next) await get().setActiveProject(next);
+      }
+      return true;
+    } catch (err) {
+      set({ error: errorMessage(err) });
+      return false;
     }
   },
 
@@ -267,7 +373,8 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
 
   createView: async (data) => {
     try {
-      const created = await api.createView(data);
+      // Root-Ebenen landen im aktiven Projekt; Unterebenen erben es vom Parent.
+      const created = await api.createView({ projectId: get().activeProjectId ?? undefined, ...data });
       set((state) => ({ views: [...state.views, created] }));
       return created;
     } catch (err) {
@@ -290,7 +397,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   removeView: async (id) => {
     try {
       await api.deleteView(id);
-      const remaining = await api.listViews();
+      const remaining = await api.listViews(get().activeProjectId ?? undefined);
       // Falls die aktive Ebene gelöscht wurde (oder Vorfahr), auf Root wechseln.
       const active = get().activeViewId;
       const stillActive = active && remaining.some((v) => v.id === active);
@@ -377,6 +484,13 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     const idSet = new Set(ids);
     const moved = get().nodes.filter((n) => idSet.has(n.id));
     if (!moved.length) return;
+    // Alte (persistierte) und neue Positionen für Undo erfassen.
+    const oldPos = moved.map((n) => ({
+      id: n.id,
+      x: n.data.entity.position.x,
+      y: n.data.entity.position.y,
+    }));
+    const newPos = moved.map((n) => ({ id: n.id, x: n.position.x, y: n.position.y }));
     set((state) => ({
       nodes: state.nodes.map((n) =>
         idSet.has(n.id)
@@ -385,9 +499,17 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       ),
     }));
     try {
-      await api.updatePositions(
-        moved.map((n) => ({ id: n.id, x: n.position.x, y: n.position.y }))
-      );
+      await api.updatePositions(newPos);
+      const viewId = get().activeViewId;
+      const changed = newPos.some((p, i) => p.x !== oldPos[i].x || p.y !== oldPos[i].y);
+      if (viewId && changed) {
+        get().record({
+          label: 'Verschieben',
+          viewId,
+          undo: async () => void (await api.updatePositions(oldPos)),
+          redo: async () => void (await api.updatePositions(newPos)),
+        });
+      }
     } catch (err) {
       set({ error: errorMessage(err) });
     }
@@ -431,6 +553,12 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
         edges: state.edges.map((e) => ({ ...e, selected: false })),
         selection: { kind: 'node', id: created.id },
       }));
+      get().record({
+        label: 'Node anlegen',
+        viewId: created.viewId,
+        undo: () => api.deleteNode(created.id),
+        redo: async () => void (await api.createNode(created)),
+      });
       return created;
     } catch (err) {
       set({ error: errorMessage(err) });
@@ -439,13 +567,13 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   },
 
   saveNode: async (id, patch) => {
-    const before = get().nodes.find((n) => n.id === id);
+    const before = get().nodes.find((n) => n.id === id)?.data.entity;
     try {
       const updated = await api.updateNode(id, patch);
       const structuralChange =
         patch.parentId !== undefined ||
         (patch.category !== undefined &&
-          (patch.category === 'group') !== (before?.data.entity.category === 'group'));
+          (patch.category === 'group') !== (before?.category === 'group'));
       if (structuralChange) {
         await get().reload();
       } else {
@@ -455,6 +583,14 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
           ),
         }));
       }
+      if (before) {
+        get().record({
+          label: 'Node bearbeiten',
+          viewId: before.viewId,
+          undo: async () => void (await api.updateNode(id, before)),
+          redo: async () => void (await api.updateNode(id, updated)),
+        });
+      }
       return true;
     } catch (err) {
       set({ error: errorMessage(err) });
@@ -463,6 +599,10 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   },
 
   removeNode: async (id) => {
+    const node = get().nodes.find((n) => n.id === id)?.data.entity;
+    const connectedEdges = get()
+      .edges.filter((e) => e.source === id || e.target === id)
+      .map((e) => e.data!.entity);
     try {
       await api.deleteNode(id);
       set((state) => ({
@@ -470,6 +610,17 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       }));
       // Kinder wurden serverseitig umgehängt → Graph neu laden
       await get().reload();
+      if (node) {
+        get().record({
+          label: 'Node löschen',
+          viewId: node.viewId,
+          undo: async () => {
+            await api.createNode(node);
+            for (const e of connectedEdges) await api.createEdge(e);
+          },
+          redo: () => api.deleteNode(id),
+        });
+      }
     } catch (err) {
       set({ error: errorMessage(err) });
     }
@@ -489,12 +640,19 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
         edges: [...state.edges.map((e) => ({ ...e, selected: false })), flow],
         selection: { kind: 'edge', id: created.id },
       }));
+      get().record({
+        label: 'Verbindung anlegen',
+        viewId: created.viewId,
+        undo: () => api.deleteEdge(created.id),
+        redo: async () => void (await api.createEdge(created)),
+      });
     } catch (err) {
       set({ error: errorMessage(err) });
     }
   },
 
   saveEdge: async (id, patch) => {
+    const before = get().edges.find((e) => e.id === id)?.data?.entity;
     try {
       const updated = await api.updateEdge(id, patch);
       set((state) => ({
@@ -502,6 +660,14 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
           e.id === id ? { ...toFlowEdge(updated), selected: e.selected } : e
         ),
       }));
+      if (before) {
+        get().record({
+          label: 'Verbindung bearbeiten',
+          viewId: before.viewId,
+          undo: async () => void (await api.updateEdge(id, before)),
+          redo: async () => void (await api.updateEdge(id, updated)),
+        });
+      }
       return true;
     } catch (err) {
       set({ error: errorMessage(err) });
@@ -510,8 +676,11 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   },
 
   removeEdge: async (id) => {
+    const edge = get().edges.find((e) => e.id === id)?.data?.entity;
+    let deleted = false;
     try {
       await api.deleteEdge(id);
+      deleted = true;
     } catch (err) {
       // 404 = bereits durch Node-Kaskade entfernt → ignorieren
       if (!(err instanceof Error && 'status' in err && err.status === 404)) {
@@ -524,9 +693,19 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       selection:
         state.selection?.kind === 'edge' && state.selection.id === id ? null : state.selection,
     }));
+    if (deleted && edge) {
+      get().record({
+        label: 'Verbindung löschen',
+        viewId: edge.viewId,
+        undo: async () => void (await api.createEdge(edge)),
+        redo: () => api.deleteEdge(id),
+      });
+    }
   },
 
   updateEdgeRouting: async (id, routing, persist = true) => {
+    const before = persist ? get().edges.find((e) => e.id === id)?.data?.entity : undefined;
+    const beforeRouting = before?.routing;
     set((state) => ({
       edges: state.edges.map((e) =>
         e.id === id && e.data?.entity
@@ -537,6 +716,14 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     if (!persist) return;
     try {
       await api.updateEdge(id, { routing });
+      if (before && beforeRouting) {
+        get().record({
+          label: 'Kantenverlauf',
+          viewId: before.viewId,
+          undo: async () => void (await api.updateEdge(id, { routing: beforeRouting })),
+          redo: async () => void (await api.updateEdge(id, { routing })),
+        });
+      }
     } catch (err) {
       set({ error: errorMessage(err) });
     }
@@ -579,6 +766,38 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     } catch (err) {
       set({ error: errorMessage(err) });
       return false;
+    }
+  },
+
+  // ── Undo / Redo ───────────────────────────────────────────────
+  record: (entry) => set((s) => ({ past: [...s.past, entry].slice(-100), future: [] })),
+
+  undo: async () => {
+    const entry = get().past[get().past.length - 1];
+    if (!entry) return;
+    set((s) => ({ past: s.past.slice(0, -1) }));
+    try {
+      await entry.undo();
+      // In die betroffene Ebene navigieren bzw. aktuelle Ebene neu laden.
+      if (get().activeViewId !== entry.viewId) await get().setActiveView(entry.viewId);
+      else await get().reload();
+      set((s) => ({ future: [entry, ...s.future] }));
+    } catch (err) {
+      set({ error: errorMessage(err) });
+    }
+  },
+
+  redo: async () => {
+    const entry = get().future[0];
+    if (!entry) return;
+    set((s) => ({ future: s.future.slice(1) }));
+    try {
+      await entry.redo();
+      if (get().activeViewId !== entry.viewId) await get().setActiveView(entry.viewId);
+      else await get().reload();
+      set((s) => ({ past: [...s.past, entry] }));
+    } catch (err) {
+      set({ error: errorMessage(err) });
     }
   },
 }));

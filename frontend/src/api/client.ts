@@ -5,6 +5,8 @@ import type {
   EdgePatch,
   GraphPayload,
   NodePatch,
+  Project,
+  ProjectPatch,
   View,
   ViewPatch,
 } from './types';
@@ -60,7 +62,21 @@ export const api = {
       body: JSON.stringify(options ?? {}),
     }),
 
-  listViews: () => request<View[]>('/views'),
+  listProjects: () => request<Project[]>('/projects'),
+  createProject: (data: ProjectPatch & { name: string }) =>
+    request<Project>('/projects', { method: 'POST', body: JSON.stringify(data) }),
+  updateProject: (id: string, patch: ProjectPatch) =>
+    request<Project>(`/projects/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  deleteProject: (id: string) =>
+    request<{ views: number; nodes: number }>(`/projects/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+
+  listViews: (projectId?: string) =>
+    request<View[]>(projectId ? `/views?projectId=${encodeURIComponent(projectId)}` : '/views'),
   createView: (data: ViewPatch & { name: string }) =>
     request<View>('/views', { method: 'POST', body: JSON.stringify(data) }),
   updateView: (id: string, patch: ViewPatch) =>
@@ -72,6 +88,12 @@ export const api = {
     request<{ views: number; nodes: number }>(`/views/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     }),
+
+  /** Globale Suche über alle Ebenen eines Projekts. */
+  searchNodes: (projectId: string, q: string) =>
+    request<ApiNode[]>(
+      `/nodes?projectId=${encodeURIComponent(projectId)}&q=${encodeURIComponent(q)}`
+    ),
 
   createNode: (data: NodePatch & { name: string }) =>
     request<ApiNode>('/nodes', { method: 'POST', body: JSON.stringify(data) }),

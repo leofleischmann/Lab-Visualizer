@@ -68,7 +68,7 @@ export function ViewBar() {
   };
 
   return (
-    <div className="relative flex h-9 shrink-0 items-center gap-1 border-b border-slate-800 bg-slate-900/60 px-3 text-xs">
+    <div className="relative z-30 flex h-9 shrink-0 items-center gap-1 border-b border-slate-800 bg-slate-900/60 px-3 text-xs">
       <Layers size={14} className="shrink-0 text-slate-500" />
 
       {/* Breadcrumb der Drill-Hierarchie */}

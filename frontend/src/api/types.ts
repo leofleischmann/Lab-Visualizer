@@ -2,9 +2,23 @@ import type { Node, Edge } from '@xyflow/react';
 
 export type Position = { x: number; y: number };
 
-/** Ebene (View): benannter Canvas in einer Drill-down-Hierarchie. */
+/** Projekt: komplett getrennter Arbeitsbereich (z. B. „Homelab", „Arbeit"). */
+export type Project = {
+  id: string;
+  name: string;
+  color: string | null;
+  icon: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProjectPatch = Partial<Omit<Project, 'id' | 'createdAt' | 'updatedAt'>>;
+
+/** Ebene (View): benannter Canvas in einer Drill-down-Hierarchie eines Projekts. */
 export type View = {
   id: string;
+  projectId: string;
   name: string;
   parentId: string | null;
   description: string;
@@ -101,7 +115,13 @@ export type Catalog = {
   lineStyles: LineStyle[];
 };
 
-export type GraphPayload = { viewId?: string; views?: View[]; nodes: ApiNode[]; edges: ApiEdge[] };
+export type GraphPayload = {
+  viewId?: string;
+  projects?: Project[];
+  views?: View[];
+  nodes: ApiNode[];
+  edges: ApiEdge[];
+};
 
 export type FlowNode = Node<{ entity: ApiNode }>;
 export type FlowEdge = Edge<{ entity: ApiEdge }>;
