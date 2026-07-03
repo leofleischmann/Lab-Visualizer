@@ -5,10 +5,11 @@ import { nodeCreateSchema, nodeUpdateSchema, positionsSchema, parseOrThrow } fro
 export function nodesRouter(db) {
   const router = Router();
 
-  // GET /api/nodes?q=&category=&status=
+  // GET /api/nodes?q=&category=&status=&viewId=&projectId=
+  // projectId → globale Suche über alle Ebenen eines Projekts
   router.get('/', (req, res) => {
-    const { q, category, status } = req.query;
-    res.json(store.listNodes(db, { q, category, status }));
+    const { q, category, status, viewId, projectId } = req.query;
+    res.json(store.listNodes(db, { q, category, status, viewId, projectId }));
   });
 
   // POST /api/nodes

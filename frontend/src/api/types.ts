@@ -2,12 +2,45 @@ import type { Node, Edge } from '@xyflow/react';
 
 export type Position = { x: number; y: number };
 
+/** Projekt: komplett getrennter Arbeitsbereich (z. B. „Homelab", „Arbeit"). */
+export type Project = {
+  id: string;
+  name: string;
+  color: string | null;
+  icon: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProjectPatch = Partial<Omit<Project, 'id' | 'createdAt' | 'updatedAt'>>;
+
+/** Ebene (View): benannter Canvas in einer Drill-down-Hierarchie eines Projekts. */
+export type View = {
+  id: string;
+  projectId: string;
+  name: string;
+  parentId: string | null;
+  description: string;
+  color: string | null;
+  icon: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ViewPatch = Partial<Omit<View, 'id' | 'createdAt' | 'updatedAt'>>;
+
 export type ApiNode = {
   id: string;
   name: string;
   category: string;
   status: string;
   parentId: string | null;
+  /** Ebene, zu der dieser Node gehört. */
+  viewId: string;
+  /** Optionales Drill-down-Portal: Doppelklick öffnet diese (Detail-)Ebene. */
+  linkedViewId: string | null;
   position: Position;
   width: number | null;
   height: number | null;
@@ -43,6 +76,8 @@ export type ApiEdge = {
   id: string;
   sourceId: string;
   targetId: string;
+  /** Ebene, zu der diese Verbindung gehört (Quelle & Ziel liegen in derselben Ebene). */
+  viewId: string;
   label: string;
   kind: string;
   lineStyle: LineStyle;
@@ -80,7 +115,13 @@ export type Catalog = {
   lineStyles: LineStyle[];
 };
 
-export type GraphPayload = { nodes: ApiNode[]; edges: ApiEdge[] };
+export type GraphPayload = {
+  viewId?: string;
+  projects?: Project[];
+  views?: View[];
+  nodes: ApiNode[];
+  edges: ApiEdge[];
+};
 
 export type FlowNode = Node<{ entity: ApiNode }>;
 export type FlowEdge = Edge<{ entity: ApiEdge }>;

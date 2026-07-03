@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { type NodeProps } from '@xyflow/react';
 import clsx from 'clsx';
+import { Layers } from 'lucide-react';
 import type { FlowNode } from '../../api/types';
 import { categoryOf, iconOf, matchesSearch, statusOf } from '../../lib/catalog';
 import { useGraphStore } from '../../store/graph';
@@ -17,22 +18,34 @@ function InfraNodeComponent({ id, data, selected }: NodeProps<FlowNode>) {
   const status = statusOf(catalog, entity.status);
   const Icon = iconOf(category.icon);
   const match = search.trim() ? matchesSearch(entity, search.trim()) : null;
+  const isPortal = !!entity.linkedViewId;
 
   return (
     <div
       className={clsx(
-        'group w-[230px] rounded-xl border bg-slate-900/95 px-3 py-2.5 shadow-lg shadow-black/40 transition-opacity',
+        'group relative w-[230px] rounded-xl border bg-slate-900/95 px-3 py-2.5 shadow-lg shadow-black/40 transition-opacity',
         selected
           ? 'border-sky-400 ring-2 ring-sky-400/40'
           : match === true
             ? 'border-amber-400 ring-2 ring-amber-400/50'
-            : 'border-slate-700',
+            : isPortal
+              ? 'border-indigo-400/70'
+              : 'border-slate-700',
         match === false ? 'opacity-25' : dimmed && 'opacity-30'
       )}
       style={{ borderLeftWidth: 4, borderLeftColor: category.color }}
+      title={isPortal ? 'Doppelklick öffnet die Detailebene' : undefined}
     >
       <ConnectionHandles visible={!!selected} />
       <ConnectionDropTarget />
+      {isPortal && (
+        <span
+          className="pointer-events-none absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-indigo-300 bg-indigo-500 text-white shadow-md shadow-black/40"
+          title="Detailebene verknüpft (Doppelklick öffnet sie)"
+        >
+          <Layers size={11} />
+        </span>
+      )}
       <div className="flex items-center gap-2.5">
         <span
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
