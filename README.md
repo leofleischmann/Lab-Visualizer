@@ -8,6 +8,13 @@ visuell pflegen und dokumentieren — mit interaktiver Canvas (React Flow), Deep
 
 ## Features
 
+- **Projekte** — komplett getrennte Arbeitsbereiche (z. B. „Homelab“, „Arbeit“). Jedes Projekt
+  hat eigene Ebenen, Nodes und Verbindungen; der Umschalter in der Kopfzeile wechselt zwischen
+  ihnen. Anlegen, umbenennen, löschen (kaskadiert).
+- **Globale Suche** — durchsucht alle Ebenen des aktiven Projekts; ein Klick auf einen Treffer
+  springt in die richtige Ebene und selektiert den Node.
+- **Undo / Redo** — für alle Canvas-Änderungen (Node/Verbindung anlegen, löschen, verschieben,
+  bearbeiten, Kantenverlauf) inkl. Tastenkürzel (Strg/Cmd+Z, Umschalt für Wiederholen).
 - **Ebenen (Drill-down-Hierarchie)** — Infrastruktur in Abstraktionsebenen gliedern statt alles
   auf eine Fläche zu quetschen. Ein Node der Übersicht (z. B. „Mein Server“) verlinkt in eine
   eigene **Detailebene** mit seinem internen Routing; **Doppelklick** zoomt hinein (wie im
