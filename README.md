@@ -8,6 +8,18 @@ visuell pflegen und dokumentieren — mit interaktiver Canvas (React Flow), Deep
 
 ## Features
 
+- **Projekte** — komplett getrennte Arbeitsbereiche (z. B. „Homelab“, „Arbeit“). Jedes Projekt
+  hat eigene Ebenen, Nodes und Verbindungen; der Umschalter in der Kopfzeile wechselt zwischen
+  ihnen. Anlegen, umbenennen, löschen (kaskadiert).
+- **Globale Suche** — durchsucht alle Ebenen des aktiven Projekts; ein Klick auf einen Treffer
+  springt in die richtige Ebene und selektiert den Node.
+- **Undo / Redo** — für alle Canvas-Änderungen (Node/Verbindung anlegen, löschen, verschieben,
+  bearbeiten, Kantenverlauf) inkl. Tastenkürzel (Strg/Cmd+Z, Umschalt für Wiederholen).
+- **Ebenen (Drill-down-Hierarchie)** — Infrastruktur in Abstraktionsebenen gliedern statt alles
+  auf eine Fläche zu quetschen. Ein Node der Übersicht (z. B. „Mein Server“) verlinkt in eine
+  eigene **Detailebene** mit seinem internen Routing; **Doppelklick** zoomt hinein (wie im
+  C4-Modell). Navigation per **Breadcrumb** und Ebenen-Baum. Jede Ebene ist eine eigene,
+  fokussierte Canvas — Kanten verbinden nur Nodes derselben Ebene.
 - **Visueller Editor** — Nodes (Server, LXCs, VMs, Dienste, Cloud-Komponenten) frei auf der
   Canvas platzieren, per Drag & Drop aus der Palette erstellen und mit Verbindungen (Edges)
   verknüpfen. Zonen/Gruppen (z. B. „Proxmox“, „Cloudflare Edge“) fassen Nodes zusammen und
@@ -39,6 +51,13 @@ docker compose up -d --build
 ```
 
 → Web-UI: **http://localhost:8080** · API (über Frontend-Proxy): **http://localhost:8080/api**
+
+Beim **allerersten Start** (leere Datenbank) legt der Server automatisch ein
+Best-Practice-Beispielprojekt **„Homelab (Beispiel)"** an: eine dreistufige
+Drill-down-Infrastruktur (Übersicht *Internet → Cloudflare → Router → Proxmox → NAS*,
+Detailebene *Proxmox intern* mit Reverse-Proxy/SSO/DB, Detailebene *nginx Routing*).
+So ist sofort ein sinnvolles Beispiel zum Erkunden da, statt einer leeren Canvas.
+Sobald eigene Daten existieren (oder das Beispiel gelöscht wurde), kommt es nicht zurück.
 
 Die SQLite-Datenbank liegt in `./data/labviz.db` — **Backup = Datei/Ordner kopieren**
 (dank WAL-Modus am besten den ganzen `data/`-Ordner oder via

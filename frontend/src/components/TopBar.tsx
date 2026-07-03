@@ -1,16 +1,20 @@
 import { useRef } from 'react';
 import { useReactFlow } from '@xyflow/react';
-import { Download, LayoutGrid, Network, Search, Trash2, Upload } from 'lucide-react';
+import { Download, LayoutGrid, Redo2, Trash2, Undo2, Upload } from 'lucide-react';
 import { api } from '../api/client';
 import { useGraphStore } from '../store/graph';
+import { GlobalSearch } from './GlobalSearch';
+import { ProjectSwitcher } from './projects/ProjectSwitcher';
 
 export function TopBar() {
-  const search = useGraphStore((s) => s.search);
-  const setSearch = useGraphStore((s) => s.setSearch);
   const setError = useGraphStore((s) => s.setError);
   const importGraph = useGraphStore((s) => s.importGraph);
   const clearGraph = useGraphStore((s) => s.clearGraph);
   const autoLayout = useGraphStore((s) => s.autoLayout);
+  const undo = useGraphStore((s) => s.undo);
+  const redo = useGraphStore((s) => s.redo);
+  const canUndo = useGraphStore((s) => s.past.length > 0);
+  const canRedo = useGraphStore((s) => s.future.length > 0);
   const nodeCount = useGraphStore((s) => s.nodes.length);
   const edgeCount = useGraphStore((s) => s.edges.length);
   const isEmpty = nodeCount === 0 && edgeCount === 0;
@@ -60,41 +64,56 @@ export function TopBar() {
       }
       const ok = window.confirm(
         `Import ersetzt den kompletten Graphen (${nodeCount} Nodes, ${edgeCount} Verbindungen) durch ` +
-          `${parsed.nodes.length} Nodes / ${parsed.edges?.length ?? 0} Verbindungen. Fortfahren?`
+          `${parsed.nodes.length} Nodes / ${parsed.edges?.length ?? 0} Verbindungen` +
+          `${parsed.views?.length ? ` / ${parsed.views.length} Ebenen` : ''}. Fortfahren?`
       );
       if (!ok) return;
-      if (await importGraph({ nodes: parsed.nodes, edges: parsed.edges ?? [] })) refitView();
+      if (
+        await importGraph({
+          projects: parsed.projects ?? [],
+          views: parsed.views ?? [],
+          nodes: parsed.nodes,
+          edges: parsed.edges ?? [],
+        })
+      )
+        refitView();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Import fehlgeschlagen');
     }
   };
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-4 border-b border-slate-800 bg-slate-900/80 px-4 backdrop-blur">
-      <div className="flex items-center gap-2.5">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500/15 text-sky-400">
-          <Network size={18} />
-        </span>
-        <div className="leading-tight">
-          <h1 className="text-sm font-bold tracking-tight text-slate-100">Lab Visualizer</h1>
-          <p className="text-[10px] text-slate-500">
-            {nodeCount} Nodes · {edgeCount} Verbindungen
-          </p>
+    <header className="relative z-40 flex h-14 shrink-0 items-center gap-4 border-b border-slate-800 bg-slate-900/80 px-4 backdrop-blur">
+      <div className="flex shrink-0 items-center gap-2.5">
+        <ProjectSwitcher />
+        <p className="hidden text-[10px] text-slate-500 lg:block">
+          {nodeCount} Nodes · {edgeCount} Verbindungen
+        </p>
+      </div>
+
+      <GlobalSearch />
+
+      <div className="flex shrink-0 items-center gap-2">
+        <div className="mr-1 flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() => void undo()}
+            disabled={!canUndo}
+            title="Rückgängig (Strg+Z)"
+            className="flex items-center rounded-md border border-slate-700 p-1.5 text-slate-300 transition-colors hover:border-sky-500 hover:text-sky-300 disabled:cursor-not-allowed disabled:border-slate-800 disabled:text-slate-600"
+          >
+            <Undo2 size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => void redo()}
+            disabled={!canRedo}
+            title="Wiederholen (Strg+Umschalt+Z)"
+            className="flex items-center rounded-md border border-slate-700 p-1.5 text-slate-300 transition-colors hover:border-sky-500 hover:text-sky-300 disabled:cursor-not-allowed disabled:border-slate-800 disabled:text-slate-600"
+          >
+            <Redo2 size={14} />
+          </button>
         </div>
-      </div>
-
-      <div className="relative mx-auto w-full max-w-md">
-        <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Suchen: Name, IP, Hostname, Custom Fields …"
-          spellCheck={false}
-          className="w-full rounded-lg border border-slate-700 bg-slate-950/70 py-1.5 pl-8 pr-3 text-xs text-slate-200 placeholder:text-slate-600 focus:border-sky-500 focus:outline-none"
-        />
-      </div>
-
-      <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={() => void handleExport()}

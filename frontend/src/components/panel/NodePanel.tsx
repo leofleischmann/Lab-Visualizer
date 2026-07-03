@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ExternalLink, Save, Trash2 } from 'lucide-react';
+import { ExternalLink, Layers, Plus, Save, Trash2, X } from 'lucide-react';
 import type { ApiNode, NodePatch } from '../../api/types';
 import { categoryOf, groupedCategories, iconOf } from '../../lib/catalog';
 import { absolutePosition, useGraphStore } from '../../store/graph';
@@ -38,8 +38,13 @@ const toDraft = (entity: ApiNode): Draft => ({
 export function NodePanel({ entity }: { entity: ApiNode }) {
   const catalog = useGraphStore((s) => s.catalog);
   const nodes = useGraphStore((s) => s.nodes);
+  const views = useGraphStore((s) => s.views);
   const saveNode = useGraphStore((s) => s.saveNode);
   const removeNode = useGraphStore((s) => s.removeNode);
+  const createDetailView = useGraphStore((s) => s.createDetailView);
+  const setActiveView = useGraphStore((s) => s.setActiveView);
+
+  const linkedView = views.find((v) => v.id === entity.linkedViewId) ?? null;
 
   const [draft, setDraft] = useState<Draft>(() => toDraft(entity));
   const [saving, setSaving] = useState(false);
@@ -100,6 +105,11 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
     if (window.confirm(`"${entity.name}" inkl. aller verbundenen Kanten löschen?`)) {
       void removeNode(entity.id);
     }
+  };
+
+  const handleCreateDetail = () => {
+    const name = window.prompt('Name der Detailebene:', `${entity.name} – intern`);
+    if (name?.trim()) void createDetailView(entity.id, name.trim());
   };
 
   return (
@@ -225,6 +235,63 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
               </a>
             )}
           </div>
+        </Field>
+
+        <Field label="Detailebene (Drill-down)">
+          {linkedView ? (
+            <div className="space-y-2 rounded-md border border-indigo-500/40 bg-indigo-500/5 px-3 py-2">
+              <p className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                <Layers size={12} className="text-indigo-300" />
+                Verknüpft mit{' '}
+                <span className="font-medium text-indigo-300">{linkedView.name}</span>. Doppelklick
+                auf den Node öffnet sie.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => void setActiveView(linkedView.id)}
+                  className="flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1 text-[11px] font-medium text-white transition-colors hover:bg-indigo-500"
+                >
+                  <Layers size={12} /> Ebene öffnen
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void saveNode(entity.id, { linkedViewId: null })}
+                  className="flex items-center gap-1 rounded-md border border-slate-700 px-2.5 py-1 text-[11px] font-medium text-slate-400 transition-colors hover:border-slate-500 hover:text-slate-200"
+                >
+                  <X size={12} /> Verknüpfung entfernen
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={handleCreateDetail}
+                className="flex w-full items-center justify-center gap-1.5 rounded-md border border-indigo-500/50 bg-indigo-500/10 px-3 py-1.5 text-[11px] font-medium text-indigo-300 transition-colors hover:bg-indigo-500/20"
+              >
+                <Plus size={13} /> Detailebene erstellen
+              </button>
+              {views.some((v) => v.id !== entity.viewId) && (
+                <select
+                  value=""
+                  onChange={(e) => {
+                    if (e.target.value) void saveNode(entity.id, { linkedViewId: e.target.value });
+                  }}
+                  className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-300 focus:border-sky-500 focus:outline-none"
+                >
+                  <option value="">… oder bestehende Ebene verknüpfen</option>
+                  {views
+                    .filter((v) => v.id !== entity.viewId)
+                    .map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name}
+                      </option>
+                    ))}
+                </select>
+              )}
+            </div>
+          )}
         </Field>
 
         <Field label="Notizen (Markdown)">

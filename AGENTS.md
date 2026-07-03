@@ -54,6 +54,55 @@ Erfolg ohne Body: `204 No Content` (DELETE).
 
 ## Datenmodell
 
+### Project (Projekt)
+
+Projekte sind **komplett getrennte Arbeitsbereiche** (z. B. „Homelab", „Arbeit"). Jede Ebene
+gehört zu genau einem Projekt; beim Arbeiten sieht man nur die Ebenen/Nodes des aktiven
+Projekts. Hierarchie: **Projekt → Ebenen (Baum) → Nodes/Edges**.
+
+```json
+{ "id": "homelab", "name": "Mein Homelab", "color": "#38bdf8", "icon": "boxes", "sortOrder": 0 }
+```
+
+- Es existiert **immer mindestens ein** Projekt (Default „Mein Homelab" wird automatisch
+  angelegt, inkl. leerer Root-Ebene). Ein neues Projekt startet mit einer eigenen Root-Ebene.
+- Ein Projekt löschen **kaskadiert** auf alle Ebenen/Nodes/Edges; das **letzte** Projekt
+  bleibt erhalten.
+
+### View (Ebene)
+
+Ebenen gliedern ein Projekt in eine **Drill-down-Hierarchie** (C4-artig): eine
+Übersichts-Ebene zeigt grobe Bausteine, ein Node kann in eine eigene **Detail-Ebene**
+verlinken. Jeder Node/jede Edge gehört zu **genau einer** Ebene.
+
+```json
+{
+  "id": "server-intern",
+  "projectId": "homelab",
+  "name": "Server-Intern",
+  "parentId": null,
+  "description": "",
+  "color": "#38bdf8",
+  "icon": "layers",
+  "sortOrder": 0,
+  "createdAt": "…",
+  "updatedAt": "…"
+}
+```
+
+| Feld | Pflicht | Default | Beschreibung |
+|---|---|---|---|
+| `id` | nein (POST) | UUID | Stabile ID |
+| `projectId` | nein | Default-Projekt | Projekt der Ebene (erbt bei `parentId` vom Parent) |
+| `name` | ja | — | Anzeigename |
+| `parentId` | nein | `null` | Eltern-Ebene (Baum); `null` = Root-Ebene |
+| `description`, `color`, `icon`, `sortOrder` | nein | — | Metadaten für die UI |
+
+- Es existiert **immer mindestens eine** Ebene (Root „Übersicht" wird automatisch angelegt).
+- Neue Nodes/Edges ohne `viewId` landen in der ersten Root-Ebene.
+- Eine Ebene löschen **kaskadiert** auf Unterebenen inkl. deren Nodes/Edges; die **letzte**
+  Ebene kann nicht gelöscht werden.
+
 ### Node
 
 ```json
@@ -63,6 +112,8 @@ Erfolg ohne Body: `204 No Content` (DELETE).
   "category": "reverse-proxy",
   "status": "running",
   "parentId": "proxmox-zone",
+  "viewId": "server-intern",
+  "linkedViewId": null,
   "position": { "x": 120, "y": 80 },
   "width": null,
   "height": null,
@@ -85,6 +136,8 @@ Erfolg ohne Body: `204 No Content` (DELETE).
 | `category` | nein | `generic` | Kategorie-String (beliebig, siehe Katalog) |
 | `status` | nein | `unknown` | Siehe Status-Werte |
 | `parentId` | nein | `null` | Zone/Gruppe; `category: "group"` für visuelle Zonen |
+| `viewId` | nein | erste Root-Ebene | Ebene, zu der der Node gehört |
+| `linkedViewId` | nein | `null` | Drill-down-Portal: verlinkte Detail-Ebene (Doppelklick öffnet sie) |
 | `position` | nein | `{x:0,y:0}` | Canvas-Position (siehe Parent-Regel) |
 | `width`, `height` | nein | `null` | Nur für Zonen (`category: "group"`) |
 | `ip`, `vlan`, `os`, `hostname`, `url` | nein | `null` | Typisierte Infrastruktur-Felder |
@@ -102,6 +155,7 @@ Erfolg ohne Body: `204 No Content` (DELETE).
   "id": "e-nginx-app",
   "sourceId": "nginx",
   "targetId": "web-app",
+  "viewId": "server-intern",
   "label": "HTTP :80",
   "kind": "http",
   "lineStyle": "solid",
@@ -117,6 +171,7 @@ Erfolg ohne Body: `204 No Content` (DELETE).
 | Feld | Pflicht | Default |
 |---|---|---|
 | `sourceId`, `targetId` | ja | — |
+| `viewId` | nein | Ebene der Quelle | Ebene der Kante (**Quelle & Ziel müssen dieselbe Ebene haben**) |
 | `label` | nein | `""` |
 | `kind` | nein | `generic` |
 | `lineStyle` | nein | `solid` |
@@ -133,11 +188,14 @@ Erfolg ohne Body: `204 No Content` (DELETE).
 
 ### Graph
 
+`GET /graph?viewId=…` liefert **nur die Nodes/Edges einer Ebene** (ohne `viewId`: Root-Ebene):
+
 ```json
-{ "nodes": [ /* Node[] */ ], "edges": [ /* Edge[] */ ] }
+{ "viewId": "…", "nodes": [ /* Node[] */ ], "edges": [ /* Edge[] */ ] }
 ```
 
-Export zusätzlich: `{ "version": 1, "exportedAt": "…", "nodes": [], "edges": [] }`
+Export enthält **alle** Projekte, Ebenen, Nodes und Edges:
+`{ "version": 3, "exportedAt": "…", "projects": [], "views": [], "nodes": [], "edges": [] }`
 
 ---
 
@@ -163,9 +221,37 @@ Export zusätzlich: `{ "version": 1, "exportedAt": "…", "nodes": [], "edges": 
 
 8. **Suche `GET /nodes?q=`:** Durchsucht `name`, `ip`, `hostname`, `url`, `os` — **nicht** `customFields`.
 
+9. **Ebenen (Views):** Jeder Node/jede Edge gehört zu genau einer Ebene (`viewId`). Kanten
+   verbinden nur Nodes **derselben** Ebene. Ebenen-übergreifende Bezüge werden über
+   `node.linkedViewId` (Drill-down) modelliert, nicht über Kanten. Auto-Align (`/graph/layout`)
+   wirkt nur auf die angegebene `viewId`. Import: `views` mit Parents **vor** Kindern.
+
+10. **Projekte:** Oberste Ebene, komplett getrennt. `GET /views?projectId=` und
+    `GET /nodes?projectId=` (globale Suche) scopen auf ein Projekt. Import: `projects` zuerst.
+
 ---
 
 ## Endpunkte
+
+### Projekte
+
+| Methode | Pfad | Beschreibung |
+|---|---|---|
+| `GET` | `/projects` | Alle Projekte |
+| `POST` | `/projects` | Projekt (inkl. leerer Root-Ebene) anlegen → `201` |
+| `GET` | `/projects/:id` | Einzelnes Projekt |
+| `PATCH`/`PUT` | `/projects/:id` | Partielles Update |
+| `DELETE` | `/projects/:id` | Kaskadiert auf Ebenen/Nodes/Edges (letztes Projekt: `400`) |
+
+### Ebenen (Views)
+
+| Methode | Pfad | Beschreibung |
+|---|---|---|
+| `GET` | `/views?projectId=` | Ebenen (eines Projekts; flach, Hierarchie über `parentId`) |
+| `POST` | `/views` | Ebene anlegen → `201` |
+| `GET` | `/views/:id` | Einzelne Ebene |
+| `PATCH`/`PUT` | `/views/:id` | Partielles Update |
+| `DELETE` | `/views/:id` | Kaskadiert auf Unterebenen + Nodes/Edges (letzte Ebene des Projekts: `400`) |
 
 ### Health
 
@@ -188,30 +274,33 @@ Unbekannte Kategorien werden in der UI mit Fallback-Icon gerendert.
 
 | Methode | Pfad | Beschreibung |
 |---|---|---|
-| `GET` | `/graph` | Kompletter Graph |
-| `GET` | `/graph/export` | Backup-JSON (mit `version`, `exportedAt`) |
-| `POST` | `/graph/import` | Graph ersetzen |
-| `POST` | `/graph/layout` | Auto-Align (Positionen + Zonengrößen) |
+| `GET` | `/graph?viewId=` | Graph **einer Ebene** (Default: Root) |
+| `GET` | `/graph/export` | Backup-JSON (alle Projekte/Ebenen; `version`, `exportedAt`) |
+| `POST` | `/graph/import` | Graph inkl. Projekte/Ebenen ersetzen |
+| `POST` | `/graph/layout` | Auto-Align einer Ebene (`viewId` im Body) |
 
 **Import-Body:**
 
 ```json
 {
   "mode": "replace",
-  "nodes": [ /* Node mit id */ ],
+  "projects": [ /* Project mit id */ ],
+  "views": [ /* View mit id + projectId, Parents zuerst */ ],
+  "nodes": [ /* Node mit id + viewId */ ],
   "edges": [ /* Edge */ ]
 }
 ```
 
-**Antwort:** `{ "nodes": 42, "edges": 17 }`
+**Antwort:** `{ "projects": 2, "views": 3, "nodes": 42, "edges": 17 }`
+(`projects`/`views` fehlen → alles in Default-Projekt/Root-Ebene)
 
 **Layout-Body (optional):**
 
 ```json
-{ "maxCols": 5 }
+{ "viewId": "server-intern", "maxCols": 5 }
 ```
 
-Ordnet alle Nodes deterministisch an:
+Ordnet die Nodes **der angegebenen Ebene** (Default: Root) deterministisch an:
 - Schichten entlang der Kanten + Barycenter-Sortierung
 - **Zonen mit internen Kanten:** Spaltenfluss links→rechts (z.B. DNS → Tunnel → WAF)
 - Mehr Zellenabstand für lesbare Labels und weniger Überlappung
@@ -222,7 +311,7 @@ Ordnet alle Nodes deterministisch an:
 
 | Methode | Pfad | Beschreibung |
 |---|---|---|
-| `GET` | `/nodes?q=&category=&status=` | Liste / Suche / Filter |
+| `GET` | `/nodes?q=&category=&status=&viewId=&projectId=` | Liste / Suche / Filter (`projectId` = globale Suche über alle Ebenen) |
 | `POST` | `/nodes` | Anlegen → `201` |
 | `GET` | `/nodes/:id` | Einzelner Node |
 | `PATCH` | `/nodes/:id` | Partielles Update |

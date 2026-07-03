@@ -5,6 +5,10 @@ import type {
   EdgePatch,
   GraphPayload,
   NodePatch,
+  Project,
+  ProjectPatch,
+  View,
+  ViewPatch,
 } from './types';
 
 const BASE = '/api';
@@ -41,19 +45,55 @@ export class ApiRequestError extends Error {
 
 export const api = {
   catalog: () => request<Catalog>('/meta/catalog'),
-  graph: () => request<GraphPayload>('/graph'),
+  graph: (viewId?: string) =>
+    request<Required<Pick<GraphPayload, 'viewId' | 'nodes' | 'edges'>>>(
+      viewId ? `/graph?viewId=${encodeURIComponent(viewId)}` : '/graph'
+    ),
   exportGraph: () =>
     request<GraphPayload & { version: number; exportedAt: string }>('/graph/export'),
   importGraph: (payload: GraphPayload) =>
-    request<{ nodes: number; edges: number }>('/graph/import', {
+    request<{ views: number; nodes: number; edges: number }>('/graph/import', {
       method: 'POST',
       body: JSON.stringify({ mode: 'replace', ...payload }),
     }),
-  autoLayout: (options?: { maxCols?: number; profile?: 'default' | 'wide' }) =>
+  autoLayout: (options?: { viewId?: string; maxCols?: number; profile?: 'default' | 'wide' }) =>
     request<{ updated: number }>('/graph/layout', {
       method: 'POST',
       body: JSON.stringify(options ?? {}),
     }),
+
+  listProjects: () => request<Project[]>('/projects'),
+  createProject: (data: ProjectPatch & { name: string }) =>
+    request<Project>('/projects', { method: 'POST', body: JSON.stringify(data) }),
+  updateProject: (id: string, patch: ProjectPatch) =>
+    request<Project>(`/projects/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  deleteProject: (id: string) =>
+    request<{ views: number; nodes: number }>(`/projects/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+
+  listViews: (projectId?: string) =>
+    request<View[]>(projectId ? `/views?projectId=${encodeURIComponent(projectId)}` : '/views'),
+  createView: (data: ViewPatch & { name: string }) =>
+    request<View>('/views', { method: 'POST', body: JSON.stringify(data) }),
+  updateView: (id: string, patch: ViewPatch) =>
+    request<View>(`/views/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  deleteView: (id: string) =>
+    request<{ views: number; nodes: number }>(`/views/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+
+  /** Globale Suche über alle Ebenen eines Projekts. */
+  searchNodes: (projectId: string, q: string) =>
+    request<ApiNode[]>(
+      `/nodes?projectId=${encodeURIComponent(projectId)}&q=${encodeURIComponent(q)}`
+    ),
 
   createNode: (data: NodePatch & { name: string }) =>
     request<ApiNode>('/nodes', { method: 'POST', body: JSON.stringify(data) }),

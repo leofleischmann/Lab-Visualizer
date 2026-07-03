@@ -5,9 +5,9 @@ import { importSchema, layoutSchema, parseOrThrow } from '../validation.js';
 export function graphRouter(db) {
   const router = Router();
 
-  // GET /api/graph — kompletter Graph für die Canvas
+  // GET /api/graph?viewId= — Graph einer Ebene (Default: Root-Ebene)
   router.get('/', (req, res) => {
-    res.json(store.getGraph(db));
+    res.json(store.getGraph(db, req.query.viewId));
   });
 
   // GET /api/graph/export — Download-fähiger JSON-Dump
