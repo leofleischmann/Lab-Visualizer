@@ -4,6 +4,7 @@ import { FlowCanvas } from './components/canvas/FlowCanvas';
 import { DetailDrawer } from './components/panel/DetailDrawer';
 import { Palette } from './components/Palette';
 import { TopBar } from './components/TopBar';
+import { ViewBar } from './components/views/ViewBar';
 import { useGraphStore } from './store/graph';
 
 export default function App() {
@@ -19,6 +20,7 @@ export default function App() {
   return (
     <div className="flex h-full flex-col bg-slate-950 text-slate-200">
       <TopBar />
+      {!loading && <ViewBar />}
       <div className="relative flex min-h-0 flex-1">
         <Palette />
         <main className="relative min-w-0 flex-1">

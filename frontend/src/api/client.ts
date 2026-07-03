@@ -5,6 +5,8 @@ import type {
   EdgePatch,
   GraphPayload,
   NodePatch,
+  View,
+  ViewPatch,
 } from './types';
 
 const BASE = '/api';
@@ -41,18 +43,34 @@ export class ApiRequestError extends Error {
 
 export const api = {
   catalog: () => request<Catalog>('/meta/catalog'),
-  graph: () => request<GraphPayload>('/graph'),
+  graph: (viewId?: string) =>
+    request<Required<Pick<GraphPayload, 'viewId' | 'nodes' | 'edges'>>>(
+      viewId ? `/graph?viewId=${encodeURIComponent(viewId)}` : '/graph'
+    ),
   exportGraph: () =>
     request<GraphPayload & { version: number; exportedAt: string }>('/graph/export'),
   importGraph: (payload: GraphPayload) =>
-    request<{ nodes: number; edges: number }>('/graph/import', {
+    request<{ views: number; nodes: number; edges: number }>('/graph/import', {
       method: 'POST',
       body: JSON.stringify({ mode: 'replace', ...payload }),
     }),
-  autoLayout: (options?: { maxCols?: number; profile?: 'default' | 'wide' }) =>
+  autoLayout: (options?: { viewId?: string; maxCols?: number; profile?: 'default' | 'wide' }) =>
     request<{ updated: number }>('/graph/layout', {
       method: 'POST',
       body: JSON.stringify(options ?? {}),
+    }),
+
+  listViews: () => request<View[]>('/views'),
+  createView: (data: ViewPatch & { name: string }) =>
+    request<View>('/views', { method: 'POST', body: JSON.stringify(data) }),
+  updateView: (id: string, patch: ViewPatch) =>
+    request<View>(`/views/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  deleteView: (id: string) =>
+    request<{ views: number; nodes: number }>(`/views/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
     }),
 
   createNode: (data: NodePatch & { name: string }) =>

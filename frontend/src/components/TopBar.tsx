@@ -60,10 +60,18 @@ export function TopBar() {
       }
       const ok = window.confirm(
         `Import ersetzt den kompletten Graphen (${nodeCount} Nodes, ${edgeCount} Verbindungen) durch ` +
-          `${parsed.nodes.length} Nodes / ${parsed.edges?.length ?? 0} Verbindungen. Fortfahren?`
+          `${parsed.nodes.length} Nodes / ${parsed.edges?.length ?? 0} Verbindungen` +
+          `${parsed.views?.length ? ` / ${parsed.views.length} Ebenen` : ''}. Fortfahren?`
       );
       if (!ok) return;
-      if (await importGraph({ nodes: parsed.nodes, edges: parsed.edges ?? [] })) refitView();
+      if (
+        await importGraph({
+          views: parsed.views ?? [],
+          nodes: parsed.nodes,
+          edges: parsed.edges ?? [],
+        })
+      )
+        refitView();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Import fehlgeschlagen');
     }

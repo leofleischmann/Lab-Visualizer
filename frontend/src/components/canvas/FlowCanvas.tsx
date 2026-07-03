@@ -53,6 +53,7 @@ export function FlowCanvas() {
   const removeNode = useGraphStore((s) => s.removeNode);
   const removeEdge = useGraphStore((s) => s.removeEdge);
   const createNode = useGraphStore((s) => s.createNode);
+  const drillInto = useGraphStore((s) => s.drillInto);
 
   const { screenToFlowPosition, getViewport } = useReactFlow();
   const [guides, setGuides] = useState<AlignmentGuide[]>([]);
@@ -65,6 +66,14 @@ export function FlowCanvas() {
     [setHoverNode]
   );
   const handleNodeMouseLeave = useCallback(() => setHoverNode(null), [setHoverNode]);
+
+  // Doppelklick auf ein Portal-Node → in dessen verlinkte Detailebene wechseln.
+  const handleNodeDoubleClick = useCallback(
+    (_event: React.MouseEvent, node: FlowNode) => {
+      if (node.data.entity.linkedViewId) void drillInto(node.id);
+    },
+    [drillInto]
+  );
 
   /** Node-Drag: an Kanten/Zentren anderer Nodes ausrichten (Hilfslinien). */
   const handleNodesChange = useCallback(
@@ -197,6 +206,7 @@ export function FlowCanvas() {
       onEdgesDelete={handleEdgesDelete}
       onNodeMouseEnter={handleNodeMouseEnter}
       onNodeMouseLeave={handleNodeMouseLeave}
+      onNodeDoubleClick={handleNodeDoubleClick}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       defaultEdgeOptions={{ type: 'infra' }}

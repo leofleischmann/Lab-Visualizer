@@ -15,10 +15,31 @@ import type {
   EdgeRouting,
   FlowEdge,
   FlowNode,
+  GraphPayload,
   NodePatch,
   Position,
+  View,
+  ViewPatch,
 } from '../api/types';
 export type Selection = { kind: 'node' | 'edge'; id: string } | null;
+
+/** Standard-aktive Ebene: erste Root-Ebene, sonst irgendeine, sonst null. */
+function pickRootView(views: View[]): string | null {
+  return (views.find((v) => v.parentId === null) ?? views[0])?.id ?? null;
+}
+
+/** Pfad Root → … → aktive Ebene über die parentId-Kette (für Breadcrumb). */
+export function viewPath(views: View[], id: string | null): View[] {
+  const byId = new Map(views.map((v) => [v.id, v]));
+  const path: View[] = [];
+  let current = id ? byId.get(id) : undefined;
+  let guard = 0;
+  while (current && guard++ < 100) {
+    path.unshift(current);
+    current = current.parentId ? byId.get(current.parentId) : undefined;
+  }
+  return path;
+}
 
 /** Aktive Fokus-Hervorhebung: Nodes/Edges, die betont bleiben (Rest wird gedimmt). */
 export type FocusSet = { nodeIds: Set<string>; edgeIds: Set<string> } | null;
@@ -93,6 +114,8 @@ export function absolutePosition(nodes: FlowNode[], id: string): Position {
 type GraphStore = {
   nodes: FlowNode[];
   edges: FlowEdge[];
+  views: View[];
+  activeViewId: string | null;
   catalog: Catalog | null;
   selection: Selection;
   hoverNodeId: string | null;
@@ -115,6 +138,15 @@ type GraphStore = {
   syncSelection: (selection: Selection) => void;
   setHoverNode: (id: string | null) => void;
 
+  setActiveView: (id: string) => Promise<void>;
+  createView: (data: ViewPatch & { name: string }) => Promise<View | null>;
+  saveView: (id: string, patch: ViewPatch) => Promise<boolean>;
+  removeView: (id: string) => Promise<boolean>;
+  /** Doppelklick auf ein Portal-Node → in dessen verlinkte Ebene wechseln. */
+  drillInto: (nodeId: string) => Promise<void>;
+  /** Detailebene aus einem Node erzeugen (Kind der aktiven Ebene) und hineinwechseln. */
+  createDetailView: (nodeId: string, name: string) => Promise<void>;
+
   onNodesChange: (changes: NodeChange<FlowNode>[]) => void;
   onEdgesChange: (changes: EdgeChange<FlowEdge>[]) => void;
   persistPositions: (ids: string[]) => Promise<void>;
@@ -133,7 +165,7 @@ type GraphStore = {
   updateEdgeRouting: (id: string, routing: EdgeRouting, persist?: boolean) => Promise<void>;
   resetEdgeRouting: (id: string) => Promise<void>;
 
-  importGraph: (payload: { nodes: ApiNode[]; edges: ApiEdge[] }) => Promise<boolean>;
+  importGraph: (payload: GraphPayload) => Promise<boolean>;
   clearGraph: () => Promise<boolean>;
   autoLayout: () => Promise<boolean>;
 };
@@ -144,6 +176,8 @@ const errorMessage = (err: unknown) =>
 export const useGraphStore = create<GraphStore>((set, get) => ({
   nodes: [],
   edges: [],
+  views: [],
+  activeViewId: null,
   catalog: null,
   selection: null,
   hoverNodeId: null,
@@ -156,12 +190,17 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   load: async () => {
     set({ loading: true, error: null });
     try {
-      const [catalog, graph] = await Promise.all([api.catalog(), api.graph()]);
+      const [catalog, views] = await Promise.all([api.catalog(), api.listViews()]);
+      const wanted = get().activeViewId ?? pickRootView(views);
+      const graph = await api.graph(wanted ?? undefined);
       const flowNodes = orderForFlow(graph.nodes.map(toFlowNode));
       set({
         catalog,
+        views,
+        activeViewId: graph.viewId ?? wanted,
         nodes: flowNodes,
         edges: graph.edges.map(toFlowEdge),
+        selection: null,
         hoverNodeId: null,
         focus: null,
         loading: false,
@@ -173,7 +212,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
 
   reload: async () => {
     try {
-      const graph = await api.graph();
+      const [views, graph] = await Promise.all([api.listViews(), api.graph(get().activeViewId ?? undefined)]);
       const { selection } = get();
       const stillExists =
         selection &&
@@ -194,6 +233,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       });
       const nextSelection = stillExists ? selection : null;
       set({
+        views,
         nodes: flowNodes,
         edges: nextEdges,
         selection: nextSelection,
@@ -206,6 +246,77 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     } catch (err) {
       set({ error: errorMessage(err) });
     }
+  },
+
+  setActiveView: async (id) => {
+    if (id === get().activeViewId) return;
+    try {
+      const graph = await api.graph(id);
+      set({
+        activeViewId: graph.viewId ?? id,
+        nodes: orderForFlow(graph.nodes.map(toFlowNode)),
+        edges: graph.edges.map(toFlowEdge),
+        selection: null,
+        hoverNodeId: null,
+        focus: null,
+      });
+    } catch (err) {
+      set({ error: errorMessage(err) });
+    }
+  },
+
+  createView: async (data) => {
+    try {
+      const created = await api.createView(data);
+      set((state) => ({ views: [...state.views, created] }));
+      return created;
+    } catch (err) {
+      set({ error: errorMessage(err) });
+      return null;
+    }
+  },
+
+  saveView: async (id, patch) => {
+    try {
+      const updated = await api.updateView(id, patch);
+      set((state) => ({ views: state.views.map((v) => (v.id === id ? updated : v)) }));
+      return true;
+    } catch (err) {
+      set({ error: errorMessage(err) });
+      return false;
+    }
+  },
+
+  removeView: async (id) => {
+    try {
+      await api.deleteView(id);
+      const remaining = await api.listViews();
+      // Falls die aktive Ebene gelöscht wurde (oder Vorfahr), auf Root wechseln.
+      const active = get().activeViewId;
+      const stillActive = active && remaining.some((v) => v.id === active);
+      set({ views: remaining });
+      if (!stillActive) {
+        const root = pickRootView(remaining);
+        if (root) await get().setActiveView(root);
+      }
+      return true;
+    } catch (err) {
+      set({ error: errorMessage(err) });
+      return false;
+    }
+  },
+
+  drillInto: async (nodeId) => {
+    const target = get().nodes.find((n) => n.id === nodeId)?.data.entity.linkedViewId;
+    if (target) await get().setActiveView(target);
+  },
+
+  createDetailView: async (nodeId, name) => {
+    const parentId = get().activeViewId ?? undefined;
+    const created = await get().createView({ name, parentId });
+    if (!created) return;
+    await get().saveNode(nodeId, { linkedViewId: created.id });
+    await get().setActiveView(created.id);
   },
 
   setSearch: (term) => set({ search: term }),
@@ -308,7 +419,8 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
 
   createNode: async (data) => {
     try {
-      const created = await api.createNode(data);
+      // Neue Nodes gehören zur aktuell geöffneten Ebene.
+      const created = await api.createNode({ viewId: get().activeViewId ?? undefined, ...data });
       const flow = toFlowNode(created);
       flow.selected = true;
       set((state) => ({
@@ -437,7 +549,8 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   importGraph: async (payload) => {
     try {
       await api.importGraph(payload);
-      set({ selection: null });
+      // Ebenen wurden ersetzt → aktive Ebene neu bestimmen (Root).
+      set({ selection: null, activeViewId: null });
       await get().reload();
       return true;
     } catch (err) {
@@ -448,8 +561,8 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
 
   clearGraph: async () => {
     try {
-      await api.importGraph({ nodes: [], edges: [] });
-      set({ selection: null });
+      await api.importGraph({ views: [], nodes: [], edges: [] });
+      set({ selection: null, activeViewId: null });
       await get().reload();
       return true;
     } catch (err) {
@@ -460,7 +573,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
 
   autoLayout: async () => {
     try {
-      await api.autoLayout();
+      await api.autoLayout({ viewId: get().activeViewId ?? undefined });
       await get().reload();
       return true;
     } catch (err) {
