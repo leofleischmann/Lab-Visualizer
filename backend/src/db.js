@@ -4,6 +4,11 @@ import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
 
 const SCHEMA = `
+CREATE TABLE IF NOT EXISTS meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT
+);
+
 CREATE TABLE IF NOT EXISTS projects (
   id            TEXT PRIMARY KEY,
   name          TEXT NOT NULL,
@@ -92,6 +97,17 @@ export function createDb(dbFile) {
   db.exec(SCHEMA);
   migrate(db);
   return db;
+}
+
+/** Kleiner Key-Value-Speicher für App-Metadaten (z. B. „seeded"-Flag). */
+export function getMeta(db, key) {
+  return db.prepare('SELECT value FROM meta WHERE key = ?').get(key)?.value ?? null;
+}
+
+export function setMeta(db, key, value) {
+  db.prepare(
+    'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+  ).run(key, value);
 }
 
 /**
