@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+import { useReactFlow } from '@xyflow/react';
 import { Download, LayoutGrid, Network, Search, Trash2, Upload } from 'lucide-react';
 import { api } from '../api/client';
 import { useGraphStore } from '../store/graph';
@@ -14,6 +15,12 @@ export function TopBar() {
   const edgeCount = useGraphStore((s) => s.edges.length);
   const isEmpty = nodeCount === 0 && edgeCount === 0;
   const fileInput = useRef<HTMLInputElement>(null);
+  const { fitView } = useReactFlow();
+
+  const refitView = () => {
+    // Nach Layout/Import passt der alte Viewport nicht mehr zum Graphen
+    window.setTimeout(() => void fitView({ padding: 0.15, duration: 400 }), 60);
+  };
 
   const handleExport = async () => {
     try {
@@ -33,7 +40,7 @@ export function TopBar() {
   const handleAutoLayout = async () => {
     if (isEmpty) return;
     console.log('[Debug TopBar]: Auto-Align gestartet');
-    await autoLayout();
+    if (await autoLayout()) refitView();
   };
 
   const handleClearAll = async () => {
@@ -58,7 +65,7 @@ export function TopBar() {
           `${parsed.nodes.length} Nodes / ${parsed.edges?.length ?? 0} Verbindungen. Fortfahren?`
       );
       if (!ok) return;
-      await importGraph({ nodes: parsed.nodes, edges: parsed.edges ?? [] });
+      if (await importGraph({ nodes: parsed.nodes, edges: parsed.edges ?? [] })) refitView();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Import fehlgeschlagen');
     }

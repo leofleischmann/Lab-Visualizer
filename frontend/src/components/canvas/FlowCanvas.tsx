@@ -1,22 +1,44 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   Background,
   BackgroundVariant,
+  ConnectionLineType,
+  ConnectionMode,
   Controls,
   MiniMap,
   ReactFlow,
   useReactFlow,
+  type NodeChange,
   type OnSelectionChangeParams,
 } from '@xyflow/react';
 import type { FlowEdge, FlowNode } from '../../api/types';
+import { computeAlignment, type AlignmentGuide } from '../../lib/alignment';
 import { categoryOf } from '../../lib/catalog';
+import { nodeSize, rectMap } from '../../lib/edge/nodes';
 import { useGraphStore } from '../../store/graph';
+import { AlignmentGuides } from './AlignmentGuides';
 import { InfraEdge } from './InfraEdge';
 import { InfraNode } from './InfraNode';
 import { ZoneNode } from './ZoneNode';
 
 const nodeTypes = { infra: InfraNode, zone: ZoneNode };
 const edgeTypes = { infra: InfraEdge };
+
+/** IDs des Nodes und aller Nachfahren (bewegen sich beim Drag mit). */
+function withDescendants(nodes: FlowNode[], id: string): Set<string> {
+  const result = new Set([id]);
+  let grown = true;
+  while (grown) {
+    grown = false;
+    for (const node of nodes) {
+      if (node.parentId && result.has(node.parentId) && !result.has(node.id)) {
+        result.add(node.id);
+        grown = true;
+      }
+    }
+  }
+  return result;
+}
 
 export function FlowCanvas() {
   const nodes = useGraphStore((s) => s.nodes);
@@ -26,11 +48,66 @@ export function FlowCanvas() {
   const onEdgesChange = useGraphStore((s) => s.onEdgesChange);
   const connect = useGraphStore((s) => s.connect);
   const syncSelection = useGraphStore((s) => s.syncSelection);
+  const setHoverNode = useGraphStore((s) => s.setHoverNode);
   const removeNode = useGraphStore((s) => s.removeNode);
   const removeEdge = useGraphStore((s) => s.removeEdge);
   const createNode = useGraphStore((s) => s.createNode);
 
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, getViewport } = useReactFlow();
+  const [guides, setGuides] = useState<AlignmentGuide[]>([]);
+
+  const handleNodeMouseEnter = useCallback(
+    (_event: React.MouseEvent, node: FlowNode) => {
+      // Zonen erzeugen keinen Fokus (sie umschließen viele Nodes)
+      if (node.type !== 'zone') setHoverNode(node.id);
+    },
+    [setHoverNode]
+  );
+  const handleNodeMouseLeave = useCallback(() => setHoverNode(null), [setHoverNode]);
+
+  /** Node-Drag: an Kanten/Zentren anderer Nodes ausrichten (Hilfslinien). */
+  const handleNodesChange = useCallback(
+    (changes: NodeChange<FlowNode>[]) => {
+      const dragChanges = changes.filter(
+        (c) => c.type === 'position' && c.dragging && c.position
+      );
+      const dragEnded = changes.some((c) => c.type === 'position' && c.dragging === false);
+
+      if (dragChanges.length === 1) {
+        const change = dragChanges[0] as Extract<NodeChange<FlowNode>, { type: 'position' }>;
+        const node = nodes.find((n) => n.id === change.id);
+        if (node && change.position) {
+          const rects = rectMap(nodes);
+          const parentRect = node.parentId ? rects.get(node.parentId) : null;
+          const { width, height } = nodeSize(node);
+          const rect = {
+            x: (parentRect?.x ?? 0) + change.position.x,
+            y: (parentRect?.y ?? 0) + change.position.y,
+            width,
+            height,
+          };
+          const moving = withDescendants(nodes, node.id);
+          const others = nodes
+            .filter((n) => !moving.has(n.id))
+            .map((n) => rects.get(n.id))
+            .filter((r): r is NonNullable<typeof r> => !!r);
+          const zoom = Math.max(0.05, getViewport().zoom);
+          const threshold = Math.min(20, Math.max(2, 7 / zoom));
+          const alignment = computeAlignment(rect, others, threshold);
+          change.position = {
+            x: change.position.x + alignment.dx,
+            y: change.position.y + alignment.dy,
+          };
+          setGuides(alignment.guides);
+        }
+      } else if (dragEnded || dragChanges.length > 1) {
+        setGuides([]);
+      }
+
+      onNodesChange(changes);
+    },
+    [getViewport, nodes, onNodesChange]
+  );
 
   const handleSelectionChange = useCallback(
     ({ nodes: selectedNodes, edges: selectedEdges }: OnSelectionChangeParams) => {
@@ -110,16 +187,22 @@ export function FlowCanvas() {
       edges={edges}
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
-      onNodesChange={onNodesChange}
+      onNodesChange={handleNodesChange}
       onEdgesChange={onEdgesChange}
       onConnect={connect}
       onSelectionChange={handleSelectionChange}
       onBeforeDelete={handleBeforeDelete}
       onNodesDelete={handleNodesDelete}
       onEdgesDelete={handleEdgesDelete}
+      onNodeMouseEnter={handleNodeMouseEnter}
+      onNodeMouseLeave={handleNodeMouseLeave}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       defaultEdgeOptions={{ type: 'infra' }}
+      connectionMode={ConnectionMode.Loose}
+      connectionLineType={ConnectionLineType.SmoothStep}
+      connectionLineStyle={{ stroke: '#38bdf8', strokeWidth: 1.5 }}
+      connectionRadius={36}
       deleteKeyCode={['Delete']}
       fitView
       fitViewOptions={{ padding: 0.15 }}
@@ -140,6 +223,7 @@ export function FlowCanvas() {
         maskColor="rgba(2, 6, 23, 0.75)"
         bgColor="#0f172a"
       />
+      <AlignmentGuides guides={guides} />
     </ReactFlow>
   );
 }

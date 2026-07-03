@@ -46,6 +46,9 @@ export const nodeUpdateSchema = nodeCreateSchema.omit({ id: true }).partial();
 const routingSchema = z.object({
   mode: z.enum(['auto', 'manual']).default('auto'),
   waypoints: z.array(positionSchema).max(32).default([]),
+  /** Label-Anker auf dem Kantenpfad (0..1 entlang der Linie) */
+  labelT: z.number().min(0).max(1).nullable().optional(),
+  /** Veraltet: absolute Label-Position (wird von der UI ignoriert) */
   label: positionSchema.nullable().optional(),
 });
 

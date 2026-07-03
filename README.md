@@ -11,7 +11,17 @@ visuell pflegen und dokumentieren — mit interaktiver Canvas (React Flow), Deep
 - **Visueller Editor** — Nodes (Server, LXCs, VMs, Dienste, Cloud-Komponenten) frei auf der
   Canvas platzieren, per Drag & Drop aus der Palette erstellen und mit Verbindungen (Edges)
   verknüpfen. Zonen/Gruppen (z. B. „Proxmox“, „Cloudflare Edge“) fassen Nodes zusammen und
-  bewegen ihre Kinder mit.
+  bewegen ihre Kinder mit. Ausrichtungshilfen (Snap-Lines) beim Verschieben.
+- **Kanten-Routing wie in bpmn.io** — Verbindungen docken automatisch an der besten
+  Node-Seite an und weichen Hindernissen aus. Linien lassen sich direkt greifen und
+  orthogonal verlegen: Doppelklick auf die Linie fügt Eckpunkte ein (Doppelklick auf einen
+  Eckpunkt entfernt ihn), das Docking wird beim Verschieben von Nodes automatisch repariert.
+  Beschriftungen sitzen immer **auf** der Linie und werden per Drag entlang des Pfads verschoben.
+- **Übersichtlich auch bei 50+ vernetzten Nodes** — **Fokus-Modus**: Hover oder Klick auf einen
+  Node hebt ihn samt Nachbarn und verbindenden Kanten hervor und dimmt den Rest, sodass sich
+  Zusammenhänge sofort ablesen lassen. **Semantisches Zoomen** blendet Kanten-Labels in der
+  Gesamtübersicht aus und beim Hineinzoomen wieder ein. Rendering bleibt flüssig (60 fps beim
+  Verschieben), da Kanten nur bei Bewegung ihrer eigenen Endknoten neu berechnet werden.
 - **Deep-Dive Panel** — Klick auf Node oder Verbindung öffnet den Drawer: typisierte Felder
   (IP, VLAN, OS, Hostname, URL, Status), **Markdown-Notizen** mit Live-Vorschau (GFM-Tabellen,
   Listen, Code) und ein **Key-Value-System (Custom Fields)** für alles, was nicht in starre

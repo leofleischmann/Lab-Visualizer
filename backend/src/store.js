@@ -359,6 +359,12 @@ export function applyLayout(db, options = {}) {
     UPDATE nodes SET pos_x = @x, pos_y = @y, width = @width, height = @height, updated_at = @updated_at
     WHERE id = @id
   `);
+  // Manuelles Kanten-Routing zurücksetzen: Waypoints beziehen sich auf die
+  // alten Positionen und wären nach dem Auto-Align wertlos.
+  const resetRouting = db.prepare(`
+    UPDATE edges SET routing = '{"mode":"auto","waypoints":[]}', updated_at = @updated_at
+    WHERE routing != '{"mode":"auto","waypoints":[]}'
+  `);
   const tx = db.transaction(() => {
     for (const n of laid) {
       stmt.run({
@@ -370,6 +376,7 @@ export function applyLayout(db, options = {}) {
         updated_at: ts,
       });
     }
+    resetRouting.run({ updated_at: ts });
   });
   tx();
   console.log(`[Debug store]: Auto-Layout angewendet (${laid.length} Nodes)`);
