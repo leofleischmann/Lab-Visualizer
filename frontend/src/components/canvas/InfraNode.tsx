@@ -6,10 +6,12 @@ import { categoryOf, iconOf, matchesSearch, statusOf } from '../../lib/catalog';
 import { useGraphStore } from '../../store/graph';
 import { ConnectionDropTarget, ConnectionHandles } from './handles';
 
-function InfraNodeComponent({ data, selected }: NodeProps<FlowNode>) {
+function InfraNodeComponent({ id, data, selected }: NodeProps<FlowNode>) {
   const entity = data.entity;
   const catalog = useGraphStore((s) => s.catalog);
   const search = useGraphStore((s) => s.search);
+  // Fokus-Modus: außerhalb des Fokus (Node + Nachbarn) wird gedimmt
+  const dimmed = useGraphStore((s) => (s.focus ? !s.focus.nodeIds.has(id) : false));
 
   const category = categoryOf(catalog, entity.category);
   const status = statusOf(catalog, entity.status);
@@ -25,7 +27,7 @@ function InfraNodeComponent({ data, selected }: NodeProps<FlowNode>) {
           : match === true
             ? 'border-amber-400 ring-2 ring-amber-400/50'
             : 'border-slate-700',
-        match === false && 'opacity-25'
+        match === false ? 'opacity-25' : dimmed && 'opacity-30'
       )}
       style={{ borderLeftWidth: 4, borderLeftColor: category.color }}
     >

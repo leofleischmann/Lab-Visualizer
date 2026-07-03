@@ -14,8 +14,8 @@ import {
 import type { FlowEdge, FlowNode } from '../../api/types';
 import { computeAlignment, type AlignmentGuide } from '../../lib/alignment';
 import { categoryOf } from '../../lib/catalog';
-import { nodeSize } from '../../lib/edge/nodes';
-import { absolutePosition, useGraphStore } from '../../store/graph';
+import { nodeSize, rectMap } from '../../lib/edge/nodes';
+import { useGraphStore } from '../../store/graph';
 import { AlignmentGuides } from './AlignmentGuides';
 import { InfraEdge } from './InfraEdge';
 import { InfraNode } from './InfraNode';
@@ -48,12 +48,22 @@ export function FlowCanvas() {
   const onEdgesChange = useGraphStore((s) => s.onEdgesChange);
   const connect = useGraphStore((s) => s.connect);
   const syncSelection = useGraphStore((s) => s.syncSelection);
+  const setHoverNode = useGraphStore((s) => s.setHoverNode);
   const removeNode = useGraphStore((s) => s.removeNode);
   const removeEdge = useGraphStore((s) => s.removeEdge);
   const createNode = useGraphStore((s) => s.createNode);
 
   const { screenToFlowPosition, getViewport } = useReactFlow();
   const [guides, setGuides] = useState<AlignmentGuide[]>([]);
+
+  const handleNodeMouseEnter = useCallback(
+    (_event: React.MouseEvent, node: FlowNode) => {
+      // Zonen erzeugen keinen Fokus (sie umschließen viele Nodes)
+      if (node.type !== 'zone') setHoverNode(node.id);
+    },
+    [setHoverNode]
+  );
+  const handleNodeMouseLeave = useCallback(() => setHoverNode(null), [setHoverNode]);
 
   /** Node-Drag: an Kanten/Zentren anderer Nodes ausrichten (Hilfslinien). */
   const handleNodesChange = useCallback(
@@ -67,24 +77,20 @@ export function FlowCanvas() {
         const change = dragChanges[0] as Extract<NodeChange<FlowNode>, { type: 'position' }>;
         const node = nodes.find((n) => n.id === change.id);
         if (node && change.position) {
-          const parentOffset = node.parentId
-            ? absolutePosition(nodes, node.parentId)
-            : { x: 0, y: 0 };
+          const rects = rectMap(nodes);
+          const parentRect = node.parentId ? rects.get(node.parentId) : null;
           const { width, height } = nodeSize(node);
           const rect = {
-            x: parentOffset.x + change.position.x,
-            y: parentOffset.y + change.position.y,
+            x: (parentRect?.x ?? 0) + change.position.x,
+            y: (parentRect?.y ?? 0) + change.position.y,
             width,
             height,
           };
           const moving = withDescendants(nodes, node.id);
           const others = nodes
             .filter((n) => !moving.has(n.id))
-            .map((n) => {
-              const abs = absolutePosition(nodes, n.id);
-              const size = nodeSize(n);
-              return { x: abs.x, y: abs.y, width: size.width, height: size.height };
-            });
+            .map((n) => rects.get(n.id))
+            .filter((r): r is NonNullable<typeof r> => !!r);
           const zoom = Math.max(0.05, getViewport().zoom);
           const threshold = Math.min(20, Math.max(2, 7 / zoom));
           const alignment = computeAlignment(rect, others, threshold);
@@ -188,6 +194,8 @@ export function FlowCanvas() {
       onBeforeDelete={handleBeforeDelete}
       onNodesDelete={handleNodesDelete}
       onEdgesDelete={handleEdgesDelete}
+      onNodeMouseEnter={handleNodeMouseEnter}
+      onNodeMouseLeave={handleNodeMouseLeave}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       defaultEdgeOptions={{ type: 'infra' }}

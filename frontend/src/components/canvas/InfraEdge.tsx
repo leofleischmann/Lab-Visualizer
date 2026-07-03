@@ -1,5 +1,12 @@
 import { memo, useCallback, useMemo, useRef, useState } from 'react';
-import { BaseEdge, EdgeLabelRenderer, useReactFlow, type EdgeProps } from '@xyflow/react';
+import {
+  BaseEdge,
+  EdgeLabelRenderer,
+  useInternalNode,
+  useReactFlow,
+  useStore,
+  type EdgeProps,
+} from '@xyflow/react';
 import clsx from 'clsx';
 import type { EdgeRouting, FlowEdge, FlowPoint } from '../../api/types';
 import { usePointerDrag } from '../../hooks/useFlowPointerDrag';
@@ -24,7 +31,7 @@ import {
   type SegmentDragSession,
 } from '../../lib/edge/manual';
 import { chooseSides } from '../../lib/edge/dock';
-import { buildObstacles, nodeRect } from '../../lib/edge/nodes';
+import { buildObstacles, NODE_H, NODE_W } from '../../lib/edge/nodes';
 import { routeOrthogonal } from '../../lib/edge/orthogonal';
 import { roundedPath } from '../../lib/edge/path';
 import { portShift } from '../../lib/edge/ports';
@@ -75,6 +82,28 @@ const SEGMENT_CURSOR: Record<'h' | 'v' | 'd', string> = {
   d: 'move',
 };
 
+/** Ab dieser Zoomstufe werden Kanten-Labels eingeblendet (semantisches Zoomen). */
+const LABEL_ZOOM_MIN = 0.5;
+
+type InternalNode = ReturnType<typeof useInternalNode>;
+
+/** Absolutes Rechteck aus einem React-Flow-Internalnode (gemessene Größe). */
+function internalRect(node: InternalNode): Rect | null {
+  if (!node) return null;
+  const pos = node.internals.positionAbsolute;
+  return {
+    x: pos.x,
+    y: pos.y,
+    width: node.measured?.width ?? node.width ?? NODE_W,
+    height: node.measured?.height ?? node.height ?? NODE_H,
+  };
+}
+
+/** Stabiler Schlüssel eines Rects für useMemo-Dependencies. */
+function rectKey(rect: Rect | null): string {
+  return rect ? `${rect.x},${rect.y},${rect.width},${rect.height}` : '';
+}
+
 function InfraEdgeComponent({
   id,
   source,
@@ -87,18 +116,29 @@ function InfraEdgeComponent({
   selected,
 }: EdgeProps<FlowEdge>) {
   const catalog = useGraphStore((s) => s.catalog);
-  const nodes = useGraphStore((s) => s.nodes);
   const edges = useGraphStore((s) => s.edges);
   const select = useGraphStore((s) => s.select);
   const updateEdgeRouting = useGraphStore((s) => s.updateEdgeRouting);
+  // Fokus-Modus: booleans statt des ganzen Sets → re-rendert nur bei Statuswechsel
+  const dimmed = useGraphStore((s) => (s.focus ? !s.focus.edgeIds.has(id) : false));
+  const highlighted = useGraphStore((s) => (s.focus ? s.focus.edgeIds.has(id) : false));
+  // Semantisches Zoomen: Labels erst ab LABEL_ZOOM_MIN einblenden (weniger Clutter)
+  const labelsVisibleAtZoom = useStore((s) => s.transform[2] >= LABEL_ZOOM_MIN);
   const { startPointerDrag } = usePointerDrag();
   const { screenToFlowPosition } = useReactFlow();
 
   const entity = data?.entity;
   const routing = normalizeRouting(entity?.routing);
 
-  const sourceRect = useMemo(() => nodeRect(nodes, source), [nodes, source]);
-  const targetRect = useMemo(() => nodeRect(nodes, target), [nodes, target]);
+  // Reaktiv nur an den EIGENEN Endknoten koppeln: bewegt sich ein anderer Node,
+  // rendert diese Kante nicht neu (entscheidend für 50+ Nodes). Hindernisse werden
+  // als Snapshot gelesen und beim Ziehen der Endknoten neu ausgewertet.
+  const sourceNode = useInternalNode(source);
+  const targetNode = useInternalNode(target);
+  const sourceRect = internalRect(sourceNode);
+  const targetRect = internalRect(targetNode);
+  const sKey = rectKey(sourceRect);
+  const tKey = rectKey(targetRect);
 
   const points = useMemo((): FlowPoint[] => {
     if (!sourceRect || !targetRect) {
@@ -107,6 +147,7 @@ function InfraEdgeComponent({
         { x: targetX, y: targetY },
       ];
     }
+    const nodes = useGraphStore.getState().nodes;
     const r = normalizeRouting(entity?.routing);
     if (r.mode === 'manual' && r.waypoints.length) {
       return repairManualPath(sourceRect, targetRect, r.waypoints);
@@ -119,20 +160,9 @@ function InfraEdgeComponent({
       sourceShift: portShift(id, source, sides.source, edges, nodes),
       targetShift: portShift(id, target, sides.target, edges, nodes),
     });
-  }, [
-    sourceRect,
-    targetRect,
-    nodes,
-    edges,
-    id,
-    source,
-    target,
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-    entity?.routing,
-  ]);
+    // sKey/tKey stehen stellvertretend für sourceRect/targetRect (Positionsänderung)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sKey, tKey, edges, id, source, target, sourceX, sourceY, targetX, targetY, entity?.routing]);
 
   // Für Callbacks, die während eines Drags die aktuelle Geometrie brauchen
   const pointsRef = useRef(points);
@@ -318,6 +348,13 @@ function InfraEdgeComponent({
   const segments: [FlowPoint, FlowPoint][] = [];
   for (let i = 0; i < points.length - 1; i++) segments.push([points[i], points[i + 1]]);
 
+  const active = selected || highlighted || hovered;
+  const strokeOpacity = active ? 1 : dimmed ? 0.12 : 0.85;
+  const strokeWidth = selected ? 2.6 : highlighted || hovered ? 2.2 : 1.6;
+  // Label sichtbar, wenn hineingezoomt, betont oder direkt interagiert;
+  // gedimmte Kanten (Fokus aktiv, aber nicht verbunden) blenden Labels aus.
+  const showLabel = !!entity.label && !dimmed && (labelsVisibleAtZoom || active);
+
   return (
     <>
       <BaseEdge
@@ -325,15 +362,15 @@ function InfraEdgeComponent({
         path={path}
         style={{
           stroke: kind.color,
-          strokeWidth: selected ? 2.4 : hovered ? 2.2 : 1.6,
+          strokeWidth,
           strokeDasharray: dashArray,
           animation: entity.animated ? 'labviz-dash 0.7s linear infinite' : undefined,
-          opacity: selected || hovered ? 1 : 0.85,
-          transition: 'stroke-width 80ms, opacity 80ms',
+          opacity: strokeOpacity,
+          transition: 'stroke-width 80ms, opacity 120ms',
         }}
       />
       {arrow && (
-        <polygon points={arrow} fill={kind.color} opacity={selected ? 1 : 0.85} />
+        <polygon points={arrow} fill={kind.color} opacity={strokeOpacity} />
       )}
       {/*
         Unsichtbare, breite Trefferfläche: Klick wählt aus, Ziehen verschiebt das
@@ -401,12 +438,12 @@ function InfraEdgeComponent({
           })}
         </EdgeLabelRenderer>
       )}
-      {entity.label && (
+      {showLabel && (
         <EdgeLabelRenderer>
           <div
             className={clsx(
               'nodrag nopan pointer-events-auto absolute max-w-[220px] cursor-grab select-none rounded border px-1.5 py-0.5 text-center text-[10px] leading-snug active:cursor-grabbing',
-              selected
+              selected || highlighted
                 ? 'border-sky-400 bg-slate-950 text-sky-100'
                 : 'border-slate-700/80 bg-slate-950/90 text-slate-300 hover:border-slate-500 hover:text-slate-100'
             )}
