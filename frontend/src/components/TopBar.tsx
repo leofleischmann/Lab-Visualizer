@@ -39,7 +39,6 @@ export function TopBar() {
 
   const handleAutoLayout = async () => {
     if (isEmpty) return;
-    console.log('[Debug TopBar]: Auto-Align gestartet');
     if (await autoLayout()) refitView();
   };
 
@@ -50,7 +49,6 @@ export function TopBar() {
         'Tipp: Vorher exportieren, falls du ein Backup brauchst.'
     );
     if (!ok) return;
-    console.log('[Debug TopBar]: Alles löschen bestätigt');
     await clearGraph();
   };
 

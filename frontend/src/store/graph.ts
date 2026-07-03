@@ -425,7 +425,6 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     if (!persist) return;
     try {
       await api.updateEdge(id, { routing });
-      console.log('[Debug graph-store]: Edge-Routing gespeichert', id);
     } catch (err) {
       set({ error: errorMessage(err) });
     }
@@ -452,7 +451,6 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       await api.importGraph({ nodes: [], edges: [] });
       set({ selection: null });
       await get().reload();
-      console.log('[Debug graph-store]: Graph geleert');
       return true;
     } catch (err) {
       set({ error: errorMessage(err) });
@@ -462,8 +460,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
 
   autoLayout: async () => {
     try {
-      const result = await api.autoLayout();
-      console.log('[Debug graph-store]: Auto-Layout angewendet', result);
+      await api.autoLayout();
       await get().reload();
       return true;
     } catch (err) {

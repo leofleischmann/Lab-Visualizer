@@ -1,4 +1,5 @@
 import { memo, useCallback, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -31,6 +32,7 @@ import {
   type SegmentDragSession,
 } from '../../lib/edge/manual';
 import { chooseSides } from '../../lib/edge/dock';
+import { useEdgeHitLayer } from './EdgeHitLayer';
 import { buildObstacles, NODE_H, NODE_W } from '../../lib/edge/nodes';
 import { routeOrthogonal } from '../../lib/edge/orthogonal';
 import { roundedPath } from '../../lib/edge/path';
@@ -129,6 +131,7 @@ function InfraEdgeComponent({
   const labelsVisibleAtZoom = useStore((s) => s.transform[2] >= LABEL_ZOOM_MIN);
   const { startPointerDrag } = usePointerDrag();
   const { screenToFlowPosition } = useReactFlow();
+  const hitLayer = useEdgeHitLayer();
 
   const entity = data?.entity;
   const routing = normalizeRouting(entity?.routing);
@@ -390,16 +393,12 @@ function InfraEdgeComponent({
         <polygon points={arrow} fill={kind.color} opacity={strokeOpacity} />
       )}
       {/*
-        Unsichtbare, breite Trefferfläche: Klick wählt aus, Ziehen verschiebt das
-        Segment, Doppelklick fügt einen Eckpunkt ein. Liegt im EdgeLabelRenderer,
-        weil dessen Inhalte ÜBER der Node-Ebene gerendert werden — nur so sind
-        Linien auch über Zonen greifbar (die Edge-SVG-Ebene liegt unter den Nodes).
+        Unsichtbare, breite Trefferfläche: per Portal in die gemeinsame Hit-Layer-
+        SVG (über den Nodes) gerendert → Linien auch über Zonen greifbar, aber nur
+        EIN <svg> für alle Kanten statt eines pro Kante (weniger DOM/Paint beim Zoom).
       */}
-      <EdgeLabelRenderer>
-        <svg
-          className="absolute overflow-visible"
-          style={{ zIndex: 9, top: 0, left: 0, width: 1, height: 1, pointerEvents: 'none' }}
-        >
+      {hitLayer &&
+        createPortal(
           <path
             d={path}
             fill="none"
@@ -410,9 +409,9 @@ function InfraEdgeComponent({
             onPointerDown={handleLinePointerDown}
             onPointerEnter={() => setHovered(true)}
             onPointerLeave={() => setHovered(false)}
-          />
-        </svg>
-      </EdgeLabelRenderer>
+          />,
+          hitLayer
+        )}
       {selected && (
         <EdgeLabelRenderer>
           {segments.map(([a, b], index) => {
