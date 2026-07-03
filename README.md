@@ -8,6 +8,11 @@ visuell pflegen und dokumentieren — mit interaktiver Canvas (React Flow), Deep
 
 ## Features
 
+- **Ebenen (Drill-down-Hierarchie)** — Infrastruktur in Abstraktionsebenen gliedern statt alles
+  auf eine Fläche zu quetschen. Ein Node der Übersicht (z. B. „Mein Server“) verlinkt in eine
+  eigene **Detailebene** mit seinem internen Routing; **Doppelklick** zoomt hinein (wie im
+  C4-Modell). Navigation per **Breadcrumb** und Ebenen-Baum. Jede Ebene ist eine eigene,
+  fokussierte Canvas — Kanten verbinden nur Nodes derselben Ebene.
 - **Visueller Editor** — Nodes (Server, LXCs, VMs, Dienste, Cloud-Komponenten) frei auf der
   Canvas platzieren, per Drag & Drop aus der Palette erstellen und mit Verbindungen (Edges)
   verknüpfen. Zonen/Gruppen (z. B. „Proxmox“, „Cloudflare Edge“) fassen Nodes zusammen und
