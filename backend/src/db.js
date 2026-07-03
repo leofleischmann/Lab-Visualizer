@@ -4,8 +4,19 @@ import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
 
 const SCHEMA = `
+CREATE TABLE IF NOT EXISTS projects (
+  id            TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,
+  color         TEXT,
+  icon          TEXT,
+  sort_order    INTEGER NOT NULL DEFAULT 0,
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS views (
   id            TEXT PRIMARY KEY,
+  project_id    TEXT REFERENCES projects(id) ON DELETE CASCADE,
   name          TEXT NOT NULL,
   parent_id     TEXT REFERENCES views(id) ON DELETE CASCADE,
   description   TEXT NOT NULL DEFAULT '',
@@ -16,6 +27,7 @@ CREATE TABLE IF NOT EXISTS views (
   updated_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_views_parent ON views(parent_id);
+CREATE INDEX IF NOT EXISTS idx_views_project ON views(project_id);
 
 CREATE TABLE IF NOT EXISTS nodes (
   id             TEXT PRIMARY KEY,
@@ -83,20 +95,38 @@ export function createDb(dbFile) {
 }
 
 /**
- * Stellt sicher, dass mindestens eine (Root-)Ebene existiert, und liefert ihre ID.
- * Verhindert den Zustand „keine Ebene vorhanden".
+ * Stellt sicher, dass mindestens ein Projekt existiert, und liefert dessen ID.
  */
-export function ensureRootView(db) {
+export function ensureDefaultProject(db) {
   const existing = db
-    .prepare('SELECT id FROM views ORDER BY sort_order, created_at LIMIT 1')
+    .prepare('SELECT id FROM projects ORDER BY sort_order, created_at LIMIT 1')
     .get();
   if (existing) return existing.id;
   const id = crypto.randomUUID();
   const ts = new Date().toISOString();
   db.prepare(
-    `INSERT INTO views (id, name, parent_id, description, color, icon, sort_order, created_at, updated_at)
-     VALUES (?, 'Übersicht', NULL, '', '#38bdf8', 'layers', 0, ?, ?)`
+    `INSERT INTO projects (id, name, color, icon, sort_order, created_at, updated_at)
+     VALUES (?, 'Mein Homelab', '#38bdf8', 'boxes', 0, ?, ?)`
   ).run(id, ts, ts);
+  return id;
+}
+
+/**
+ * Stellt sicher, dass im (Default-)Projekt mindestens eine Root-Ebene existiert,
+ * und liefert deren ID. Verhindert den Zustand „keine Ebene vorhanden".
+ */
+export function ensureRootView(db, projectId) {
+  const project = projectId ?? ensureDefaultProject(db);
+  const existing = db
+    .prepare('SELECT id FROM views WHERE project_id = ? ORDER BY sort_order, created_at LIMIT 1')
+    .get(project);
+  if (existing) return existing.id;
+  const id = crypto.randomUUID();
+  const ts = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO views (id, project_id, name, parent_id, description, color, icon, sort_order, created_at, updated_at)
+     VALUES (?, ?, 'Übersicht', NULL, '', '#38bdf8', 'layers', 0, ?, ?)`
+  ).run(id, project, ts, ts);
   return id;
 }
 
@@ -122,8 +152,16 @@ function migrate(db) {
     db.exec('ALTER TABLE edges ADD COLUMN view_id TEXT');
   }
 
+  // Projekte: fehlende view.project_id-Spalte ergänzen und Ebenen zuordnen.
+  const viewCols = db.prepare('PRAGMA table_info(views)').all();
+  if (!viewCols.some((c) => c.name === 'project_id')) {
+    db.exec('ALTER TABLE views ADD COLUMN project_id TEXT');
+  }
+  const projectId = ensureDefaultProject(db);
+  db.prepare('UPDATE views SET project_id = ? WHERE project_id IS NULL').run(projectId);
+
   // Verwaiste Nodes/Edges der Root-Ebene zuordnen (verlustfreier Backfill).
-  const rootId = ensureRootView(db);
+  const rootId = ensureRootView(db, projectId);
   db.prepare('UPDATE nodes SET view_id = ? WHERE view_id IS NULL').run(rootId);
   db.prepare('UPDATE edges SET view_id = ? WHERE view_id IS NULL').run(rootId);
 }

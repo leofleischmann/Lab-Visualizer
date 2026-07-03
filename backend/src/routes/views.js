@@ -5,9 +5,9 @@ import { viewCreateSchema, viewUpdateSchema, parseOrThrow } from '../validation.
 export function viewsRouter(db) {
   const router = Router();
 
-  // GET /api/views — alle Ebenen (flach; Hierarchie über parentId)
+  // GET /api/views?projectId= — Ebenen (eines Projekts; flach, Hierarchie über parentId)
   router.get('/', (req, res) => {
-    res.json(store.listViews(db));
+    res.json(store.listViews(db, { projectId: req.query.projectId }));
   });
 
   // POST /api/views

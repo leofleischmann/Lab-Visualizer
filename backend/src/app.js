@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { createDb } from './db.js';
 import { ApiError } from './validation.js';
+import { projectsRouter } from './routes/projects.js';
 import { viewsRouter } from './routes/views.js';
 import { nodesRouter } from './routes/nodes.js';
 import { edgesRouter } from './routes/edges.js';
@@ -23,6 +24,7 @@ export function createApp({ dbFile } = {}) {
     res.json({ status: 'ok', time: new Date().toISOString() });
   });
 
+  app.use('/api/projects', projectsRouter(db));
   app.use('/api/views', viewsRouter(db));
   app.use('/api/nodes', nodesRouter(db));
   app.use('/api/edges', edgesRouter(db));

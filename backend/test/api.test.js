@@ -374,6 +374,68 @@ test('views: Graph pro Ebene, Drill-Link, Kanten nur innerhalb einer Ebene', asy
   }
 });
 
+test('projects: Default existiert, getrennte Projekte, Cascade-Delete, letztes geschützt', async () => {
+  const { call, close } = await freshApp();
+  try {
+    const projects = await call('GET', '/api/projects');
+    assert.equal(projects.status, 200);
+    assert.equal(projects.body.length, 1, 'Default-Projekt wird automatisch angelegt');
+    const p1 = projects.body[0].id;
+
+    // Neues Projekt hat eine eigene Root-Ebene und ist von p1 getrennt
+    const p2 = await call('POST', '/api/projects', { id: 'work', name: 'Arbeit' });
+    assert.equal(p2.status, 201);
+    const viewsP2 = (await call('GET', '/api/views?projectId=work')).body;
+    assert.equal(viewsP2.length, 1, 'neues Projekt startet mit einer Root-Ebene');
+    assert.equal(viewsP2[0].projectId, 'work');
+    const viewsP1 = (await call('GET', `/api/views?projectId=${p1}`)).body;
+    assert.ok(viewsP1.every((v) => v.projectId === p1));
+
+    // Node in Projekt Arbeit → taucht nicht in Projekt-1-Ebenen auf
+    await call('POST', '/api/nodes', { id: 'work-node', name: 'W', viewId: viewsP2[0].id });
+    const p1Nodes = (await call('GET', `/api/nodes?projectId=${p1}`)).body;
+    assert.ok(!p1Nodes.some((n) => n.id === 'work-node'), 'Projekte sind getrennt');
+    const p2Nodes = (await call('GET', '/api/nodes?projectId=work')).body;
+    assert.ok(p2Nodes.some((n) => n.id === 'work-node'));
+
+    // Projekt löschen kaskadiert Ebenen + Nodes
+    const del = await call('DELETE', '/api/projects/work');
+    assert.equal(del.status, 200);
+    assert.equal(del.body.nodes, 1);
+    assert.equal((await call('GET', '/api/nodes/work-node')).status, 404);
+    assert.equal((await call('GET', '/api/projects')).body.length, 1);
+
+    // Letztes Projekt kann nicht gelöscht werden
+    assert.equal((await call('DELETE', `/api/projects/${p1}`)).status, 400);
+  } finally {
+    close();
+  }
+});
+
+test('projects: Export/Import erhält Projekte + Ebenen', async () => {
+  const a = await freshApp();
+  const b = await freshApp();
+  try {
+    await a.call('POST', '/api/projects', { id: 'work', name: 'Arbeit' });
+    const workView = (await a.call('GET', '/api/views?projectId=work')).body[0].id;
+    await a.call('POST', '/api/nodes', { id: 'w1', name: 'W1', viewId: workView });
+
+    const exported = (await a.call('GET', '/api/graph/export')).body;
+    assert.ok(exported.projects.length >= 2);
+
+    const imp = await b.call('POST', '/api/graph/import', { mode: 'replace', ...exported });
+    assert.equal(imp.status, 200);
+    assert.equal(imp.body.projects, exported.projects.length);
+    const bProjects = (await b.call('GET', '/api/projects')).body;
+    assert.ok(bProjects.some((p) => p.id === 'work'));
+    const bWorkNode = (await b.call('GET', '/api/nodes/w1')).body;
+    assert.equal((await b.call('GET', `/api/views/${bWorkNode.viewId}`)).body.projectId, 'work');
+  } finally {
+    a.close();
+    b.close();
+  }
+});
+
 test('views: Export/Import erhält Ebenen-Hierarchie', async () => {
   const a = await freshApp();
   const b = await freshApp();

@@ -23,8 +23,19 @@ const customFieldsSchema = z
 
 const optionalText = (max) => z.string().max(max).nullable().optional();
 
+export const projectCreateSchema = z.object({
+  id: idSchema.optional(),
+  name: z.string().min(1, 'Name darf nicht leer sein').max(200),
+  color: z.string().max(32).nullable().optional(),
+  icon: z.string().max(50).nullable().optional(),
+  sortOrder: z.number().int().optional(),
+});
+
+export const projectUpdateSchema = projectCreateSchema.omit({ id: true }).partial();
+
 export const viewCreateSchema = z.object({
   id: idSchema.optional(),
+  projectId: idSchema.optional(),
   name: z.string().min(1, 'Name darf nicht leer sein').max(200),
   parentId: idSchema.nullable().optional(),
   description: z.string().max(200000).default(''),
@@ -104,6 +115,7 @@ const importTimestamps = {
 
 export const importSchema = z.object({
   mode: z.enum(['replace']).default('replace'),
+  projects: z.array(projectCreateSchema.extend({ id: idSchema, ...importTimestamps })).max(1000).default([]),
   views: z.array(viewCreateSchema.extend({ id: idSchema, ...importTimestamps })).max(10000).default([]),
   nodes: z.array(nodeCreateSchema.extend({ id: idSchema, ...importTimestamps })).max(50000),
   edges: z.array(edgeCreateSchema.extend(importTimestamps)).max(200000).default([]),
