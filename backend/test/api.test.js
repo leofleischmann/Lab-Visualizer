@@ -282,3 +282,120 @@ test('export/import Roundtrip', async () => {
   freshServer.close();
   fresh.db.close();
 });
+
+// ── Ebenen (Views) ──────────────────────────────────────────────
+
+/** Startet eine frische, isolierte App und liefert einen api-Helper + Cleanup. */
+async function freshApp() {
+  const created = createApp({ dbFile: ':memory:' });
+  const server = created.app.listen(0);
+  await new Promise((resolve) => server.on('listening', resolve));
+  const b = `http://127.0.0.1:${server.address().port}`;
+  const call = async (method, path, body) => {
+    const res = await fetch(`${b}${path}`, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const text = await res.text();
+    return { status: res.status, body: text ? JSON.parse(text) : null };
+  };
+  return { call, close: () => { server.close(); created.db.close(); } };
+}
+
+test('views: Root existiert, CRUD, Hierarchie, Cascade-Delete, letzte Ebene geschützt', async () => {
+  const { call, close } = await freshApp();
+  try {
+    const roots = await call('GET', '/api/views');
+    assert.equal(roots.status, 200);
+    assert.equal(roots.body.length, 1, 'Root-Ebene wird automatisch angelegt');
+    const rootId = roots.body[0].id;
+    assert.equal(roots.body[0].parentId, null);
+
+    const child = await call('POST', '/api/views', { id: 'v-child', name: 'Server-Intern', parentId: rootId });
+    assert.equal(child.status, 201);
+    const grand = await call('POST', '/api/views', { id: 'v-grand', name: 'Tiefer', parentId: 'v-child' });
+    assert.equal(grand.status, 201);
+    assert.equal((await call('GET', '/api/views')).body.length, 3);
+
+    // Zyklus: Root unter Enkel hängen → 400
+    const cycle = await call('PATCH', `/api/views/${rootId}`, { parentId: 'v-grand' });
+    assert.equal(cycle.status, 400);
+
+    // Node in der Kind-Ebene → wird beim Löschen mitkaskadiert
+    await call('POST', '/api/nodes', { id: 'n-in-child', name: 'X', viewId: 'v-child' });
+    const del = await call('DELETE', '/api/views/v-child');
+    assert.equal(del.status, 200);
+    assert.equal(del.body.views, 2, 'Kind + Enkel entfernt');
+    assert.equal(del.body.nodes, 1);
+    assert.equal((await call('GET', '/api/views')).body.length, 1);
+    assert.equal((await call('GET', '/api/nodes/n-in-child')).status, 404);
+
+    // Letzte Ebene kann nicht gelöscht werden
+    const delLast = await call('DELETE', `/api/views/${rootId}`);
+    assert.equal(delLast.status, 400);
+  } finally {
+    close();
+  }
+});
+
+test('views: Graph pro Ebene, Drill-Link, Kanten nur innerhalb einer Ebene', async () => {
+  const { call, close } = await freshApp();
+  try {
+    const rootId = (await call('GET', '/api/views')).body[0].id;
+    await call('POST', '/api/views', { id: 'v-detail', name: 'Detail', parentId: rootId });
+
+    await call('POST', '/api/nodes', { id: 'top-1', name: 'Server', viewId: rootId, linkedViewId: 'v-detail' });
+    await call('POST', '/api/nodes', { id: 'top-2', name: 'Router', viewId: rootId });
+    await call('POST', '/api/nodes', { id: 'det-1', name: 'nginx', viewId: 'v-detail' });
+    await call('POST', '/api/nodes', { id: 'det-2', name: 'app', viewId: 'v-detail' });
+
+    const rootGraph = (await call('GET', `/api/graph?viewId=${rootId}`)).body;
+    assert.equal(rootGraph.nodes.length, 2);
+    assert.ok(rootGraph.nodes.every((n) => n.viewId === rootId));
+    const detailGraph = (await call('GET', '/api/graph?viewId=v-detail')).body;
+    assert.equal(detailGraph.nodes.length, 2);
+
+    // Drill-Link wird gespeichert
+    const server = (await call('GET', '/api/nodes/top-1')).body;
+    assert.equal(server.linkedViewId, 'v-detail');
+
+    // Kante zwischen zwei Ebenen → 400
+    const cross = await call('POST', '/api/edges', { sourceId: 'top-1', targetId: 'det-1' });
+    assert.equal(cross.status, 400);
+    // Kante innerhalb einer Ebene → 201, erbt die Ebene
+    const within = await call('POST', '/api/edges', { id: 'e-det', sourceId: 'det-1', targetId: 'det-2' });
+    assert.equal(within.status, 201);
+    assert.equal(within.body.viewId, 'v-detail');
+    assert.equal((await call('GET', '/api/graph?viewId=v-detail')).body.edges.length, 1);
+    assert.equal((await call('GET', `/api/graph?viewId=${rootId}`)).body.edges.length, 0);
+  } finally {
+    close();
+  }
+});
+
+test('views: Export/Import erhält Ebenen-Hierarchie', async () => {
+  const a = await freshApp();
+  const b = await freshApp();
+  try {
+    const rootId = (await a.call('GET', '/api/views')).body[0].id;
+    await a.call('POST', '/api/views', { id: 'v-sys', name: 'Systeme', parentId: rootId });
+    await a.call('POST', '/api/nodes', { id: 'host', name: 'Host', viewId: 'v-sys', linkedViewId: 'v-sys' });
+
+    const exported = (await a.call('GET', '/api/graph/export')).body;
+    assert.ok(exported.views.length >= 2);
+
+    const imp = await b.call('POST', '/api/graph/import', { mode: 'replace', ...exported });
+    assert.equal(imp.status, 200);
+    assert.equal(imp.body.views, exported.views.length);
+
+    const views = (await b.call('GET', '/api/views')).body;
+    assert.ok(views.some((v) => v.id === 'v-sys' && v.parentId === rootId));
+    const host = (await b.call('GET', '/api/nodes/host')).body;
+    assert.equal(host.viewId, 'v-sys');
+    assert.equal(host.linkedViewId, 'v-sys');
+  } finally {
+    a.close();
+    b.close();
+  }
+});

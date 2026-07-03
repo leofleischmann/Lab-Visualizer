@@ -23,12 +23,26 @@ const customFieldsSchema = z
 
 const optionalText = (max) => z.string().max(max).nullable().optional();
 
+export const viewCreateSchema = z.object({
+  id: idSchema.optional(),
+  name: z.string().min(1, 'Name darf nicht leer sein').max(200),
+  parentId: idSchema.nullable().optional(),
+  description: z.string().max(200000).default(''),
+  color: z.string().max(32).nullable().optional(),
+  icon: z.string().max(50).nullable().optional(),
+  sortOrder: z.number().int().optional(),
+});
+
+export const viewUpdateSchema = viewCreateSchema.omit({ id: true }).partial();
+
 export const nodeCreateSchema = z.object({
   id: idSchema.optional(),
   name: z.string().min(1, 'Name darf nicht leer sein').max(200),
   category: z.string().min(1).max(50).default('generic'),
   status: z.enum(STATUS_IDS).default('unknown'),
   parentId: idSchema.nullable().optional(),
+  viewId: idSchema.optional(),
+  linkedViewId: idSchema.nullable().optional(),
   position: positionSchema.default({ x: 0, y: 0 }),
   width: z.number().positive().max(100000).nullable().optional(),
   height: z.number().positive().max(100000).nullable().optional(),
@@ -56,6 +70,7 @@ export const edgeCreateSchema = z.object({
   id: idSchema.optional(),
   sourceId: idSchema,
   targetId: idSchema,
+  viewId: idSchema.optional(),
   label: z.string().max(500).default(''),
   kind: z.string().min(1).max(50).default('generic'),
   lineStyle: z.enum(LINE_STYLES).default('solid'),
@@ -89,11 +104,13 @@ const importTimestamps = {
 
 export const importSchema = z.object({
   mode: z.enum(['replace']).default('replace'),
+  views: z.array(viewCreateSchema.extend({ id: idSchema, ...importTimestamps })).max(10000).default([]),
   nodes: z.array(nodeCreateSchema.extend({ id: idSchema, ...importTimestamps })).max(50000),
   edges: z.array(edgeCreateSchema.extend(importTimestamps)).max(200000).default([]),
 });
 
 export const layoutSchema = z.object({
+  viewId: idSchema.optional(),
   maxCols: z.number().int().min(1).max(10).default(5),
   profile: z.enum(['default', 'wide']).default('default'),
 });
