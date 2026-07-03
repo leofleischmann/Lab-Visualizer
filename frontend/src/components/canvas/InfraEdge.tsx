@@ -122,6 +122,9 @@ function InfraEdgeComponent({
   // Fokus-Modus: booleans statt des ganzen Sets → re-rendert nur bei Statuswechsel
   const dimmed = useGraphStore((s) => (s.focus ? !s.focus.edgeIds.has(id) : false));
   const highlighted = useGraphStore((s) => (s.focus ? s.focus.edgeIds.has(id) : false));
+  // Bumpt beim Loslassen eines Nodes / Zonen-Resize → einmaliger Full-Reroute,
+  // damit auch Kanten ohne bewegte Endknoten um verschobene Nodes fließen.
+  const geometryVersion = useGraphStore((s) => s.geometryVersion);
   // Semantisches Zoomen: Labels erst ab LABEL_ZOOM_MIN einblenden (weniger Clutter)
   const labelsVisibleAtZoom = useStore((s) => s.transform[2] >= LABEL_ZOOM_MIN);
   const { startPointerDrag } = usePointerDrag();
@@ -160,9 +163,23 @@ function InfraEdgeComponent({
       sourceShift: portShift(id, source, sides.source, edges, nodes),
       targetShift: portShift(id, target, sides.target, edges, nodes),
     });
-    // sKey/tKey stehen stellvertretend für sourceRect/targetRect (Positionsänderung)
+    // sKey/tKey stehen stellvertretend für sourceRect/targetRect (Positionsänderung),
+    // geometryVersion erzwingt den Full-Reroute nach einem Drop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sKey, tKey, edges, id, source, target, sourceX, sourceY, targetX, targetY, entity?.routing]);
+  }, [
+    sKey,
+    tKey,
+    edges,
+    id,
+    source,
+    target,
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    entity?.routing,
+    geometryVersion,
+  ]);
 
   // Für Callbacks, die während eines Drags die aktuelle Geometrie brauchen
   const pointsRef = useRef(points);

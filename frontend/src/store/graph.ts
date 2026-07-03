@@ -97,6 +97,12 @@ type GraphStore = {
   selection: Selection;
   hoverNodeId: string | null;
   focus: FocusSet;
+  /**
+   * Zählt hoch, wenn sich die Node-Geometrie strukturell ändert (Drop, Zonen-
+   * Resize, Layout). Kanten routen daraufhin einmalig komplett neu — auch die,
+   * deren eigene Endknoten sich nicht bewegt haben (Hindernis-Umgehung).
+   */
+  geometryVersion: number;
   search: string;
   loading: boolean;
   error: string | null;
@@ -142,6 +148,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   selection: null,
   hoverNodeId: null,
   focus: null,
+  geometryVersion: 0,
   search: '',
   loading: true,
   error: null,
@@ -243,7 +250,11 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     const movedIds = changes
       .filter((c) => c.type === 'position' && c.dragging === false)
       .map((c) => (c as { id: string }).id);
-    set({ nodes: nextNodes });
+    // Beim Loslassen (nicht während des Drags) einmalig alle Kanten neu routen
+    set((state) => ({
+      nodes: nextNodes,
+      geometryVersion: movedIds.length ? state.geometryVersion + 1 : state.geometryVersion,
+    }));
     if (movedIds.length) void get().persistPositions(movedIds);
   },
 
@@ -273,6 +284,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
 
   applyZoneGeometry: async (id, { x, y, width, height }) => {
     set((state) => ({
+      geometryVersion: state.geometryVersion + 1,
       nodes: state.nodes.map((n) =>
         n.id === id
           ? {
