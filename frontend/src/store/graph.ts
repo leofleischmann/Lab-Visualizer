@@ -76,6 +76,18 @@ function computeFocus(edges: FlowEdge[], focusNodeId: string | null): FocusSet {
   return { nodeIds, edgeIds };
 }
 
+/**
+ * Prüft, ob sich zwei Entitäten inhaltlich unterscheiden — Zeitstempel werden
+ * ignoriert. Verhindert leere Undo-Schritte bei No-Op-Speichern.
+ */
+function entityChanged<T extends Record<string, unknown>>(before: T, after: T): boolean {
+  const strip = (o: T) => {
+    const { updatedAt: _u, createdAt: _c, ...rest } = o as Record<string, unknown>;
+    return JSON.stringify(rest);
+  };
+  return strip(before) !== strip(after);
+}
+
 function toFlowNode(n: ApiNode): FlowNode {
   const isZone = n.category === 'group';
   return {
@@ -516,6 +528,17 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   },
 
   applyZoneGeometry: async (id, { x, y, width, height }) => {
+    // Vorherige Geometrie (persistiert) für Undo festhalten.
+    const prev = get().nodes.find((n) => n.id === id)?.data.entity;
+    const before = prev
+      ? {
+          id,
+          x: prev.position.x,
+          y: prev.position.y,
+          width: prev.width ?? undefined,
+          height: prev.height ?? undefined,
+        }
+      : null;
     set((state) => ({
       geometryVersion: state.geometryVersion + 1,
       nodes: state.nodes.map((n) =>
@@ -533,7 +556,23 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       ),
     }));
     try {
-      await api.updatePositions([{ id, x, y, width, height }]);
+      const after = { id, x, y, width, height };
+      await api.updatePositions([after]);
+      const viewId = get().activeViewId;
+      const changed =
+        !before ||
+        before.x !== x ||
+        before.y !== y ||
+        before.width !== width ||
+        before.height !== height;
+      if (before && viewId && changed) {
+        get().record({
+          label: 'Zone anpassen',
+          viewId,
+          undo: async () => void (await api.updatePositions([before])),
+          redo: async () => void (await api.updatePositions([after])),
+        });
+      }
     } catch (err) {
       set({ error: errorMessage(err) });
     }
@@ -583,7 +622,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
           ),
         }));
       }
-      if (before) {
+      if (before && entityChanged(before, updated)) {
         get().record({
           label: 'Node bearbeiten',
           viewId: before.viewId,
@@ -660,7 +699,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
           e.id === id ? { ...toFlowEdge(updated), selected: e.selected } : e
         ),
       }));
-      if (before) {
+      if (before && entityChanged(before, updated)) {
         get().record({
           label: 'Verbindung bearbeiten',
           viewId: before.viewId,
@@ -736,9 +775,12 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   importGraph: async (payload) => {
     try {
       await api.importGraph(payload);
-      // Ebenen wurden ersetzt → aktive Ebene neu bestimmen (Root).
-      set({ selection: null, activeViewId: null });
-      await get().reload();
+      // Projekte/Ebenen wurden komplett ersetzt: aktives Projekt + Ebene können
+      // auf gelöschte IDs zeigen. Zurücksetzen und über load() neu bestimmen,
+      // sonst zeigt der ProjectSwitcher/die Ebenen-Leiste ins Leere. Undo-History
+      // bezieht sich auf alte IDs → ebenfalls verwerfen.
+      set({ selection: null, activeProjectId: null, activeViewId: null, past: [], future: [] });
+      await get().load();
       return true;
     } catch (err) {
       set({ error: errorMessage(err) });
@@ -749,8 +791,9 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   clearGraph: async () => {
     try {
       await api.importGraph({ views: [], nodes: [], edges: [] });
-      set({ selection: null, activeViewId: null });
-      await get().reload();
+      // Wie beim Import: alle Daten inkl. Projekten werden ersetzt → neu auflösen.
+      set({ selection: null, activeProjectId: null, activeViewId: null, past: [], future: [] });
+      await get().load();
       return true;
     } catch (err) {
       set({ error: errorMessage(err) });

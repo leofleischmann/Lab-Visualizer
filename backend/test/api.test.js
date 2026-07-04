@@ -461,3 +461,54 @@ test('views: Export/Import erhält Ebenen-Hierarchie', async () => {
     b.close();
   }
 });
+
+test('Suche: findet nach VLAN und behandelt Wildcards literal', async () => {
+  const { call, close } = await freshApp();
+  try {
+    const projectId = (await call('GET', '/api/projects')).body[0].id;
+    await call('POST', '/api/nodes', { id: 's-vlan', name: 'Switch', vlan: 'VLAN20' });
+    await call('POST', '/api/nodes', { id: 's-pct', name: '100% Uptime Box' });
+    await call('POST', '/api/nodes', { id: 's-other', name: 'Anderer Host', vlan: 'VLAN99' });
+
+    // VLAN ist durchsuchbar
+    const byVlan = (await call('GET', '/api/nodes?q=VLAN20')).body;
+    assert.deepEqual(byVlan.map((n) => n.id), ['s-vlan']);
+
+    // '%' wird literal gesucht, nicht als Wildcard (sonst würde es alles matchen)
+    const byPercent = (await call('GET', `/api/nodes?q=${encodeURIComponent('100%')}`)).body;
+    assert.deepEqual(byPercent.map((n) => n.id), ['s-pct']);
+
+    // projektweite Suche liefert dieselben Treffer
+    const global = (await call('GET', `/api/nodes?projectId=${projectId}&q=VLAN`)).body;
+    assert.equal(global.length, 2);
+  } finally {
+    close();
+  }
+});
+
+test('Suche: wiederholter Query-Parameter (Array) crasht nicht', async () => {
+  const { call, close } = await freshApp();
+  try {
+    await call('POST', '/api/nodes', { id: 'arr1', name: 'Alpha' });
+    const res = await call('GET', '/api/nodes?q=Alpha&q=Beta');
+    assert.equal(res.status, 200);
+    assert.ok(Array.isArray(res.body));
+  } finally {
+    close();
+  }
+});
+
+test('views: Parent aus anderem Projekt wird abgelehnt', async () => {
+  const { call, close } = await freshApp();
+  try {
+    const rootA = (await call('GET', '/api/views')).body[0].id;
+    await call('POST', '/api/projects', { id: 'proj-b', name: 'Projekt B' });
+    const rootB = (await call('GET', '/api/views?projectId=proj-b')).body[0].id;
+
+    const res = await call('PATCH', `/api/views/${rootB}`, { parentId: rootA });
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /selben Projekt/);
+  } finally {
+    close();
+  }
+});

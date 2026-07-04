@@ -280,8 +280,12 @@ export function updateView(db, id, patch) {
   const existing = getView(db, id);
   if (patch.parentId !== undefined && patch.parentId !== null) {
     if (patch.parentId === id) throw new ApiError(400, 'Eine Ebene kann nicht ihr eigener Parent sein');
-    if (!viewExists(db, patch.parentId)) {
+    const parent = getViewRow(db, patch.parentId);
+    if (!parent) {
       throw new ApiError(400, `Parent-Ebene "${patch.parentId}" existiert nicht`);
+    }
+    if (parent.project_id !== existing.projectId) {
+      throw new ApiError(400, 'Parent-Ebene muss im selben Projekt liegen');
     }
     if (wouldViewCreateCycle(db, id, patch.parentId)) {
       throw new ApiError(400, 'Parent-Zuordnung würde einen Zyklus erzeugen');
@@ -344,9 +348,12 @@ export function listNodes(db, { q, category, status, viewId, projectId } = {}) {
   const params = {};
   if (q) {
     where.push(
-      "(n.name LIKE :q OR n.ip LIKE :q OR n.hostname LIKE :q OR n.url LIKE :q OR ifnull(n.os,'') LIKE :q)"
+      "(n.name LIKE :q ESCAPE '\\' OR ifnull(n.ip,'') LIKE :q ESCAPE '\\'" +
+        " OR ifnull(n.hostname,'') LIKE :q ESCAPE '\\' OR ifnull(n.url,'') LIKE :q ESCAPE '\\'" +
+        " OR ifnull(n.os,'') LIKE :q ESCAPE '\\' OR ifnull(n.vlan,'') LIKE :q ESCAPE '\\')"
     );
-    params.q = `%${q}%`;
+    // LIKE-Wildcards (% _ \) in der Nutzereingabe escapen, damit sie literal suchen.
+    params.q = `%${String(q).replace(/[\\%_]/g, '\\$&')}%`;
   }
   if (category) {
     where.push('n.category = :category');
