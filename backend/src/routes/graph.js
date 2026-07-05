@@ -7,7 +7,8 @@ export function graphRouter(db) {
 
   // GET /api/graph?viewId= — Graph einer Ebene (Default: Root-Ebene)
   router.get('/', (req, res) => {
-    res.json(store.getGraph(db, req.query.viewId));
+    const viewId = Array.isArray(req.query.viewId) ? req.query.viewId[0] : req.query.viewId;
+    res.json(store.getGraph(db, viewId));
   });
 
   // GET /api/graph/export — Download-fähiger JSON-Dump
