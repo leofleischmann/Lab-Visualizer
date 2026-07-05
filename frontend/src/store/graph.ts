@@ -611,6 +611,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       const updated = await api.updateNode(id, patch);
       const structuralChange =
         patch.parentId !== undefined ||
+        (patch.viewId !== undefined && patch.viewId !== before?.viewId) ||
         (patch.category !== undefined &&
           (patch.category === 'group') !== (before?.category === 'group'));
       if (structuralChange) {
@@ -642,6 +643,12 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     const connectedEdges = get()
       .edges.filter((e) => e.source === id || e.target === id)
       .map((e) => e.data!.entity);
+    // Direkte Kinder werden serverseitig an den Großelternknoten umgehängt und
+    // verschoben. Ihre ursprüngliche (relative) Position + Zugehörigkeit hier
+    // festhalten, damit das Undo sie verlustfrei wiederherstellen kann.
+    const formerChildren = get()
+      .nodes.filter((n) => n.data.entity.parentId === id)
+      .map((n) => ({ id: n.id, position: { ...n.data.entity.position } }));
     try {
       await api.deleteNode(id);
       set((state) => ({
@@ -655,6 +662,10 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
           viewId: node.viewId,
           undo: async () => {
             await api.createNode(node);
+            // Kinder wieder unter den Node hängen und Position zurücksetzen.
+            for (const child of formerChildren) {
+              await api.updateNode(child.id, { parentId: id, position: child.position });
+            }
             for (const e of connectedEdges) await api.createEdge(e);
           },
           redo: () => api.deleteNode(id),

@@ -435,6 +435,51 @@ export function createNode(db, data) {
   return getNode(db, id);
 }
 
+/** Sammelt einen Node samt aller Nachfahren (über parent_id). */
+function collectSubtree(db, rootId) {
+  const ids = new Set([rootId]);
+  const childStmt = db.prepare('SELECT id FROM nodes WHERE parent_id = ?');
+  const queue = [rootId];
+  while (queue.length) {
+    for (const row of childStmt.all(queue.shift())) {
+      if (!ids.has(row.id)) {
+        ids.add(row.id);
+        queue.push(row.id);
+      }
+    }
+  }
+  return [...ids];
+}
+
+/**
+ * Verschiebt einen Node samt Nachfahren in eine andere Ebene und hält die
+ * Intra-View-Invariante der Kanten aufrecht: Kanten innerhalb des verschobenen
+ * Teilbaums (bzw. zu Nodes, die ohnehin in der Zielebene liegen) wandern mit;
+ * Kanten, deren anderes Ende in einer anderen Ebene bleibt, werden entfernt.
+ */
+function migrateNodeSubtreeView(db, rootId, newViewId, ts) {
+  const subtree = collectSubtree(db, rootId);
+  const ph = subtree.map(() => '?').join(',');
+  db.prepare(`UPDATE nodes SET view_id = ?, updated_at = ? WHERE id IN (${ph})`).run(
+    newViewId,
+    ts,
+    ...subtree
+  );
+  const affectedEdges = db
+    .prepare(
+      `SELECT id, source_id, target_id FROM edges WHERE source_id IN (${ph}) OR target_id IN (${ph})`
+    )
+    .all(...subtree, ...subtree);
+  const setView = db.prepare('UPDATE edges SET view_id = ?, updated_at = ? WHERE id = ?');
+  const del = db.prepare('DELETE FROM edges WHERE id = ?');
+  for (const e of affectedEdges) {
+    const sv = nodeViewId(db, e.source_id);
+    const tv = nodeViewId(db, e.target_id);
+    if (sv && sv === tv) setView.run(sv, ts, e.id);
+    else del.run(e.id);
+  }
+}
+
 export function updateNode(db, id, patch) {
   const existing = getNode(db, id);
   if (patch.parentId !== undefined && patch.parentId !== null) {
@@ -459,14 +504,22 @@ export function updateNode(db, id, patch) {
     customFields: patch.customFields ?? existing.customFields,
     id,
   };
-  db.prepare(`
-    UPDATE nodes SET name = @name, category = @category, status = @status, parent_id = @parent_id,
-      view_id = @view_id, linked_view_id = @linked_view_id,
-      pos_x = @pos_x, pos_y = @pos_y, width = @width, height = @height, ip = @ip, vlan = @vlan,
-      os = @os, hostname = @hostname, url = @url, notes = @notes, custom_fields = @custom_fields,
-      updated_at = @updated_at
-    WHERE id = @id
-  `).run(nodeToRow(merged, { created_at: existing.createdAt, updated_at: now() }));
+  const viewChanged =
+    patch.viewId !== undefined && patch.viewId !== null && patch.viewId !== existing.viewId;
+  const ts = now();
+  const tx = db.transaction(() => {
+    db.prepare(`
+      UPDATE nodes SET name = @name, category = @category, status = @status, parent_id = @parent_id,
+        view_id = @view_id, linked_view_id = @linked_view_id,
+        pos_x = @pos_x, pos_y = @pos_y, width = @width, height = @height, ip = @ip, vlan = @vlan,
+        os = @os, hostname = @hostname, url = @url, notes = @notes, custom_fields = @custom_fields,
+        updated_at = @updated_at
+      WHERE id = @id
+    `).run(nodeToRow(merged, { created_at: existing.createdAt, updated_at: ts }));
+    // Ebenenwechsel: Nachfahren mitnehmen und Kanten intra-view halten.
+    if (viewChanged) migrateNodeSubtreeView(db, id, merged.viewId, ts);
+  });
+  tx();
   return getNode(db, id);
 }
 

@@ -512,3 +512,54 @@ test('views: Parent aus anderem Projekt wird abgelehnt', async () => {
     close();
   }
 });
+
+test('updateNode: Ebenenwechsel nimmt Nachfahren mit und migriert Kanten', async () => {
+  const { call, close } = await freshApp();
+  try {
+    const rootId = (await call('GET', '/api/views')).body[0].id;
+    await call('POST', '/api/views', { id: 'v-b', name: 'Ebene B', parentId: rootId });
+
+    // Zone mit Kind + Kante innerhalb; plus externer Node in Root mit Kante zur Zone.
+    await call('POST', '/api/nodes', { id: 'zone', name: 'Zone', category: 'group', viewId: rootId });
+    await call('POST', '/api/nodes', { id: 'child', name: 'Kind', parentId: 'zone', viewId: rootId });
+    await call('POST', '/api/nodes', { id: 'ext', name: 'Extern', viewId: rootId });
+    await call('POST', '/api/edges', { id: 'e-in', sourceId: 'zone', targetId: 'child' });
+    await call('POST', '/api/edges', { id: 'e-out', sourceId: 'zone', targetId: 'ext' });
+
+    // Zone in Ebene B verschieben.
+    const res = await call('PATCH', '/api/nodes/zone', { viewId: 'v-b' });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.viewId, 'v-b');
+
+    // Kind wandert mit.
+    assert.equal((await call('GET', '/api/nodes/child')).body.viewId, 'v-b');
+    // Externer Node bleibt in Root.
+    assert.equal((await call('GET', '/api/nodes/ext')).body.viewId, rootId);
+
+    // Interne Kante wandert nach B, kreuzende Kante wird entfernt.
+    const graphB = (await call('GET', '/api/graph?viewId=v-b')).body;
+    assert.deepEqual(graphB.edges.map((e) => e.id), ['e-in']);
+    assert.equal((await call('GET', '/api/edges/e-out')).status, 404);
+    // Root enthält danach keine Kante mehr.
+    assert.equal((await call('GET', `/api/graph?viewId=${rootId}`)).body.edges.length, 0);
+  } finally {
+    close();
+  }
+});
+
+test('deleteNode: direkte Kinder werden an den Großelternknoten umgehängt', async () => {
+  const { call, close } = await freshApp();
+  try {
+    await call('POST', '/api/nodes', { id: 'outer', name: 'Outer', category: 'group', position: { x: 100, y: 50 } });
+    await call('POST', '/api/nodes', { id: 'inner', name: 'Inner', category: 'group', parentId: 'outer', position: { x: 30, y: 20 } });
+    await call('POST', '/api/nodes', { id: 'leaf', name: 'Leaf', parentId: 'inner', position: { x: 5, y: 5 } });
+
+    // Mittlere Zone löschen → leaf hängt an outer, Position um inner-Offset verschoben.
+    assert.equal((await call('DELETE', '/api/nodes/inner')).status, 204);
+    const leaf = (await call('GET', '/api/nodes/leaf')).body;
+    assert.equal(leaf.parentId, 'outer');
+    assert.deepEqual(leaf.position, { x: 35, y: 25 });
+  } finally {
+    close();
+  }
+});
