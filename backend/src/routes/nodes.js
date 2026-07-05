@@ -8,8 +8,19 @@ export function nodesRouter(db) {
   // GET /api/nodes?q=&category=&status=&viewId=&projectId=
   // projectId → globale Suche über alle Ebenen eines Projekts
   router.get('/', (req, res) => {
+    // Wiederholte Query-Parameter (?q=a&q=b) kommen als Array — auf String
+    // reduzieren, damit sie nicht ungeprüft als SQL-Bind-Wert landen.
+    const str = (v) => (Array.isArray(v) ? v[0] : v);
     const { q, category, status, viewId, projectId } = req.query;
-    res.json(store.listNodes(db, { q, category, status, viewId, projectId }));
+    res.json(
+      store.listNodes(db, {
+        q: str(q),
+        category: str(category),
+        status: str(status),
+        viewId: str(viewId),
+        projectId: str(projectId),
+      })
+    );
   });
 
   // POST /api/nodes
