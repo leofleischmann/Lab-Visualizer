@@ -4,8 +4,17 @@ services:
     container_name: labviz-backend
     restart: unless-stopped
     volumes:
-      # SQLite-Datenbank → Backup = diesen Ordner kopieren
+      # SQLite-Datenbank (inkl. Accounts & Sessions) → Backup = diesen Ordner kopieren
       - ./data:/data
+    environment:
+      # Session-Cookies nur über HTTPS ausliefern. Hinter Cloudflare/HTTPS auf "true"
+      # setzen. Leer lassen → automatisch anhand X-Forwarded-Proto (funktioniert für
+      # rein lokalen HTTP-Zugriff auf http://localhost:8080).
+      - COOKIE_SECURE=${COOKIE_SECURE:-}
+      # Gültigkeitsdauer einer Session in Tagen (Sliding-Renewal).
+      - SESSION_TTL_DAYS=${SESSION_TTL_DAYS:-30}
+      # Selbst-Registrierung erlauben ("true") oder sperren ("false").
+      - ALLOW_REGISTRATION=${ALLOW_REGISTRATION:-true}
     # Optional: API zusätzlich direkt (ohne Frontend-Proxy) freigeben:
     # ports:
     #   - "3000:3000"

@@ -1,13 +1,16 @@
 import { useRef } from 'react';
 import { useReactFlow } from '@xyflow/react';
-import { Download, LayoutGrid, Redo2, Trash2, Undo2, Upload } from 'lucide-react';
+import { Download, LayoutGrid, LogOut, Redo2, Trash2, Undo2, Upload } from 'lucide-react';
 import { api } from '../api/client';
 import { useGraphStore } from '../store/graph';
+import { useAuthStore } from '../store/auth';
 import { GlobalSearch } from './GlobalSearch';
 import { ProjectSwitcher } from './projects/ProjectSwitcher';
 
 export function TopBar() {
   const setError = useGraphStore((s) => s.setError);
+  const userEmail = useAuthStore((s) => s.user?.email ?? '');
+  const logout = useAuthStore((s) => s.logout);
   const importGraph = useGraphStore((s) => s.importGraph);
   const clearGraph = useGraphStore((s) => s.clearGraph);
   const autoLayout = useGraphStore((s) => s.autoLayout);
@@ -157,6 +160,20 @@ export function TopBar() {
         >
           <Trash2 size={13} /> Alles löschen
         </button>
+
+        <div className="ml-1 flex items-center gap-2 border-l border-slate-800 pl-3">
+          <span className="hidden max-w-[14rem] truncate text-[11px] text-slate-400 xl:block" title={userEmail}>
+            {userEmail}
+          </span>
+          <button
+            type="button"
+            onClick={() => void logout()}
+            title="Abmelden"
+            className="flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:border-red-500 hover:text-red-300"
+          >
+            <LogOut size={13} /> Abmelden
+          </button>
+        </div>
       </div>
     </header>
   );

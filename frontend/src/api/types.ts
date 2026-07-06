@@ -2,6 +2,12 @@ import type { Node, Edge } from '@xyflow/react';
 
 export type Position = { x: number; y: number };
 
+/** Angemeldeter Nutzer (Account). */
+export type User = {
+  id: string;
+  email: string;
+};
+
 /** Projekt: komplett getrennter Arbeitsbereich (z. B. „Homelab", „Arbeit"). */
 export type Project = {
   id: string;
