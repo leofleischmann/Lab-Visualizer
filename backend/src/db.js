@@ -9,8 +9,26 @@ CREATE TABLE IF NOT EXISTS meta (
   value TEXT
 );
 
+CREATE TABLE IF NOT EXISTS users (
+  id            TEXT PRIMARY KEY,
+  email         TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  password_hash TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  id         TEXT PRIMARY KEY,          -- sha256(token) hex; das Klartext-Token liegt nur im Cookie
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+
 CREATE TABLE IF NOT EXISTS projects (
   id            TEXT PRIMARY KEY,
+  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name          TEXT NOT NULL,
   color         TEXT,
   icon          TEXT,
@@ -18,6 +36,7 @@ CREATE TABLE IF NOT EXISTS projects (
   created_at    TEXT NOT NULL,
   updated_at    TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_projects_user ON projects(user_id);
 
 CREATE TABLE IF NOT EXISTS views (
   id            TEXT PRIMARY KEY,
@@ -94,12 +113,36 @@ export function createDb(dbFile) {
   const db = new Database(file);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  resetLegacySchema(db);
   db.exec(SCHEMA);
-  migrate(db);
   return db;
 }
 
-/** Kleiner Key-Value-Speicher für App-Metadaten (z. B. „seeded"-Flag). */
+/**
+ * Vor der Einführung von Accounts gab es Projekte ohne Eigentümer. Diese Altdaten
+ * sind bewusst verzichtbar (kein Migrationspfad gefordert): Erkennt eine alte DB
+ * (Tabelle `projects` ohne Spalte `user_id`), werden die App-Daten verworfen, damit
+ * das neue, besitzergebundene Schema sauber greift. Nutzer/Sessions bleiben unberührt.
+ */
+function resetLegacySchema(db) {
+  const hasProjects = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'projects'")
+    .get();
+  if (!hasProjects) return;
+  const cols = db.prepare('PRAGMA table_info(projects)').all();
+  if (cols.some((c) => c.name === 'user_id')) return; // bereits neues Schema
+
+  db.pragma('foreign_keys = OFF');
+  db.exec(`
+    DROP TABLE IF EXISTS edges;
+    DROP TABLE IF EXISTS nodes;
+    DROP TABLE IF EXISTS views;
+    DROP TABLE IF EXISTS projects;
+  `);
+  db.pragma('foreign_keys = ON');
+}
+
+/** Kleiner Key-Value-Speicher für App-Metadaten. */
 export function getMeta(db, key) {
   return db.prepare('SELECT value FROM meta WHERE key = ?').get(key)?.value ?? null;
 }
@@ -111,73 +154,25 @@ export function setMeta(db, key, value) {
 }
 
 /**
- * Stellt sicher, dass mindestens ein Projekt existiert, und liefert dessen ID.
- */
-export function ensureDefaultProject(db) {
-  const existing = db
-    .prepare('SELECT id FROM projects ORDER BY sort_order, created_at LIMIT 1')
-    .get();
-  if (existing) return existing.id;
-  const id = crypto.randomUUID();
-  const ts = new Date().toISOString();
-  db.prepare(
-    `INSERT INTO projects (id, name, color, icon, sort_order, created_at, updated_at)
-     VALUES (?, 'Mein Homelab', '#38bdf8', 'boxes', 0, ?, ?)`
-  ).run(id, ts, ts);
-  return id;
-}
-
-/**
- * Stellt sicher, dass im (Default-)Projekt mindestens eine Root-Ebene existiert,
- * und liefert deren ID. Verhindert den Zustand „keine Ebene vorhanden".
+ * Stellt sicher, dass ein Projekt mindestens eine Root-Ebene besitzt, und liefert
+ * deren ID. Das Projekt selbst gehört bereits einem Nutzer (Besitz wird transitiv
+ * über project_id vererbt).
  */
 export function ensureRootView(db, projectId) {
-  const project = projectId ?? ensureDefaultProject(db);
   const existing = db
     .prepare('SELECT id FROM views WHERE project_id = ? ORDER BY sort_order, created_at LIMIT 1')
-    .get(project);
+    .get(projectId);
   if (existing) return existing.id;
   const id = crypto.randomUUID();
   const ts = new Date().toISOString();
   db.prepare(
     `INSERT INTO views (id, project_id, name, parent_id, description, color, icon, sort_order, created_at, updated_at)
      VALUES (?, ?, 'Übersicht', NULL, '', '#38bdf8', 'layers', 0, ?, ?)`
-  ).run(id, project, ts, ts);
+  ).run(id, projectId, ts, ts);
   return id;
 }
 
-function migrate(db) {
-  // Bestandsmigration: routing-Spalte für alte Edge-Tabellen
-  const edgeCols = db.prepare('PRAGMA table_info(edges)').all();
-  if (!edgeCols.some((c) => c.name === 'routing')) {
-    db.exec(
-      `ALTER TABLE edges ADD COLUMN routing TEXT NOT NULL DEFAULT '{"mode":"auto","waypoints":[]}'`
-    );
-  }
-
-  // Ebenen (views): fehlende Spalten ergänzen (ohne inline-FK, um ALTER-Grenzen
-  // von SQLite zu vermeiden; frische DBs erhalten die FKs über das Schema oben).
-  const nodeCols = db.prepare('PRAGMA table_info(nodes)').all();
-  if (!nodeCols.some((c) => c.name === 'view_id')) {
-    db.exec('ALTER TABLE nodes ADD COLUMN view_id TEXT');
-  }
-  if (!nodeCols.some((c) => c.name === 'linked_view_id')) {
-    db.exec('ALTER TABLE nodes ADD COLUMN linked_view_id TEXT');
-  }
-  if (!edgeCols.some((c) => c.name === 'view_id')) {
-    db.exec('ALTER TABLE edges ADD COLUMN view_id TEXT');
-  }
-
-  // Projekte: fehlende view.project_id-Spalte ergänzen und Ebenen zuordnen.
-  const viewCols = db.prepare('PRAGMA table_info(views)').all();
-  if (!viewCols.some((c) => c.name === 'project_id')) {
-    db.exec('ALTER TABLE views ADD COLUMN project_id TEXT');
-  }
-  const projectId = ensureDefaultProject(db);
-  db.prepare('UPDATE views SET project_id = ? WHERE project_id IS NULL').run(projectId);
-
-  // Verwaiste Nodes/Edges der Root-Ebene zuordnen (verlustfreier Backfill).
-  const rootId = ensureRootView(db, projectId);
-  db.prepare('UPDATE nodes SET view_id = ? WHERE view_id IS NULL').run(rootId);
-  db.prepare('UPDATE edges SET view_id = ? WHERE view_id IS NULL').run(rootId);
+/** Entfernt abgelaufene Sessions (Aufräumen beim Start). */
+export function purgeExpiredSessions(db) {
+  db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(new Date().toISOString());
 }

@@ -253,6 +253,11 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
         selection: null,
         hoverNodeId: null,
         focus: null,
+        // Undo-Historie/Suche gehören zur Sitzung → bei (Neu-)Laden zurücksetzen,
+        // damit ein Account-Wechsel im selben Browser nichts überträgt.
+        past: [],
+        future: [],
+        search: '',
         loading: false,
       });
     } catch (err) {

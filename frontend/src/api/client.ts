@@ -7,17 +7,28 @@ import type {
   NodePatch,
   Project,
   ProjectPatch,
+  User,
   View,
   ViewPatch,
 } from './types';
 
 const BASE = '/api';
 
+// Wird bei 401 auf geschützten Endpunkten aufgerufen (z. B. abgelaufene Session),
+// damit die App zurück auf den Login-Screen wechseln kann.
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(fn: (() => void) | null) {
+  onUnauthorized = fn;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
+    // Session-Cookie mitsenden (Same-Origin über nginx-/Vite-Proxy).
+    credentials: 'same-origin',
     headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
     ...init,
   });
+  if (res.status === 401 && !path.startsWith('/auth/')) onUnauthorized?.();
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;
     try {
@@ -44,6 +55,20 @@ export class ApiRequestError extends Error {
 }
 
 export const api = {
+  // ── Auth ──────────────────────────────────────────────────────
+  me: () => request<{ user: User }>('/auth/me'),
+  register: (email: string, password: string) =>
+    request<{ user: User }>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }),
+  login: (email: string, password: string) =>
+    request<{ user: User }>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }),
+  logout: () => request<void>('/auth/logout', { method: 'POST' }),
+
   catalog: () => request<Catalog>('/meta/catalog'),
   graph: (viewId?: string) =>
     request<Required<Pick<GraphPayload, 'viewId' | 'nodes' | 'edges'>>>(

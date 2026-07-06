@@ -1,14 +1,35 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { createApp } from '../src/app.js';
+import { createSession } from '../src/auth.js';
+import * as store from '../src/store.js';
 
 let server;
 let base;
 let db;
+let authCookie;
+
+/**
+ * Legt einen Nutzer mit genau EINEM leeren Projekt (+ Root-Ebene) an — ohne den
+ * Beispiel-Seed — und öffnet dafür eine Session. So starten die Tests vom selben
+ * „leeren" Zustand wie vor der Account-Umstellung. Liefert das Cookie.
+ */
+function bootstrapUser(database) {
+  const userId = crypto.randomUUID();
+  const ts = new Date().toISOString();
+  database
+    .prepare('INSERT INTO users (id, email, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+    .run(userId, `u-${userId.slice(0, 8)}@test.local`, 'scrypt$1$00$00', ts, ts);
+  store.createProject(database, userId, { name: 'Test' });
+  const { token } = createSession(database, userId);
+  return { userId, cookie: `sid=${token}` };
+}
 
 before(async () => {
   const created = createApp({ dbFile: ':memory:' });
   db = created.db;
+  authCookie = bootstrapUser(db).cookie;
   server = created.app.listen(0);
   await new Promise((resolve) => server.on('listening', resolve));
   base = `http://127.0.0.1:${server.address().port}`;
@@ -20,9 +41,11 @@ after(() => {
 });
 
 const api = async (method, path, body) => {
+  const headers = { Cookie: authCookie };
+  if (body) headers['Content-Type'] = 'application/json';
   const res = await fetch(`${base}${path}`, {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : {},
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();
@@ -219,88 +242,89 @@ test('routing: labelT wird gespeichert, Auto-Layout setzt Routing zurück', asyn
 });
 
 test('export/import Roundtrip', async () => {
-  const fresh = createApp({ dbFile: ':memory:' });
-  const freshServer = fresh.app.listen(0);
-  await new Promise((resolve) => freshServer.on('listening', resolve));
-  const freshBase = `http://127.0.0.1:${freshServer.address().port}`;
+  const a = await freshApp();
+  const b = await freshApp();
+  try {
+    const post = async (path, body) => {
+      const res = await a.call('POST', path, body);
+      assert.equal(res.status, 201);
+      return res.body;
+    };
 
-  const post = async (path, body) => {
-    const res = await fetch(`${freshBase}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+    await post('/api/nodes', {
+      id: 'zone-a',
+      name: 'Zone A',
+      category: 'group',
+      position: { x: 0, y: 0 },
+      width: 400,
+      height: 300,
     });
-    assert.equal(res.status, 201);
-    return res.json();
-  };
+    await post('/api/nodes', {
+      id: 'svc-a',
+      name: 'Service A',
+      category: 'native-service',
+      parentId: 'zone-a',
+      position: { x: 40, y: 50 },
+    });
+    await post('/api/nodes', { id: 'svc-b', name: 'Service B', category: 'native-service' });
+    await post('/api/edges', {
+      id: 'e-a-b',
+      sourceId: 'svc-a',
+      targetId: 'svc-b',
+      kind: 'http',
+      label: 'a → b',
+    });
 
-  await post('/api/nodes', {
-    id: 'zone-a',
-    name: 'Zone A',
-    category: 'group',
-    position: { x: 0, y: 0 },
-    width: 400,
-    height: 300,
-  });
-  await post('/api/nodes', {
-    id: 'svc-a',
-    name: 'Service A',
-    category: 'native-service',
-    parentId: 'zone-a',
-    position: { x: 40, y: 50 },
-  });
-  await post('/api/nodes', { id: 'svc-b', name: 'Service B', category: 'native-service' });
-  await post('/api/edges', {
-    id: 'e-a-b',
-    sourceId: 'svc-a',
-    targetId: 'svc-b',
-    kind: 'http',
-    label: 'a → b',
-  });
+    const graph = (await a.call('GET', '/api/graph')).body;
+    assert.equal(graph.nodes.length, 3);
+    assert.equal(graph.edges.length, 1);
 
-  const graph = await (await fetch(`${freshBase}/api/graph`)).json();
-  assert.equal(graph.nodes.length, 3);
-  assert.equal(graph.edges.length, 1);
+    const seen = new Set();
+    for (const n of graph.nodes) {
+      if (n.parentId) assert.ok(seen.has(n.parentId), `Parent ${n.parentId} muss vor ${n.id} kommen`);
+      seen.add(n.id);
+    }
 
-  const seen = new Set();
-  for (const n of graph.nodes) {
-    if (n.parentId) assert.ok(seen.has(n.parentId), `Parent ${n.parentId} muss vor ${n.id} kommen`);
-    seen.add(n.id);
+    const exported = (await a.call('GET', '/api/graph/export')).body;
+    const importRes = await b.call('POST', '/api/graph/import', {
+      mode: 'replace',
+      nodes: exported.nodes,
+      edges: exported.edges,
+    });
+    assert.equal(importRes.status, 200);
+    assert.equal(importRes.body.nodes, graph.nodes.length);
+    assert.equal(importRes.body.edges, graph.edges.length);
+  } finally {
+    a.close();
+    b.close();
   }
-
-  const exported = await (await fetch(`${freshBase}/api/graph/export`)).json();
-  const importRes = await fetch(`${base}/api/graph/import`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mode: 'replace', nodes: exported.nodes, edges: exported.edges }),
-  });
-  assert.equal(importRes.status, 200);
-  const counts = await importRes.json();
-  assert.equal(counts.nodes, graph.nodes.length);
-  assert.equal(counts.edges, graph.edges.length);
-
-  freshServer.close();
-  fresh.db.close();
 });
 
 // ── Ebenen (Views) ──────────────────────────────────────────────
 
-/** Startet eine frische, isolierte App und liefert einen api-Helper + Cleanup. */
+/**
+ * Startet eine frische, isolierte App mit einem angemeldeten Nutzer (ein leeres
+ * Projekt + Root-Ebene) und liefert einen authentifizierten api-Helper + Cleanup.
+ */
 async function freshApp() {
   const created = createApp({ dbFile: ':memory:' });
+  const { cookie, userId } = bootstrapUser(created.db);
   const server = created.app.listen(0);
   await new Promise((resolve) => server.on('listening', resolve));
   const b = `http://127.0.0.1:${server.address().port}`;
-  const call = async (method, path, body) => {
+  const call = async (method, path, body, cookieOverride = cookie) => {
+    const headers = {};
+    if (cookieOverride) headers.Cookie = cookieOverride;
+    if (body) headers['Content-Type'] = 'application/json';
     const res = await fetch(`${b}${path}`, {
       method,
-      headers: body ? { 'Content-Type': 'application/json' } : {},
+      headers,
       body: body ? JSON.stringify(body) : undefined,
     });
     const text = await res.text();
     return { status: res.status, body: text ? JSON.parse(text) : null };
   };
-  return { call, close: () => { server.close(); created.db.close(); } };
+  return { call, base: b, db: created.db, cookie, userId, close: () => { server.close(); created.db.close(); } };
 }
 
 test('views: Root existiert, CRUD, Hierarchie, Cascade-Delete, letzte Ebene geschützt', async () => {
@@ -561,5 +585,171 @@ test('deleteNode: direkte Kinder werden an den Großelternknoten umgehängt', as
     assert.deepEqual(leaf.position, { x: 35, y: 25 });
   } finally {
     close();
+  }
+});
+
+// ── Accounts / Auth / Isolation ─────────────────────────────────
+
+test('auth: geschützte Endpunkte erfordern Anmeldung', async () => {
+  const { base: b, close } = await freshApp();
+  try {
+    const status = async (method, path, body) => {
+      const res = await fetch(`${b}${path}`, {
+        method,
+        headers: body ? { 'Content-Type': 'application/json' } : {},
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      return res.status;
+    };
+    // Öffentlich:
+    assert.equal(await status('GET', '/api/health'), 200);
+    assert.equal(await status('GET', '/api/meta/catalog'), 200);
+    // Geschützt → 401 ohne Session:
+    assert.equal(await status('GET', '/api/projects'), 401);
+    assert.equal(await status('GET', '/api/graph'), 401);
+    assert.equal(await status('GET', '/api/views'), 401);
+    assert.equal(await status('POST', '/api/nodes', { name: 'X' }), 401);
+    assert.equal(await status('GET', '/api/auth/me'), 401);
+  } finally {
+    close();
+  }
+});
+
+test('auth: Registrierung, Login, me und Logout (inkl. Validierung)', async () => {
+  const { base: b, close } = await freshApp();
+  try {
+    const raw = async (method, path, body, cookie) => {
+      const headers = {};
+      if (body) headers['Content-Type'] = 'application/json';
+      if (cookie) headers.Cookie = cookie;
+      const res = await fetch(`${b}${path}`, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const text = await res.text();
+      return {
+        status: res.status,
+        body: text ? JSON.parse(text) : null,
+        setCookie: res.headers.get('set-cookie'),
+      };
+    };
+
+    // Registrierung legt Konto an, normalisiert die E-Mail und setzt ein Session-Cookie.
+    const reg = await raw('POST', '/api/auth/register', {
+      email: 'Alice@Example.com',
+      password: 'supersecret',
+    });
+    assert.equal(reg.status, 201);
+    assert.equal(reg.body.user.email, 'alice@example.com');
+    assert.ok(reg.setCookie && /(^|[;\s])sid=/.test(reg.setCookie), 'Session-Cookie gesetzt');
+    assert.match(reg.setCookie, /HttpOnly/i);
+    const regCookie = reg.setCookie.split(';')[0];
+
+    // Neuer Nutzer bekommt ein Beispielprojekt.
+    const projects = await raw('GET', '/api/projects', null, regCookie);
+    assert.equal(projects.status, 200);
+    assert.ok(projects.body.length >= 1);
+
+    // Doppelte Registrierung → 409.
+    assert.equal(
+      (await raw('POST', '/api/auth/register', { email: 'alice@example.com', password: 'supersecret' }))
+        .status,
+      409
+    );
+    // Zu kurzes Passwort / ungültige E-Mail → 400.
+    assert.equal(
+      (await raw('POST', '/api/auth/register', { email: 'x@y.de', password: 'kurz' })).status,
+      400
+    );
+    assert.equal(
+      (await raw('POST', '/api/auth/register', { email: 'keine-mail', password: 'supersecret' })).status,
+      400
+    );
+
+    // Falsches Passwort → 401 (generisch).
+    const bad = await raw('POST', '/api/auth/login', { email: 'alice@example.com', password: 'falsch1234' });
+    assert.equal(bad.status, 401);
+    assert.match(bad.body.error, /Zugangsdaten/);
+
+    // Korrekter Login → 200 + Cookie.
+    const login = await raw('POST', '/api/auth/login', { email: 'alice@example.com', password: 'supersecret' });
+    assert.equal(login.status, 200);
+    const loginCookie = login.setCookie.split(';')[0];
+
+    // me liefert den Nutzer.
+    const me = await raw('GET', '/api/auth/me', null, loginCookie);
+    assert.equal(me.status, 200);
+    assert.equal(me.body.user.email, 'alice@example.com');
+
+    // Logout invalidiert die Session serverseitig.
+    assert.equal((await raw('POST', '/api/auth/logout', null, loginCookie)).status, 204);
+    assert.equal((await raw('GET', '/api/auth/me', null, loginCookie)).status, 401);
+  } finally {
+    close();
+  }
+});
+
+test('isolation: Nutzer sehen und ändern nur ihre eigenen Daten', async () => {
+  const app = await freshApp();          // Nutzer A (app.cookie)
+  const bUser = bootstrapUser(app.db);   // Nutzer B im selben Prozess/DB
+  try {
+    const proj = await app.call('POST', '/api/projects', { name: 'A-Privat' });
+    assert.equal(proj.status, 201);
+    const aProjectId = proj.body.id;
+    const aView = (await app.call('GET', `/api/views?projectId=${aProjectId}`)).body[0];
+    const node = await app.call('POST', '/api/nodes', { id: 'a-secret', name: 'Geheim', viewId: aView.id });
+    assert.equal(node.status, 201);
+
+    // B sieht A's Projekt nicht.
+    const bProjects = (await app.call('GET', '/api/projects', null, bUser.cookie)).body;
+    assert.ok(!bProjects.some((p) => p.id === aProjectId));
+
+    // Direkter Zugriff auf A's IDs als B → 404 (keine Existenz-Preisgabe, kein Schreibzugriff).
+    assert.equal((await app.call('GET', `/api/projects/${aProjectId}`, null, bUser.cookie)).status, 404);
+    assert.equal((await app.call('GET', '/api/nodes/a-secret', null, bUser.cookie)).status, 404);
+    assert.equal((await app.call('PATCH', '/api/nodes/a-secret', { name: 'Hack' }, bUser.cookie)).status, 404);
+    assert.equal((await app.call('DELETE', '/api/nodes/a-secret', null, bUser.cookie)).status, 404);
+    assert.equal((await app.call('GET', `/api/views/${aView.id}`, null, bUser.cookie)).status, 404);
+    assert.equal((await app.call('GET', `/api/graph?viewId=${aView.id}`, null, bUser.cookie)).status, 404);
+    assert.equal(
+      (await app.call('POST', '/api/nodes/positions', { positions: [{ id: 'a-secret', x: 9, y: 9 }] }, bUser.cookie))
+        .body.updated,
+      0
+    );
+
+    // A's Node blieb unverändert.
+    const still = (await app.call('GET', '/api/nodes/a-secret')).body;
+    assert.equal(still.name, 'Geheim');
+    assert.deepEqual(still.position, { x: 0, y: 0 });
+
+    // Globale Suche von B über A's Projekt liefert nichts.
+    const search = (await app.call('GET', `/api/nodes?projectId=${aProjectId}&q=Geheim`, null, bUser.cookie)).body;
+    assert.equal(search.length, 0);
+  } finally {
+    app.close();
+  }
+});
+
+test('isolation: Import ersetzt nur die eigenen Daten', async () => {
+  const app = await freshApp();          // A
+  const bUser = bootstrapUser(app.db);   // B
+  try {
+    const bView = (await app.call('GET', '/api/views', null, bUser.cookie)).body[0];
+    await app.call('POST', '/api/nodes', { id: 'b-keep', name: 'B-Node', viewId: bView.id }, bUser.cookie);
+
+    const imp = await app.call('POST', '/api/graph/import', {
+      mode: 'replace',
+      nodes: [{ id: 'a-new', name: 'A-Node', position: { x: 0, y: 0 } }],
+      edges: [],
+    });
+    assert.equal(imp.status, 200);
+
+    // B's Node bleibt erhalten; A hat nur den importierten Node.
+    assert.equal((await app.call('GET', '/api/nodes/b-keep', null, bUser.cookie)).status, 200);
+    assert.equal((await app.call('GET', '/api/nodes/a-new')).status, 200);
+    assert.equal((await app.call('GET', '/api/nodes/b-keep')).status, 404);
+  } finally {
+    app.close();
   }
 });
