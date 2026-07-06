@@ -25,11 +25,34 @@ Alle Pfade unten sind relativ zu `/api`.
 ## Protokoll
 
 - **Format:** JSON (`Content-Type: application/json`)
-- **Auth:** keine (selbst gehostet, kein Token/API-Key)
-- **CORS:** aktiv
+- **Auth:** **Anmeldung erforderlich** (Session-Cookie). Alle Daten-Endpunkte setzen eine
+  gültige Session voraus und sind **auf den angemeldeten Nutzer beschränkt** — siehe
+  [Authentifizierung](#authentifizierung). Öffentlich ohne Login: `/api/health`,
+  `/api/meta/catalog`, `/api/auth/*`.
+- **CORS:** standardmäßig aus (same-origin über den Proxy); optional via `CORS_ORIGIN`
 - **Body-Limit:** 20 MB
 - **IDs:** `^[A-Za-z0-9_.:-]{1,64}$` — sprechende IDs wie `nginx` oder `proxmox-host` empfohlen
 - **Zeitstempel:** ISO 8601 (`createdAt`, `updatedAt`)
+
+### Authentifizierung
+
+Die API nutzt **serverseitige Sessions** über ein `HttpOnly`-Cookie (`sid`). Ein Skript
+meldet sich einmal an, speichert das Cookie und schickt es bei jedem weiteren Request mit:
+
+```bash
+# Anmelden (oder /api/auth/register für ein neues Konto) und Cookie speichern
+curl -c cookies.txt -X POST http://localhost:8080/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{ "email": "du@example.com", "password": "dein-passwort" }'
+
+# Cookie bei jedem Daten-Request mitsenden
+curl -b cookies.txt http://localhost:8080/api/graph
+```
+
+Auth-Endpunkte: `POST /api/auth/register` (`{email, password}`, legt Konto an + seedet ein
+Beispielprojekt), `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`.
+Zustandsändernde Requests aus dem Browser müssen einen zum Host passenden `Origin`-Header
+tragen (CSRF-Schutz); Cookie-basierte CLI-Clients wie `curl` sind davon nicht betroffen.
 
 ### Fehlerantworten
 
@@ -43,12 +66,15 @@ Alle Pfade unten sind relativ zu `/api`.
 | Status | Bedeutung |
 |---|---|
 | `400` | Validierung / ungültige Referenz |
-| `404` | Node/Edge/Route nicht gefunden |
+| `401` | Nicht angemeldet (fehlende/abgelaufene Session) |
+| `403` | CSRF-Schutz (unpassender Origin) |
+| `404` | Node/Edge/Route nicht gefunden **oder gehört einem anderen Nutzer** |
 | `409` | ID existiert bereits |
 | `413` | Request-Body zu groß |
+| `429` | Zu viele Login-/Registrierungsversuche |
 | `500` | Interner Serverfehler |
 
-Erfolg ohne Body: `204 No Content` (DELETE).
+Erfolg ohne Body: `204 No Content` (DELETE, Logout).
 
 ---
 
@@ -64,8 +90,9 @@ Projekts. Hierarchie: **Projekt → Ebenen (Baum) → Nodes/Edges**.
 { "id": "homelab", "name": "Mein Homelab", "color": "#38bdf8", "icon": "boxes", "sortOrder": 0 }
 ```
 
-- Es existiert **immer mindestens ein** Projekt (Default „Mein Homelab" wird automatisch
-  angelegt, inkl. leerer Root-Ebene). Ein neues Projekt startet mit einer eigenen Root-Ebene.
+- Jedes Projekt gehört **genau einem Nutzer**; du siehst/änderst nur deine eigenen Projekte.
+  Bei der Registrierung wird automatisch ein Beispielprojekt „Homelab (Beispiel)" angelegt.
+  Ein neues Projekt startet mit einer eigenen Root-Ebene.
 - Ein Projekt löschen **kaskadiert** auf alle Ebenen/Nodes/Edges; das **letzte** Projekt
   bleibt erhalten.
 
@@ -253,10 +280,19 @@ Export enthält **alle** Projekte, Ebenen, Nodes und Edges:
 | `PATCH`/`PUT` | `/views/:id` | Partielles Update |
 | `DELETE` | `/views/:id` | Kaskadiert auf Unterebenen + Nodes/Edges (letzte Ebene des Projekts: `400`) |
 
+### Auth
+
+| Methode | Pfad | Beschreibung |
+|---|---|---|
+| `POST` | `/auth/register` | Konto anlegen (`{email, password}`), seedet Beispielprojekt, setzt Cookie → `201` |
+| `POST` | `/auth/login` | Anmelden (`{email, password}`), setzt Cookie → `200` |
+| `POST` | `/auth/logout` | Session beenden → `204` |
+| `GET` | `/auth/me` | Aktueller Nutzer (`401`, wenn nicht angemeldet) |
+
 ### Health
 
 ```
-GET /health
+GET /health   (öffentlich, kein Login nötig)
 → 200 { "status": "ok", "time": "2026-07-02T18:00:00.000Z" }
 ```
 
@@ -404,11 +440,13 @@ POST /api/nodes
 ### 5. Backup & Restore
 
 ```bash
-# Backup
-curl -s http://localhost:8080/api/graph/export -o backup.json
+# (einmalig anmelden → cookies.txt, siehe „Authentifizierung")
 
-# Restore (ersetzt alles!)
-curl -X POST http://localhost:8080/api/graph/import \
+# Backup (nur die eigenen Daten)
+curl -s -b cookies.txt http://localhost:8080/api/graph/export -o backup.json
+
+# Restore (ersetzt die eigenen Daten!)
+curl -b cookies.txt -X POST http://localhost:8080/api/graph/import \
   -H 'Content-Type: application/json' \
   -d @backup.json
 ```
@@ -488,11 +526,12 @@ Vollständige Liste: `GET /meta/catalog`.
 
 | Datei | Inhalt |
 |---|---|
-| `backend/src/validation.js` | Zod-Schemas, Limits |
+| `backend/src/auth.js` | Passwort-Hashing (scrypt), Sessions, `requireAuth`, CSRF, Rate-Limit |
+| `backend/src/validation.js` | Zod-Schemas, Limits (inkl. `register`/`login`) |
 | `backend/src/layout.js` | Auto-Layout-Algorithmus |
-| `backend/src/store.js` | CRUD, Import, Parent-Logik |
+| `backend/src/store.js` | CRUD, Import, Parent-Logik, Row-Level-Autorisierung |
 | `backend/src/catalog.js` | Kategorien, Status, Edge-Kinds |
-| `backend/src/routes/*.js` | Route-Definitionen |
+| `backend/src/routes/*.js` | Route-Definitionen (inkl. `auth.js`) |
 | `frontend/src/api/types.ts` | TypeScript-Typen (Frontend) |
 
 Bei Abweichungen zwischen Doku und Code gilt der **Code** in `backend/src/`.
