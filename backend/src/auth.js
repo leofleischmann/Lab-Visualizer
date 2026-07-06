@@ -121,10 +121,17 @@ export function parseCookies(req) {
   return out;
 }
 
-/** Secure-Flag: explizit per Env, sonst automatisch anhand der Verbindung (req.secure). */
+/**
+ * Secure-Flag des Session-Cookies:
+ * 1. explizit per `COOKIE_SECURE` (true/false),
+ * 2. in Produktion (`NODE_ENV=production`) standardmäßig true — der öffentliche
+ *    Zugriff läuft über HTTPS (Cloudflare), auch wenn der interne Tunnel-Hop http ist,
+ * 3. sonst automatisch anhand der Verbindung (`req.secure`) für lokalen HTTP-Betrieb.
+ */
 function cookieSecure(req) {
   if (process.env.COOKIE_SECURE === 'true') return true;
   if (process.env.COOKIE_SECURE === 'false') return false;
+  if (process.env.NODE_ENV === 'production') return true;
   return !!req.secure; // benötigt trust proxy + X-Forwarded-Proto hinter nginx
 }
 
@@ -196,7 +203,11 @@ export function rateLimit({ max, windowMs }) {
   const hits = new Map();
   return (req, res, next) => {
     const now = Date.now();
-    const key = req.ip || req.socket?.remoteAddress || 'unknown';
+    // Hinter Cloudflare ist `CF-Connecting-IP` die echte Client-IP (Cloudflare
+    // überschreibt einen ggf. mitgeschickten Wert). Das Backend ist nur über den
+    // Tunnel/nginx erreichbar, daher ist der Header hier vertrauenswürdig.
+    const key =
+      req.headers['cf-connecting-ip'] || req.ip || req.socket?.remoteAddress || 'unknown';
     let entry = hits.get(key);
     if (!entry || entry.resetAt <= now) {
       entry = { count: 0, resetAt: now + windowMs };

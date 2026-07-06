@@ -189,6 +189,30 @@ curl -s -b cookies.txt http://localhost:8080/api/graph/export > backup.json
 (React-Flow-Konvention). Beim Löschen einer Zone werden Kinder automatisch an den
 Großeltern-Knoten übergeben, ohne optisch zu springen.
 
+## Produktion (hinter Cloudflare)
+
+Der öffentliche Zugriff läuft über **HTTPS via Cloudflare** (Tunnel → nginx → Backend).
+Damit das sauber und sicher funktioniert:
+
+- **Secure-Cookies** sind dank `NODE_ENV=production` (im Backend-Image) automatisch aktiv —
+  Session-Cookies werden nur über HTTPS übertragen. (Override: `COOKIE_SECURE`.)
+- **Sicherheits-Header** liefert nginx mit: `Content-Security-Policy` (nur same-origin, keine
+  externen Quellen), `Strict-Transport-Security` (HSTS), `X-Frame-Options: DENY`,
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy`.
+- **Echte Client-IP:** nginx reicht `CF-Connecting-IP` durch; das Rate-Limit greift damit
+  pro echtem Client statt pro Cloudflare-Edge.
+- **CSRF/CORS:** `SameSite=Lax` + Origin-Prüfung; CORS ist aus (same-origin über den Proxy).
+- **Startreihenfolge:** Das Frontend startet erst, wenn das Backend laut Healthcheck bereit ist.
+- **Konfiguration:** Werte über eine `.env` setzen (Vorlage: [`.env.example`](.env.example)).
+  Die Datei wird **nicht** eingecheckt und nicht mit deployt.
+
+Empfohlen zusätzlich **in Cloudflare**: „Always Use HTTPS", HSTS aktivieren, und die
+Origin nur über den Tunnel erreichbar halten (kein offener Direktzugriff auf Port 8080/3000),
+damit `CF-Connecting-IP` vertrauenswürdig bleibt.
+
+> Läufst du die Prod-Images ausnahmsweise lokal über `http://localhost:8080`, setze
+> `COOKIE_SECURE=false`, sonst sendet der Browser das Session-Cookie nicht.
+
 ## Sicherheit
 
 - **Passwörter** werden mit **scrypt** (memory-hard, `node:crypto`) und pro-Nutzer-Salt
@@ -211,7 +235,8 @@ Großeltern-Knoten übergeben, ohne optisch zu springen.
 | `PORT` | `3000` | Backend-Port |
 | `DATA_DIR` | `./data` (`/data` im Container) | Ablageort der SQLite-DB |
 | `DB_FILE` | `$DATA_DIR/labviz.db` | Expliziter DB-Pfad |
-| `COOKIE_SECURE` | _auto_ (`X-Forwarded-Proto`) | `true`/`false` erzwingt das Secure-Flag des Session-Cookies. **In Produktion (HTTPS): `true`.** |
+| `NODE_ENV` | `production` (im Image) | In Produktion sind Secure-Cookies automatisch aktiv. |
+| `COOKIE_SECURE` | _auto_ | `true`/`false` erzwingt das Secure-Flag. Default: in Produktion `true`, lokal (http) automatisch aus. |
 | `SESSION_TTL_DAYS` | `30` | Gültigkeitsdauer einer Session (mit Sliding-Renewal) |
 | `ALLOW_REGISTRATION` | `true` | Auf `false` sperrt die Selbst-Registrierung |
 | `CORS_ORIGIN` | _(leer)_ | Kommagetrennte Origin(s) für Cross-Origin-Zugriff mit Credentials |
