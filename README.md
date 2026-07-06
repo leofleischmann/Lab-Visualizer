@@ -8,7 +8,11 @@ visuell pflegen und dokumentieren — mit interaktiver Canvas (React Flow), Deep
 
 ## Features
 
-- **Projekte** — komplett getrennte Arbeitsbereiche (z. B. „Homelab“, „Arbeit“). Jedes Projekt
+- **Accounts & Mehrbenutzer** — Registrierung und Login per E-Mail/Passwort. Jede Person
+  sieht und bearbeitet **nur ihre eigenen Projekte** — vollständig voneinander isoliert.
+  Passwörter werden mit scrypt gehasht, Sessions laufen über HttpOnly-Cookies (server-seitig
+  in SQLite, sofort widerrufbar). Siehe [Sicherheit](#sicherheit).
+- **Projekte** — komplett getrennte Arbeitsbereiche (z. B. „Homelab”, „Arbeit”). Jedes Projekt
   hat eigene Ebenen, Nodes und Verbindungen; der Umschalter in der Kopfzeile wechselt zwischen
   ihnen. Anlegen, umbenennen, löschen (kaskadiert).
 - **Globale Suche** — durchsucht alle Ebenen des aktiven Projekts; ein Klick auf einen Treffer
@@ -52,12 +56,16 @@ docker compose up -d --build
 
 → Web-UI: **http://localhost:8080** · API (über Frontend-Proxy): **http://localhost:8080/api**
 
-Beim **allerersten Start** (leere Datenbank) legt der Server automatisch ein
-Best-Practice-Beispielprojekt **„Homelab (Beispiel)"** an: eine dreistufige
-Drill-down-Infrastruktur (Übersicht *Internet → Cloudflare → Router → Proxmox → NAS*,
-Detailebene *Proxmox intern* mit Reverse-Proxy/SSO/DB, Detailebene *nginx Routing*).
-So ist sofort ein sinnvolles Beispiel zum Erkunden da, statt einer leeren Canvas.
-Sobald eigene Daten existieren (oder das Beispiel gelöscht wurde), kommt es nicht zurück.
+Beim ersten Aufruf **registrierst du ein Konto** (E-Mail + Passwort). Jeder **neu
+registrierte Nutzer** erhält automatisch ein Best-Practice-Beispielprojekt
+**„Homelab (Beispiel)"**: eine dreistufige Drill-down-Infrastruktur (Übersicht
+*Internet → Cloudflare → Router → Proxmox → NAS*, Detailebene *Proxmox intern* mit
+Reverse-Proxy/SSO/DB, Detailebene *nginx Routing*) — so ist sofort ein sinnvolles
+Beispiel zum Erkunden da statt einer leeren Canvas.
+
+> ⚠️ **HTTPS in Produktion:** Läuft die Instanz öffentlich (z. B. hinter einem
+> Cloudflare-Tunnel), unbedingt über **HTTPS** ausliefern und `COOKIE_SECURE=true`
+> setzen, damit Session-Cookies nur verschlüsselt übertragen werden.
 
 Die SQLite-Datenbank liegt in `./data/labviz.db` — **Backup = Datei/Ordner kopieren**
 (dank WAL-Modus am besten den ganzen `data/`-Ordner oder via
@@ -111,10 +119,19 @@ cd backend && npm test
 Alle Endpunkte liefern/erwarten JSON. Basis-URL im Compose-Setup:
 `http://localhost:8080/api` (oder Backend direkt auf `:3000`, wenn freigegeben).
 
+**Authentifizierung:** Bis auf `/api/health`, `/api/meta/catalog` und `/api/auth/*`
+erfordern **alle** Endpunkte eine Anmeldung (Session-Cookie `sid`). Ohne gültige Session
+antwortet die API mit `401`. Alle Daten-Endpunkte sind **auf den angemeldeten Nutzer
+beschränkt** — fremde IDs verhalten sich wie „nicht vorhanden" (`404`).
+
 | Methode | Pfad | Beschreibung |
 |---|---|---|
-| `GET` | `/api/health` | Healthcheck |
-| `GET` | `/api/meta/catalog` | Kategorien, Status, Verbindungsarten, Linienstile |
+| `POST` | `/api/auth/register` | Konto anlegen (`{email, password}`), seedet ein Beispielprojekt, setzt Cookie |
+| `POST` | `/api/auth/login` | Anmelden (`{email, password}`), setzt Session-Cookie |
+| `POST` | `/api/auth/logout` | Session serverseitig beenden |
+| `GET` | `/api/auth/me` | Aktueller Nutzer (`401`, wenn nicht angemeldet) |
+| `GET` | `/api/health` | Healthcheck (öffentlich) |
+| `GET` | `/api/meta/catalog` | Kategorien, Status, Verbindungsarten, Linienstile (öffentlich) |
 | `GET` | `/api/graph` | Kompletter Graph (`{nodes, edges}`) |
 | `GET` | `/api/graph/export` | JSON-Dump (Download) |
 | `POST` | `/api/graph/import` | Graph ersetzen (`{mode:"replace", nodes, edges}`) |
@@ -129,8 +146,14 @@ Alle Endpunkte liefern/erwarten JSON. Basis-URL im Compose-Setup:
 ### Beispiele
 
 ```bash
+# Zuerst anmelden und das Session-Cookie in einem Cookie-Jar ablegen …
+curl -c cookies.txt -X POST http://localhost:8080/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{ "email": "du@example.com", "password": "dein-passwort" }'
+# … dann das Cookie bei jedem weiteren Request mitschicken (-b cookies.txt).
+
 # Node per Skript anlegen (mit sprechender ID für spätere Updates)
-curl -X POST http://localhost:8080/api/nodes \
+curl -b cookies.txt -X POST http://localhost:8080/api/nodes \
   -H 'Content-Type: application/json' \
   -d '{
     "id": "nginx",
@@ -142,17 +165,17 @@ curl -X POST http://localhost:8080/api/nodes \
   }'
 
 # Status aus einem Monitoring-Skript heraus aktualisieren
-curl -X PATCH http://localhost:8080/api/nodes/nginx \
+curl -b cookies.txt -X PATCH http://localhost:8080/api/nodes/nginx \
   -H 'Content-Type: application/json' \
   -d '{ "status": "error" }'
 
 # Verbindung anlegen
-curl -X POST http://localhost:8080/api/edges \
+curl -b cookies.txt -X POST http://localhost:8080/api/edges \
   -H 'Content-Type: application/json' \
   -d '{ "sourceId": "cloudflared", "targetId": "nginx", "kind": "http", "label": "HTTP :80" }'
 
-# Backup per API
-curl -s http://localhost:8080/api/graph/export > backup.json
+# Backup per API (nur die eigenen Daten)
+curl -s -b cookies.txt http://localhost:8080/api/graph/export > backup.json
 ```
 
 **Node-Felder:** `name` (Pflicht), `category`, `status`
@@ -166,6 +189,45 @@ curl -s http://localhost:8080/api/graph/export > backup.json
 (React-Flow-Konvention). Beim Löschen einer Zone werden Kinder automatisch an den
 Großeltern-Knoten übergeben, ohne optisch zu springen.
 
+## Produktion (hinter Cloudflare)
+
+Der öffentliche Zugriff läuft über **HTTPS via Cloudflare** (Tunnel → nginx → Backend).
+Damit das sauber und sicher funktioniert:
+
+- **Secure-Cookies** sind dank `NODE_ENV=production` (im Backend-Image) automatisch aktiv —
+  Session-Cookies werden nur über HTTPS übertragen. (Override: `COOKIE_SECURE`.)
+- **Sicherheits-Header** liefert nginx mit: `Content-Security-Policy` (nur same-origin, keine
+  externen Quellen), `Strict-Transport-Security` (HSTS), `X-Frame-Options: DENY`,
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy`.
+- **Echte Client-IP:** nginx reicht `CF-Connecting-IP` durch; das Rate-Limit greift damit
+  pro echtem Client statt pro Cloudflare-Edge.
+- **CSRF/CORS:** `SameSite=Lax` + Origin-Prüfung; CORS ist aus (same-origin über den Proxy).
+- **Startreihenfolge:** Das Frontend startet erst, wenn das Backend laut Healthcheck bereit ist.
+- **Konfiguration:** Werte über eine `.env` setzen (Vorlage: [`.env.example`](.env.example)).
+  Die Datei wird **nicht** eingecheckt und nicht mit deployt.
+
+Empfohlen zusätzlich **in Cloudflare**: „Always Use HTTPS", HSTS aktivieren, und die
+Origin nur über den Tunnel erreichbar halten (kein offener Direktzugriff auf Port 8080/3000),
+damit `CF-Connecting-IP` vertrauenswürdig bleibt.
+
+> Läufst du die Prod-Images ausnahmsweise lokal über `http://localhost:8080`, setze
+> `COOKIE_SECURE=false`, sonst sendet der Browser das Session-Cookie nicht.
+
+## Sicherheit
+
+- **Passwörter** werden mit **scrypt** (memory-hard, `node:crypto`) und pro-Nutzer-Salt
+  gehasht; Verifikation in konstanter Zeit. Keine externen Krypto-Abhängigkeiten.
+- **Sessions** liegen serverseitig in SQLite; das Cookie enthält nur ein 256-bit-Zufalls­
+  token, in der DB steht ausschließlich dessen SHA-256-Hash. Cookie-Flags: `HttpOnly`,
+  `SameSite=Lax`, `Secure` (bei HTTPS). Logout beendet die Session serverseitig sofort.
+- **Datenisolation:** Jedes Projekt gehört einem Nutzer; Ebenen/Nodes/Kanten erben den
+  Besitz. Jeder Zugriff wird geprüft — fremde IDs liefern `404`.
+- **CSRF:** Bei zustandsändernden Requests wird der `Origin`-Header gegen den Host geprüft.
+- **Brute-Force:** Login/Registrierung sind pro IP rate-limitiert; Login-Fehler sind
+  generisch (keine Nutzer-Enumeration).
+- **CORS** ist standardmäßig aus (Frontend & API sind same-origin über den Proxy); nur bei
+  gesetztem `CORS_ORIGIN` wird ein Cross-Origin mit Credentials erlaubt.
+
 ## Konfiguration
 
 | Variable | Default | Beschreibung |
@@ -173,6 +235,11 @@ Großeltern-Knoten übergeben, ohne optisch zu springen.
 | `PORT` | `3000` | Backend-Port |
 | `DATA_DIR` | `./data` (`/data` im Container) | Ablageort der SQLite-DB |
 | `DB_FILE` | `$DATA_DIR/labviz.db` | Expliziter DB-Pfad |
+| `NODE_ENV` | `production` (im Image) | In Produktion sind Secure-Cookies automatisch aktiv. |
+| `COOKIE_SECURE` | _auto_ | `true`/`false` erzwingt das Secure-Flag. Default: in Produktion `true`, lokal (http) automatisch aus. |
+| `SESSION_TTL_DAYS` | `30` | Gültigkeitsdauer einer Session (mit Sliding-Renewal) |
+| `ALLOW_REGISTRATION` | `true` | Auf `false` sperrt die Selbst-Registrierung |
+| `CORS_ORIGIN` | _(leer)_ | Kommagetrennte Origin(s) für Cross-Origin-Zugriff mit Credentials |
 
 ## Projektstruktur
 
@@ -181,15 +248,20 @@ Großeltern-Knoten übergeben, ohne optisch zu springen.
 ├── backend/
 │   ├── src/
 │   │   ├── server.js         # Bootstrap
-│   │   ├── app.js            # Express-App, Fehler-Handling
-│   │   ├── db.js             # SQLite-Schema
-│   │   ├── store.js          # CRUD, Import/Export, Parent-Logik
-│   │   ├── validation.js     # Zod-Schemas
-│   │   └── catalog.js        # Kategorien / Status / Edge-Arten
-│   └── test/api.test.js      # API-Tests (node --test)
+│   │   ├── app.js            # Express-App, Auth-Middleware, Fehler-Handling
+│   │   ├── auth.js           # Passwort-Hashing (scrypt), Sessions, requireAuth, CSRF, Rate-Limit
+│   │   ├── db.js             # SQLite-Schema (users, sessions, projects.user_id …)
+│   │   ├── store.js          # CRUD, Import/Export, Row-Level-Autorisierung
+│   │   ├── seed.js           # Beispielprojekt je Nutzer (bei Registrierung)
+│   │   ├── validation.js     # Zod-Schemas (inkl. register/login)
+│   │   ├── catalog.js        # Kategorien / Status / Edge-Arten
+│   │   └── routes/           # auth, projects, views, nodes, edges, graph, meta
+│   └── test/api.test.js      # API-Tests inkl. Auth & Isolation (node --test)
 └── frontend/
     └── src/
         ├── store/graph.ts    # Zustand-Store (Canvas ⇄ API)
+        ├── store/auth.ts     # Auth-Zustand (Login/Registrierung/Session)
+        ├── components/auth    # AuthScreen (Login/Registrieren)
         ├── components/canvas # Nodes, Zonen, Edges, Canvas
         ├── components/panel  # Drawer, Formulare, Markdown, Custom Fields
         └── lib/catalog.ts    # Icons/Farben, Suche

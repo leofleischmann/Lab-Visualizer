@@ -23,6 +23,21 @@ const customFieldsSchema = z
 
 const optionalText = (max) => z.string().max(max).nullable().optional();
 
+// ── Auth ────────────────────────────────────────────────────────
+
+export const registerSchema = z.object({
+  email: z.string().trim().toLowerCase().email('Ungültige E-Mail-Adresse').max(254),
+  password: z
+    .string()
+    .min(8, 'Passwort muss mindestens 8 Zeichen haben')
+    .max(200, 'Passwort ist zu lang'),
+});
+
+export const loginSchema = z.object({
+  email: z.string().trim().toLowerCase().email('Ungültige E-Mail-Adresse').max(254),
+  password: z.string().min(1, 'Passwort darf nicht leer sein').max(200),
+});
+
 export const projectCreateSchema = z.object({
   id: idSchema.optional(),
   name: z.string().min(1, 'Name darf nicht leer sein').max(200),

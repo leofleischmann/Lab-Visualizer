@@ -5,9 +5,35 @@ import { DetailDrawer } from './components/panel/DetailDrawer';
 import { Palette } from './components/Palette';
 import { TopBar } from './components/TopBar';
 import { ViewBar } from './components/views/ViewBar';
+import { AuthScreen } from './components/auth/AuthScreen';
 import { useGraphStore } from './store/graph';
+import { useAuthStore } from './store/auth';
 
 export default function App() {
+  const authStatus = useAuthStore((s) => s.status);
+  const bootstrap = useAuthStore((s) => s.bootstrap);
+
+  useEffect(() => {
+    void bootstrap();
+  }, [bootstrap]);
+
+  if (authStatus === 'loading') {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 bg-slate-950 text-slate-500">
+        <RotateCw size={22} className="animate-spin" />
+        <p className="text-sm">Lade …</p>
+      </div>
+    );
+  }
+
+  if (authStatus !== 'authed') {
+    return <AuthScreen />;
+  }
+
+  return <Workspace />;
+}
+
+function Workspace() {
   const load = useGraphStore((s) => s.load);
   const loading = useGraphStore((s) => s.loading);
   const error = useGraphStore((s) => s.error);
