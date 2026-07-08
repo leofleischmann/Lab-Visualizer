@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { useReactFlow } from '@xyflow/react';
 import { Layers, Search, X } from 'lucide-react';
 import { api } from '../api/client';
 import type { ApiNode } from '../api/types';
 import { categoryOf } from '../lib/catalog';
-import { useGraphStore } from '../store/graph';
+import { absolutePosition, useGraphStore } from '../store/graph';
 
 /**
  * Globale Suche über **alle Ebenen des aktiven Projekts**. Tippen filtert die
@@ -23,6 +24,7 @@ export function GlobalSearch() {
   const [results, setResults] = useState<ApiNode[]>([]);
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
+  const { setCenter } = useReactFlow();
 
   // Debounced projektweite Suche
   useEffect(() => {
@@ -47,6 +49,15 @@ export function GlobalSearch() {
     if (node.viewId !== activeViewId) await setActiveView(node.viewId);
     select({ kind: 'node', id: node.id });
     setOpen(false);
+    // Viewport auf den Treffer zentrieren (Position ggf. relativ zum Parent).
+    const flowNodes = useGraphStore.getState().nodes;
+    const target = flowNodes.find((n) => n.id === node.id);
+    if (target) {
+      const abs = absolutePosition(flowNodes, node.id);
+      const w = target.width ?? target.measured?.width ?? 230;
+      const h = target.height ?? target.measured?.height ?? 70;
+      void setCenter(abs.x + w / 2, abs.y + h / 2, { zoom: 1.1, duration: 500 });
+    }
   };
 
   return (

@@ -206,8 +206,9 @@ export function rateLimit({ max, windowMs }) {
     // Hinter Cloudflare ist `CF-Connecting-IP` die echte Client-IP (Cloudflare
     // überschreibt einen ggf. mitgeschickten Wert). Das Backend ist nur über den
     // Tunnel/nginx erreichbar, daher ist der Header hier vertrauenswürdig.
+    const cfIp = req.headers['cf-connecting-ip'];
     const key =
-      req.headers['cf-connecting-ip'] || req.ip || req.socket?.remoteAddress || 'unknown';
+      (Array.isArray(cfIp) ? cfIp[0] : cfIp) || req.ip || req.socket?.remoteAddress || 'unknown';
     let entry = hits.get(key);
     if (!entry || entry.resetAt <= now) {
       entry = { count: 0, resetAt: now + windowMs };

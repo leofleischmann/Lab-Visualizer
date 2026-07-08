@@ -11,13 +11,17 @@ export function graphRouter(db) {
     res.json(store.getGraph(db, req.userId, viewId));
   });
 
-  // GET /api/graph/export — Download-fähiger JSON-Dump (nur eigene Daten)
+  // GET /api/graph/export?projectId= — JSON-Dump (alles oder nur ein Projekt)
   router.get('/export', (req, res) => {
+    const projectId = Array.isArray(req.query.projectId)
+      ? req.query.projectId[0]
+      : req.query.projectId;
     res.setHeader('Content-Disposition', 'attachment; filename="lab-visualizer-export.json"');
-    res.json(store.exportGraph(db, req.userId));
+    res.json(store.exportGraph(db, req.userId, projectId));
   });
 
-  // POST /api/graph/import — ersetzt die eigenen Daten (mode=replace)
+  // POST /api/graph/import — mode=replace ersetzt die eigenen Daten,
+  // mode=merge fügt sie additiv (mit neuen IDs) hinzu
   router.post('/import', (req, res) => {
     const data = parseOrThrow(importSchema, req.body);
     res.json(store.importGraph(db, req.userId, data));

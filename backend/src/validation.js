@@ -38,6 +38,18 @@ export const loginSchema = z.object({
   password: z.string().min(1, 'Passwort darf nicht leer sein').max(200),
 });
 
+export const passwordChangeSchema = z.object({
+  currentPassword: z.string().min(1, 'Aktuelles Passwort fehlt').max(200),
+  newPassword: z
+    .string()
+    .min(8, 'Neues Passwort muss mindestens 8 Zeichen haben')
+    .max(200, 'Neues Passwort ist zu lang'),
+});
+
+export const accountDeleteSchema = z.object({
+  password: z.string().min(1, 'Passwort fehlt').max(200),
+});
+
 export const projectCreateSchema = z.object({
   id: idSchema.optional(),
   name: z.string().min(1, 'Name darf nicht leer sein').max(200),
@@ -129,7 +141,8 @@ const importTimestamps = {
 };
 
 export const importSchema = z.object({
-  mode: z.enum(['replace']).default('replace'),
+  /** replace = eigene Daten komplett ersetzen; merge = additiv mit neuen IDs anfügen */
+  mode: z.enum(['replace', 'merge']).default('replace'),
   projects: z.array(projectCreateSchema.extend({ id: idSchema, ...importTimestamps })).max(1000).default([]),
   views: z.array(viewCreateSchema.extend({ id: idSchema, ...importTimestamps })).max(10000).default([]),
   nodes: z.array(nodeCreateSchema.extend({ id: idSchema, ...importTimestamps })).max(50000),

@@ -14,13 +14,17 @@ let authCookie;
  * Legt einen Nutzer mit genau EINEM leeren Projekt (+ Root-Ebene) an — ohne den
  * Beispiel-Seed — und öffnet dafür eine Session. So starten die Tests vom selben
  * „leeren" Zustand wie vor der Account-Umstellung. Liefert das Cookie.
+ * Standard-Plan ist `pro`, damit die CRUD-Tests nicht an Freemium-Limits stoßen;
+ * die Limits selbst werden in eigenen Tests mit `plan: 'free'` geprüft.
  */
-function bootstrapUser(database) {
+function bootstrapUser(database, { plan = 'pro' } = {}) {
   const userId = crypto.randomUUID();
   const ts = new Date().toISOString();
   database
-    .prepare('INSERT INTO users (id, email, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
-    .run(userId, `u-${userId.slice(0, 8)}@test.local`, 'scrypt$1$00$00', ts, ts);
+    .prepare(
+      'INSERT INTO users (id, email, password_hash, plan, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+    )
+    .run(userId, `u-${userId.slice(0, 8)}@test.local`, 'scrypt$1$00$00', plan, ts, ts);
   store.createProject(database, userId, { name: 'Test' });
   const { token } = createSession(database, userId);
   return { userId, cookie: `sid=${token}` };
@@ -728,6 +732,278 @@ test('isolation: Nutzer sehen und ändern nur ihre eigenen Daten', async () => {
     assert.equal(search.length, 0);
   } finally {
     app.close();
+  }
+});
+
+test('views: Root mit allen Unterebenen kann nicht gelöscht werden (Projekt bliebe leer)', async () => {
+  const { call, close } = await freshApp();
+  try {
+    const rootId = (await call('GET', '/api/views')).body[0].id;
+    await call('POST', '/api/views', { id: 'v-sub', name: 'Sub', parentId: rootId });
+    // Kaskade würde ALLE Ebenen des Projekts löschen → 400
+    const res = await call('DELETE', `/api/views/${rootId}`);
+    assert.equal(res.status, 400);
+    assert.equal((await call('GET', '/api/views')).body.length, 2);
+    // Mit einer zweiten Root-Ebene ist das Löschen erlaubt.
+    await call('POST', '/api/views', { id: 'v-root2', name: 'Root 2', parentId: null });
+    const ok = await call('DELETE', `/api/views/${rootId}`);
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.views, 2);
+  } finally {
+    close();
+  }
+});
+
+test('views: wiederholter projectId-Query-Parameter crasht nicht', async () => {
+  const { call, close } = await freshApp();
+  try {
+    const projectId = (await call('GET', '/api/projects')).body[0].id;
+    const res = await call('GET', `/api/views?projectId=${projectId}&projectId=zzz`);
+    assert.equal(res.status, 200);
+    assert.ok(Array.isArray(res.body));
+  } finally {
+    close();
+  }
+});
+
+test('edges: PATCH kann keine ebenen-übergreifende Verbindung erzeugen', async () => {
+  const { call, close } = await freshApp();
+  try {
+    const rootId = (await call('GET', '/api/views')).body[0].id;
+    await call('POST', '/api/views', { id: 'v-x', name: 'X', parentId: rootId });
+    await call('POST', '/api/nodes', { id: 'r1', name: 'R1', viewId: rootId });
+    await call('POST', '/api/nodes', { id: 'r2', name: 'R2', viewId: rootId });
+    await call('POST', '/api/nodes', { id: 'x1', name: 'X1', viewId: 'v-x' });
+    await call('POST', '/api/edges', { id: 'e-r', sourceId: 'r1', targetId: 'r2' });
+
+    const cross = await call('PATCH', '/api/edges/e-r', { targetId: 'x1' });
+    assert.equal(cross.status, 400);
+    assert.match(cross.body.error, /derselben Ebene/);
+
+    // viewId-Patch wird ignoriert — die Ebene folgt den Endknoten.
+    const viewPatch = await call('PATCH', '/api/edges/e-r', { viewId: 'v-x' });
+    assert.equal(viewPatch.status, 200);
+    assert.equal(viewPatch.body.viewId, rootId);
+  } finally {
+    close();
+  }
+});
+
+test('nodes: Parent muss in derselben Ebene liegen; Ebenenwechsel löst alten Parent', async () => {
+  const { call, close } = await freshApp();
+  try {
+    const rootId = (await call('GET', '/api/views')).body[0].id;
+    await call('POST', '/api/views', { id: 'v-y', name: 'Y', parentId: rootId });
+    await call('POST', '/api/nodes', { id: 'zone-r', name: 'Zone', category: 'group', viewId: rootId, position: { x: 100, y: 100 } });
+    await call('POST', '/api/nodes', { id: 'y-node', name: 'Y-Node', viewId: 'v-y' });
+
+    // Cross-View-Parent bei CREATE und PATCH → 400
+    const create = await call('POST', '/api/nodes', { id: 'bad', name: 'Bad', viewId: 'v-y', parentId: 'zone-r' });
+    assert.equal(create.status, 400);
+    const patch = await call('PATCH', '/api/nodes/y-node', { parentId: 'zone-r' });
+    assert.equal(patch.status, 400);
+
+    // Kind in Zone; Kind allein in andere Ebene verschieben → Parent wird gelöst,
+    // Position wird absolut (kein Sprung relativ zu einem fremden Parent).
+    await call('POST', '/api/nodes', { id: 'kid', name: 'Kid', parentId: 'zone-r', viewId: rootId, position: { x: 30, y: 40 } });
+    const moved = await call('PATCH', '/api/nodes/kid', { viewId: 'v-y' });
+    assert.equal(moved.status, 200);
+    assert.equal(moved.body.parentId, null);
+    assert.deepEqual(moved.body.position, { x: 130, y: 140 });
+  } finally {
+    close();
+  }
+});
+
+test('nodes: ohne viewId erbt ein Kind die Ebene seines Parents', async () => {
+  const { call, close } = await freshApp();
+  try {
+    const rootId = (await call('GET', '/api/views')).body[0].id;
+    await call('POST', '/api/views', { id: 'v-z', name: 'Z', parentId: rootId });
+    await call('POST', '/api/nodes', { id: 'zone-z', name: 'Zone Z', category: 'group', viewId: 'v-z' });
+    const child = await call('POST', '/api/nodes', { id: 'child-z', name: 'Kind', parentId: 'zone-z' });
+    assert.equal(child.status, 201);
+    assert.equal(child.body.viewId, 'v-z');
+  } finally {
+    close();
+  }
+});
+
+test('export: projectId exportiert nur ein Projekt; merge-Import fügt es additiv hinzu', async () => {
+  const a = await freshApp();
+  const b = await freshApp();
+  try {
+    await a.call('POST', '/api/projects', { id: 'share', name: 'Zum Teilen' });
+    const shareView = (await a.call('GET', '/api/views?projectId=share')).body[0].id;
+    await a.call('POST', '/api/nodes', { id: 'sh-1', name: 'S1', viewId: shareView });
+    await a.call('POST', '/api/nodes', { id: 'sh-2', name: 'S2', viewId: shareView });
+    await a.call('POST', '/api/edges', { id: 'sh-e', sourceId: 'sh-1', targetId: 'sh-2' });
+
+    const exported = (await a.call('GET', '/api/graph/export?projectId=share')).body;
+    assert.equal(exported.projects.length, 1);
+    assert.equal(exported.projects[0].id, 'share');
+    assert.ok(exported.nodes.every((n) => n.viewId === shareView));
+
+    // B hat vorher 1 Projekt; merge fügt das geteilte hinzu, ohne B's Daten anzufassen.
+    const bBefore = (await b.call('GET', '/api/projects')).body;
+    const imp = await b.call('POST', '/api/graph/import', { mode: 'merge', ...exported });
+    assert.equal(imp.status, 200);
+    const bAfter = (await b.call('GET', '/api/projects')).body;
+    assert.equal(bAfter.length, bBefore.length + 1);
+    const merged = bAfter.find((p) => p.name === 'Zum Teilen');
+    assert.ok(merged, 'gemergtes Projekt existiert');
+    assert.notEqual(merged.id, 'share', 'IDs werden beim Merge neu vergeben');
+    const mergedNodes = (await b.call('GET', `/api/nodes?projectId=${merged.id}`)).body;
+    assert.equal(mergedNodes.length, 2);
+    const mergedEdges = (await b.call('GET', `/api/graph?viewId=${mergedNodes[0].viewId}`)).body.edges;
+    assert.equal(mergedEdges.length, 1);
+  } finally {
+    a.close();
+    b.close();
+  }
+});
+
+// ── Freemium-Plan-Limits ────────────────────────────────────────
+
+test('plan: free ist auf 1 Projekt und 3 Ebenen begrenzt (402 + code)', async () => {
+  const app = await freshApp();
+  const freeUser = bootstrapUser(app.db, { plan: 'free' });
+  try {
+    const call = (m, p, b) => app.call(m, p, b, freeUser.cookie);
+
+    // 2. Projekt → 402 mit maschinenlesbarem Code für die Paywall.
+    const second = await call('POST', '/api/projects', { name: 'Zweites' });
+    assert.equal(second.status, 402);
+    assert.equal(second.body.code, 'plan_limit');
+
+    // Ebenen: Root existiert → 2 weitere ok, die 4. → 402.
+    const rootId = (await call('GET', '/api/views')).body[0].id;
+    assert.equal((await call('POST', '/api/views', { name: 'E2', parentId: rootId })).status, 201);
+    assert.equal((await call('POST', '/api/views', { name: 'E3', parentId: rootId })).status, 201);
+    const fourth = await call('POST', '/api/views', { name: 'E4', parentId: rootId });
+    assert.equal(fourth.status, 402);
+    assert.equal(fourth.body.code, 'plan_limit');
+
+    // Import über dem Limit → 402; Merge-Import (zusätzliches Projekt) → 402.
+    const bigImport = await call('POST', '/api/graph/import', {
+      mode: 'replace',
+      projects: [{ id: 'p1', name: 'P1' }, { id: 'p2', name: 'P2' }],
+      nodes: [],
+      edges: [],
+    });
+    assert.equal(bigImport.status, 402);
+    const merge = await call('POST', '/api/graph/import', { mode: 'merge', nodes: [], edges: [] });
+    assert.equal(merge.status, 402);
+
+    // Pro-Nutzer (Haupt-Cookie) darf beliebig viele Projekte/Ebenen anlegen.
+    assert.equal((await app.call('POST', '/api/projects', { name: 'P2' })).status, 201);
+  } finally {
+    app.close();
+  }
+});
+
+test('billing: Plan-Info verfügbar, Checkout meldet 501 bis Stripe integriert ist', async () => {
+  const app = await freshApp();
+  const freeUser = bootstrapUser(app.db, { plan: 'free' });
+  try {
+    const info = await app.call('GET', '/api/billing', null, freeUser.cookie);
+    assert.equal(info.status, 200);
+    assert.equal(info.body.plan, 'free');
+    assert.equal(info.body.limits.maxProjects, 1);
+    assert.equal(info.body.limits.maxViewsPerProject, 3);
+    assert.equal(info.body.plans.pro.priceMonthly, '2,99');
+
+    const checkout = await app.call('POST', '/api/billing/checkout', {}, freeUser.cookie);
+    assert.equal(checkout.status, 501);
+    assert.equal(checkout.body.code, 'billing_not_configured');
+  } finally {
+    app.close();
+  }
+});
+
+test('auth: /me liefert Plan + Limits; Passwort ändern beendet andere Sessions', async () => {
+  const { base: b, close } = await freshApp();
+  try {
+    const raw = async (method, path, body, cookie) => {
+      const headers = {};
+      if (body) headers['Content-Type'] = 'application/json';
+      if (cookie) headers.Cookie = cookie;
+      const res = await fetch(`${b}${path}`, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const text = await res.text();
+      return {
+        status: res.status,
+        body: text ? JSON.parse(text) : null,
+        setCookie: res.headers.get('set-cookie'),
+      };
+    };
+
+    const reg = await raw('POST', '/api/auth/register', { email: 'pw@test.de', password: 'startpasswort' });
+    assert.equal(reg.status, 201);
+    assert.equal(reg.body.user.plan, 'free');
+    const cookie1 = reg.setCookie.split(';')[0];
+
+    const me = await raw('GET', '/api/auth/me', null, cookie1);
+    assert.equal(me.body.user.plan, 'free');
+    assert.equal(me.body.limits.maxProjects, 1);
+
+    // Zweite Session (anderes Gerät).
+    const login2 = await raw('POST', '/api/auth/login', { email: 'pw@test.de', password: 'startpasswort' });
+    const cookie2 = login2.setCookie.split(';')[0];
+
+    // Falsches aktuelles Passwort → 401.
+    assert.equal(
+      (await raw('POST', '/api/auth/password', { currentPassword: 'falsch123', newPassword: 'neuespasswort' }, cookie1)).status,
+      401
+    );
+    // Korrekt → 204; die eigene Session bleibt, die andere wird beendet.
+    assert.equal(
+      (await raw('POST', '/api/auth/password', { currentPassword: 'startpasswort', newPassword: 'neuespasswort' }, cookie1)).status,
+      204
+    );
+    assert.equal((await raw('GET', '/api/auth/me', null, cookie1)).status, 200);
+    assert.equal((await raw('GET', '/api/auth/me', null, cookie2)).status, 401);
+
+    // Login nur noch mit neuem Passwort.
+    assert.equal((await raw('POST', '/api/auth/login', { email: 'pw@test.de', password: 'startpasswort' })).status, 401);
+    assert.equal((await raw('POST', '/api/auth/login', { email: 'pw@test.de', password: 'neuespasswort' })).status, 200);
+  } finally {
+    close();
+  }
+});
+
+test('auth: Konto löschen entfernt alle Daten (Passwort erforderlich)', async () => {
+  const { base: b, db: database, close } = await freshApp();
+  try {
+    const raw = async (method, path, body, cookie) => {
+      const headers = {};
+      if (body) headers['Content-Type'] = 'application/json';
+      if (cookie) headers.Cookie = cookie;
+      const res = await fetch(`${b}${path}`, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const text = await res.text();
+      return { status: res.status, body: text ? JSON.parse(text) : null, setCookie: res.headers.get('set-cookie') };
+    };
+
+    const reg = await raw('POST', '/api/auth/register', { email: 'del@test.de', password: 'geheimnis123' });
+    const cookie = reg.setCookie.split(';')[0];
+    const userId = reg.body.user.id;
+
+    // Falsches Passwort → 401, Konto bleibt.
+    assert.equal((await raw('DELETE', '/api/auth/account', { password: 'falsch1234' }, cookie)).status, 401);
+    // Korrekt → 204; Session weg, Daten weg.
+    assert.equal((await raw('DELETE', '/api/auth/account', { password: 'geheimnis123' }, cookie)).status, 204);
+    assert.equal((await raw('GET', '/api/auth/me', null, cookie)).status, 401);
+    assert.equal(database.prepare('SELECT count(*) AS c FROM users WHERE id = ?').get(userId).c, 0);
+    assert.equal(database.prepare('SELECT count(*) AS c FROM projects WHERE user_id = ?').get(userId).c, 0);
+  } finally {
+    close();
   }
 });
 

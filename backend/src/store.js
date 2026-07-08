@@ -2,6 +2,11 @@ import crypto from 'node:crypto';
 import { ApiError } from './validation.js';
 import { ensureRootView } from './db.js';
 import { computeLayout } from './layout.js';
+import {
+  assertCanCreateProject,
+  assertCanCreateView,
+  assertImportWithinLimits,
+} from './plans.js';
 
 const now = () => new Date().toISOString();
 
@@ -162,6 +167,7 @@ export function getProject(db, userId, id) {
 }
 
 export function createProject(db, userId, data) {
+  assertCanCreateProject(db, userId);
   const id = data.id || crypto.randomUUID();
   // Projekt-IDs sind global eindeutig (Primärschlüssel).
   if (db.prepare('SELECT 1 FROM projects WHERE id = ?').get(id)) {
@@ -302,6 +308,7 @@ export function createView(db, userId, data) {
   if (!projectId || !projectOwnedExists(db, userId, projectId)) {
     throw new ApiError(400, `Projekt "${projectId}" existiert nicht`);
   }
+  assertCanCreateView(db, userId, projectId);
   const maxOrder =
     db.prepare('SELECT max(sort_order) AS m FROM views WHERE project_id = ?').get(projectId)?.m ?? -1;
   const ts = now();
@@ -380,6 +387,15 @@ export function deleteView(db, userId, id) {
       }
     }
   }
+  // Die Kaskade darf nicht sämtliche Ebenen des Projekts entfernen — sonst
+  // bliebe ein Projekt ohne Ebene zurück (Root-Ebene mit allen Unterebenen).
+  if (affected.size >= total) {
+    throw new ApiError(
+      400,
+      'Diese Ebene kann nicht gelöscht werden: ihre Unterebenen umfassen alle Ebenen des Projekts'
+    );
+  }
+
   const placeholders = [...affected].map(() => '?').join(',');
   const nodeCount = db
     .prepare(`SELECT count(*) AS c FROM nodes WHERE view_id IN (${placeholders})`)
@@ -480,9 +496,15 @@ export function createNode(db, userId, data) {
   if (data.parentId && !nodeOwnedExists(db, userId, data.parentId)) {
     throw new ApiError(400, `Parent-Node "${data.parentId}" existiert nicht`);
   }
-  const viewId = data.viewId ?? defaultViewId(db, userId);
+  // Ohne explizite Ebene erbt der Node die Ebene seines Parents (statt Root).
+  const viewId =
+    data.viewId ?? (data.parentId ? nodeViewId(db, data.parentId) : null) ?? defaultViewId(db, userId);
   if (!viewId || !viewOwnedExists(db, userId, viewId)) {
     throw new ApiError(400, `Ebene "${data.viewId ?? viewId}" existiert nicht`);
+  }
+  // Parent und Kind müssen in derselben Ebene liegen (Positionen sind relativ).
+  if (data.parentId && nodeViewId(db, data.parentId) !== viewId) {
+    throw new ApiError(400, 'Parent-Node muss in derselben Ebene liegen');
   }
   if (data.linkedViewId && !viewOwnedExists(db, userId, data.linkedViewId)) {
     throw new ApiError(400, `Verlinkte Ebene "${data.linkedViewId}" existiert nicht`);
@@ -539,6 +561,8 @@ function migrateNodeSubtreeView(db, rootId, newViewId, ts) {
 
 export function updateNode(db, userId, id, patch) {
   const existing = getNode(db, userId, id);
+  const targetViewId =
+    patch.viewId !== undefined && patch.viewId !== null ? patch.viewId : existing.viewId;
   if (patch.parentId !== undefined && patch.parentId !== null) {
     if (patch.parentId === id) throw new ApiError(400, 'Ein Node kann nicht sein eigener Parent sein');
     if (!nodeOwnedExists(db, userId, patch.parentId)) {
@@ -546,6 +570,11 @@ export function updateNode(db, userId, id, patch) {
     }
     if (wouldCreateCycle(db, id, patch.parentId)) {
       throw new ApiError(400, 'Parent-Zuordnung würde einen Zyklus erzeugen');
+    }
+    // Positionen von Kindern sind relativ zum Parent → Parent muss in der
+    // (Ziel-)Ebene des Nodes liegen.
+    if (nodeViewId(db, patch.parentId) !== targetViewId) {
+      throw new ApiError(400, 'Parent-Node muss in derselben Ebene liegen');
     }
   }
   if (patch.viewId !== undefined && patch.viewId !== null && !viewOwnedExists(db, userId, patch.viewId)) {
@@ -567,6 +596,26 @@ export function updateNode(db, userId, id, patch) {
   };
   const viewChanged =
     patch.viewId !== undefined && patch.viewId !== null && patch.viewId !== existing.viewId;
+  // Wechselt der Node die Ebene, bleibt sein bisheriger Parent in der alten
+  // Ebene zurück (nur der Subtree des Nodes wandert mit). Ohne explizit neuen
+  // Parent wird der Node daher gelöst — mit absoluter Position, damit er in
+  // der Ziel-Ebene nicht relativ zu einem fremden Parent „springt".
+  if (viewChanged && patch.parentId === undefined && existing.parentId) {
+    if (patch.position === undefined) {
+      const posStmt = db.prepare('SELECT parent_id, pos_x, pos_y FROM nodes WHERE id = ?');
+      let abs = { ...existing.position };
+      let current = existing.parentId;
+      let guard = 0;
+      while (current && guard++ < 100) {
+        const row = posStmt.get(current);
+        if (!row) break;
+        abs = { x: abs.x + row.pos_x, y: abs.y + row.pos_y };
+        current = row.parent_id;
+      }
+      merged.position = abs;
+    }
+    merged.parentId = null;
+  }
   const ts = now();
   const tx = db.transaction(() => {
     db.prepare(`
@@ -587,9 +636,16 @@ export function deleteNode(db, userId, id) {
   const node = getNode(db, userId, id);
   const tx = db.transaction(() => {
     db.prepare(`
-      UPDATE nodes SET parent_id = @newParent, pos_x = pos_x + @dx, pos_y = pos_y + @dy
+      UPDATE nodes SET parent_id = @newParent, pos_x = pos_x + @dx, pos_y = pos_y + @dy,
+        updated_at = @ts
       WHERE parent_id = @id
-    `).run({ id, newParent: node.parentId ?? null, dx: node.position.x, dy: node.position.y });
+    `).run({
+      id,
+      newParent: node.parentId ?? null,
+      dx: node.position.x,
+      dy: node.position.y,
+      ts: now(),
+    });
     db.prepare('DELETE FROM edges WHERE source_id = ? OR target_id = ?').run(id, id);
     db.prepare('DELETE FROM nodes WHERE id = ?').run(id);
   });
@@ -627,7 +683,7 @@ export function updatePositions(db, userId, positions) {
 
 // ── Edges ───────────────────────────────────────────────────────
 
-export function listEdges(db, userId, { nodeId, viewId } = {}) {
+export function listEdges(db, userId, { nodeId, viewId, projectId } = {}) {
   const where = ['p.user_id = :userId'];
   const params = { userId };
   if (nodeId) {
@@ -637,6 +693,10 @@ export function listEdges(db, userId, { nodeId, viewId } = {}) {
   if (viewId) {
     where.push('e.view_id = :viewId');
     params.viewId = viewId;
+  }
+  if (projectId) {
+    where.push('v.project_id = :projectId');
+    params.projectId = projectId;
   }
   const sql = `SELECT e.* FROM edges e
     JOIN views v ON e.view_id = v.id
@@ -718,6 +778,14 @@ export function updateEdge(db, userId, id, patch) {
     routing: patch.routing ?? existing.routing,
     id,
   };
+  // Intra-View-Invariante gilt auch nach einem Endpunkt-Wechsel; die Ebene
+  // einer Kante folgt immer ihren Endknoten (ein viewId-Patch wird ignoriert).
+  const sourceView = nodeViewId(db, merged.sourceId);
+  const targetView = nodeViewId(db, merged.targetId);
+  if (sourceView !== targetView) {
+    throw new ApiError(400, 'Quelle und Ziel einer Verbindung müssen in derselben Ebene liegen');
+  }
+  merged.viewId = sourceView;
   db.prepare(`
     UPDATE edges SET source_id = @source_id, target_id = @target_id, view_id = @view_id,
       label = @label, kind = @kind,
@@ -751,7 +819,22 @@ export function getGraph(db, userId, viewId) {
   };
 }
 
-export function exportGraph(db, userId) {
+/**
+ * Export aller Daten des Nutzers — oder (mit `projectId`) nur eines Projekts,
+ * z. B. um es zu teilen und beim Empfänger per `mode: "merge"` zu importieren.
+ */
+export function exportGraph(db, userId, projectId) {
+  if (projectId) {
+    const project = getProject(db, userId, projectId); // 404, falls fremd/fehlt
+    return {
+      version: 3,
+      exportedAt: now(),
+      projects: [project],
+      views: listViews(db, userId, { projectId }),
+      nodes: listNodes(db, userId, { projectId }),
+      edges: listEdges(db, userId, { projectId }),
+    };
+  }
   return {
     version: 3,
     exportedAt: now(),
@@ -767,7 +850,7 @@ export function exportGraph(db, userId) {
  * die Daten dieses Nutzers, nicht die anderer. Referenzen werden vorab geprüft und
  * beim Insert an die Projekte/Ebenen des Nutzers gebunden.
  */
-export function importGraph(db, userId, { projects = [], views = [], nodes, edges }) {
+export function importGraph(db, userId, { mode = 'replace', projects = [], views = [], nodes, edges }) {
   const ids = new Set(nodes.map((n) => n.id));
   if (ids.size !== nodes.length) throw new ApiError(400, 'Doppelte Node-IDs im Import');
   for (const n of nodes) {
@@ -780,6 +863,8 @@ export function importGraph(db, userId, { projects = [], views = [], nodes, edge
       throw new ApiError(400, `Edge "${e.id ?? '(neu)'}": Quelle oder Ziel nicht im Import enthalten`);
     }
   }
+  if (mode === 'merge') return mergeGraph(db, userId, { projects, views, nodes, edges });
+  assertImportWithinLimits(db, userId, { projects, views });
   const ts = now();
   const tx = db.transaction(() => {
     db.pragma('defer_foreign_keys = ON');
@@ -852,23 +937,43 @@ export function importGraph(db, userId, { projects = [], views = [], nodes, edge
     const resolveView = (id) => (id && viewIds.has(id) ? id : rootId);
 
     const insertNode = db.prepare(INSERT_NODE);
+    const nodeView = new Map();
     for (const n of nodes) {
+      const resolvedView = resolveView(n.viewId);
+      nodeView.set(n.id, resolvedView);
       insertNode.run(
         nodeToRow(
           {
             ...n,
-            viewId: resolveView(n.viewId),
+            viewId: resolvedView,
             linkedViewId: n.linkedViewId && viewIds.has(n.linkedViewId) ? n.linkedViewId : null,
           },
           { created_at: n.createdAt ?? ts, updated_at: ts }
         )
       );
     }
+    // Parent-Kind-Paare müssen nach der Auflösung in derselben Ebene liegen.
+    for (const n of nodes) {
+      if (n.parentId && nodeView.get(n.parentId) !== nodeView.get(n.id)) {
+        throw new ApiError(
+          400,
+          `Node "${n.id}": Parent "${n.parentId}" liegt in einer anderen Ebene`
+        );
+      }
+    }
     const insertEdge = db.prepare(INSERT_EDGE);
     for (const e of edges) {
+      // Kanten sind intra-view: Ebene folgt den Endknoten.
+      const sourceView = nodeView.get(e.sourceId);
+      if (sourceView !== nodeView.get(e.targetId)) {
+        throw new ApiError(
+          400,
+          `Edge "${e.id ?? '(neu)'}": Quelle und Ziel liegen in unterschiedlichen Ebenen`
+        );
+      }
       insertEdge.run(
         edgeToRow(
-          { ...e, id: e.id || crypto.randomUUID(), viewId: resolveView(e.viewId) },
+          { ...e, id: e.id || crypto.randomUUID(), viewId: sourceView },
           { created_at: e.createdAt ?? ts, updated_at: ts }
         )
       );
@@ -885,6 +990,140 @@ export function importGraph(db, userId, { projects = [], views = [], nodes, edge
     )
     .get({ u: userId });
   return counts;
+}
+
+/**
+ * Additiver Import (mode=merge): fügt die Projekte/Ebenen/Nodes/Kanten des
+ * Payloads als NEUE Objekte hinzu, ohne Bestehendes anzutasten. Alle IDs werden
+ * neu vergeben (inkl. Referenz-Remapping) — dadurch sind Kollisionen mit
+ * vorhandenen Daten ausgeschlossen. Damit lassen sich exportierte Projekte
+ * zwischen Konten teilen (Export mit `?projectId=` → Import mit mode=merge).
+ */
+function mergeGraph(db, userId, { projects, views, nodes, edges }) {
+  const ts = now();
+  // Plan-Limits: Merge legt neue Projekte an (mindestens eines).
+  const newProjects = projects.length ? projects : [{ name: 'Importiertes Projekt' }];
+  assertCanCreateProject(db, userId, newProjects.length);
+  {
+    const perProject = new Map();
+    for (const v of views) {
+      const key = v.projectId ?? '__default__';
+      perProject.set(key, (perProject.get(key) ?? 0) + 1);
+    }
+    for (const [, count] of perProject) {
+      // Neue Projekte starten leer; die Ebenen des Payloads sind ihr Bestand.
+      const probe = { projects: [], views: Array.from({ length: count }, () => ({})) };
+      assertImportWithinLimits(db, userId, probe);
+    }
+  }
+
+  const projectMap = new Map(); // alte Projekt-ID → neue ID
+  const viewMap = new Map(); // alte Ebenen-ID → neue ID
+  const nodeMap = new Map(); // alte Node-ID → neue ID
+
+  const tx = db.transaction(() => {
+    const maxOrder =
+      db.prepare('SELECT max(sort_order) AS m FROM projects WHERE user_id = ?').get(userId)?.m ??
+      -1;
+    const insertProject = db.prepare(
+      `INSERT INTO projects (id, user_id, name, color, icon, sort_order, created_at, updated_at)
+       VALUES (@id, @user_id, @name, @color, @icon, @sort_order, @created_at, @updated_at)`
+    );
+    const newProjectIds = [];
+    newProjects.forEach((p, i) => {
+      const newId = crypto.randomUUID();
+      newProjectIds.push(newId);
+      if (p.id) projectMap.set(p.id, newId);
+      insertProject.run({
+        id: newId,
+        user_id: userId,
+        name: p.name ?? 'Importiertes Projekt',
+        color: p.color ?? null,
+        icon: p.icon ?? null,
+        sort_order: maxOrder + 1 + i,
+        created_at: ts,
+        updated_at: ts,
+      });
+    });
+    const fallbackProject = newProjectIds[0];
+
+    const insertView = db.prepare(
+      `INSERT INTO views (id, project_id, name, parent_id, description, color, icon, sort_order, created_at, updated_at)
+       VALUES (@id, @project_id, @name, @parent_id, @description, @color, @icon, @sort_order, @created_at, @updated_at)`
+    );
+    sortParentsFirst(views).forEach((v, i) => {
+      const newId = crypto.randomUUID();
+      viewMap.set(v.id, newId);
+      insertView.run({
+        id: newId,
+        project_id: (v.projectId && projectMap.get(v.projectId)) ?? fallbackProject,
+        name: v.name,
+        parent_id: (v.parentId && viewMap.get(v.parentId)) ?? null,
+        description: v.description ?? '',
+        color: v.color ?? null,
+        icon: v.icon ?? null,
+        sort_order: v.sortOrder ?? i,
+        created_at: ts,
+        updated_at: ts,
+      });
+    });
+    // Jedes neue Projekt braucht mindestens eine Ebene.
+    for (const projectId of newProjectIds) ensureRootView(db, projectId);
+    const fallbackView = ensureRootView(db, fallbackProject);
+
+    const insertNode = db.prepare(INSERT_NODE);
+    const nodeView = new Map();
+    for (const n of nodes) nodeMap.set(n.id, crypto.randomUUID());
+    for (const n of sortParentsFirst(nodes)) {
+      const viewId = (n.viewId && viewMap.get(n.viewId)) ?? fallbackView;
+      nodeView.set(n.id, viewId);
+      if (n.parentId && nodeView.get(n.parentId) !== viewId) {
+        throw new ApiError(400, `Node "${n.id}": Parent "${n.parentId}" liegt in einer anderen Ebene`);
+      }
+      insertNode.run(
+        nodeToRow(
+          {
+            ...n,
+            id: nodeMap.get(n.id),
+            parentId: n.parentId ? nodeMap.get(n.parentId) : null,
+            viewId,
+            linkedViewId: (n.linkedViewId && viewMap.get(n.linkedViewId)) ?? null,
+          },
+          { created_at: n.createdAt ?? ts, updated_at: ts }
+        )
+      );
+    }
+    const insertEdge = db.prepare(INSERT_EDGE);
+    for (const e of edges) {
+      const sourceView = nodeView.get(e.sourceId);
+      if (sourceView !== nodeView.get(e.targetId)) {
+        throw new ApiError(
+          400,
+          `Edge "${e.id ?? '(neu)'}": Quelle und Ziel liegen in unterschiedlichen Ebenen`
+        );
+      }
+      insertEdge.run(
+        edgeToRow(
+          {
+            ...e,
+            id: crypto.randomUUID(),
+            sourceId: nodeMap.get(e.sourceId),
+            targetId: nodeMap.get(e.targetId),
+            viewId: sourceView,
+          },
+          { created_at: e.createdAt ?? ts, updated_at: ts }
+        )
+      );
+    }
+  });
+  tx();
+  return {
+    mode: 'merge',
+    projects: newProjects.length,
+    views: viewMap.size || 1,
+    nodes: nodes.length,
+    edges: edges.length,
+  };
 }
 
 /**

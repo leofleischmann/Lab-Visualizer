@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import clsx from 'clsx';
-import { ChevronRight, Layers, Plus, Trash2 } from 'lucide-react';
+import { ChevronRight, Layers, Pencil, Plus, Trash2 } from 'lucide-react';
 import type { View } from '../../api/types';
 import { useGraphStore, viewPath } from '../../store/graph';
 
@@ -32,6 +32,7 @@ export function ViewBar() {
   const activeViewId = useGraphStore((s) => s.activeViewId);
   const setActiveView = useGraphStore((s) => s.setActiveView);
   const createView = useGraphStore((s) => s.createView);
+  const saveView = useGraphStore((s) => s.saveView);
   const removeView = useGraphStore((s) => s.removeView);
 
   const [open, setOpen] = useState(false);
@@ -53,6 +54,11 @@ export function ViewBar() {
     const created = await createView({ name: name.trim(), parentId });
     if (created) await setActiveView(created.id);
     setOpen(false);
+  };
+
+  const rename = async (view: View) => {
+    const name = window.prompt('Ebene umbenennen:', view.name);
+    if (name?.trim() && name.trim() !== view.name) await saveView(view.id, { name: name.trim() });
   };
 
   const del = async (view: View) => {
@@ -150,6 +156,14 @@ export function ViewBar() {
                     className="rounded p-1 text-slate-500 opacity-0 transition-opacity hover:bg-slate-700 hover:text-sky-300 group-hover:opacity-100"
                   >
                     <Plus size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void rename(view)}
+                    title="Ebene umbenennen"
+                    className="rounded p-1 text-slate-500 opacity-0 transition-opacity hover:bg-slate-700 hover:text-slate-200 group-hover:opacity-100"
+                  >
+                    <Pencil size={12} />
                   </button>
                   {views.length > 1 && (
                     <button
