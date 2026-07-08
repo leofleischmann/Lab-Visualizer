@@ -131,6 +131,13 @@ export function AuthScreen() {
 
         <p className="mt-4 text-center text-[11px] leading-relaxed text-slate-600">
           Deine Projekte sind privat und nur für dein Konto sichtbar.
+          {isRegister && (
+            <>
+              <br />
+              Kostenlos starten: 1 Projekt mit bis zu 3 Ebenen — Pro mit unbegrenzten
+              Projekten für 2,99 €/Monat.
+            </>
+          )}
         </p>
       </div>
     </div>

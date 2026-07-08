@@ -214,7 +214,7 @@ export function FlowCanvas() {
       connectionLineType={ConnectionLineType.SmoothStep}
       connectionLineStyle={{ stroke: '#38bdf8', strokeWidth: 1.5 }}
       connectionRadius={36}
-      deleteKeyCode={['Delete']}
+      deleteKeyCode={['Delete', 'Backspace']}
       fitView
       fitViewOptions={{ padding: 0.15 }}
       minZoom={0.08}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, RotateCcw, Save, Trash2 } from 'lucide-react';
+import { ArrowLeftRight, ArrowRight, RotateCcw, Save, Trash2 } from 'lucide-react';
 import type { ApiEdge, EdgePatch, LineStyle } from '../../api/types';
 import { kindOf } from '../../lib/catalog';
 import { isRoutingCustomized, normalizeRouting } from '../../lib/edge/routing';
@@ -87,13 +87,23 @@ export function EdgePanel({ entity }: { entity: ApiEdge }) {
       <header className="border-b border-slate-800 px-4 py-3">
         <h2 className="text-sm font-semibold text-slate-100">Verbindung</h2>
         <div className="mt-1.5 flex items-center gap-1.5 text-xs text-slate-400">
-          <span className="max-w-[45%] truncate rounded bg-slate-800 px-1.5 py-0.5">
+          <span className="max-w-[42%] truncate rounded bg-slate-800 px-1.5 py-0.5">
             {nodeName(entity.sourceId)}
           </span>
           <ArrowRight size={12} style={{ color: kind.color }} />
-          <span className="max-w-[45%] truncate rounded bg-slate-800 px-1.5 py-0.5">
+          <span className="max-w-[42%] truncate rounded bg-slate-800 px-1.5 py-0.5">
             {nodeName(entity.targetId)}
           </span>
+          <button
+            type="button"
+            onClick={() =>
+              void saveEdge(entity.id, { sourceId: entity.targetId, targetId: entity.sourceId })
+            }
+            title="Richtung umkehren (Quelle ↔ Ziel)"
+            className="ml-auto shrink-0 rounded-md border border-slate-700 p-1 text-slate-400 transition-colors hover:border-sky-500 hover:text-sky-300"
+          >
+            <ArrowLeftRight size={12} />
+          </button>
         </div>
       </header>
 

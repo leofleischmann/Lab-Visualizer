@@ -11,7 +11,15 @@ visuell pflegen und dokumentieren — mit interaktiver Canvas (React Flow), Deep
 - **Accounts & Mehrbenutzer** — Registrierung und Login per E-Mail/Passwort. Jede Person
   sieht und bearbeitet **nur ihre eigenen Projekte** — vollständig voneinander isoliert.
   Passwörter werden mit scrypt gehasht, Sessions laufen über HttpOnly-Cookies (server-seitig
-  in SQLite, sofort widerrufbar). Siehe [Sicherheit](#sicherheit).
+  in SQLite, sofort widerrufbar). Kontoverwaltung direkt in der App: **Passwort ändern**
+  (beendet alle anderen Sitzungen) und **Konto löschen** (entfernt alle Daten).
+  Siehe [Sicherheit](#sicherheit).
+- **Freemium (Free / Pro)** — der Free-Plan umfasst **1 Projekt mit bis zu 3 Ebenen**
+  (unbegrenzte Nodes/Verbindungen, volle API). **Pro** (2,99 $/€ pro Monat) hebt die
+  Limits auf: unbegrenzte Projekte und Ebenen. Die Limits werden **serverseitig**
+  durchgesetzt (HTTP 402 + `code: "plan_limit"`), die UI zeigt dann den Upgrade-Dialog.
+  Die Zahlungsabwicklung via **Stripe** ist vorbereitet, aber noch nicht angebunden —
+  siehe [Monetarisierung](#monetarisierung-freemium--stripe).
 - **Projekte** — komplett getrennte Arbeitsbereiche (z. B. „Homelab”, „Arbeit”). Jedes Projekt
   hat eigene Ebenen, Nodes und Verbindungen; der Umschalter in der Kopfzeile wechselt zwischen
   ihnen. Anlegen, umbenennen, löschen (kaskadiert).
@@ -44,8 +52,14 @@ visuell pflegen und dokumentieren — mit interaktiver Canvas (React Flow), Deep
   Spalten passt („Cloudflare Access Policy“, „Portainer Agent Port“, …).
 - **API-First** — jede UI-Aktion läuft über die REST-API; alles lässt sich skripten.
 - **KI-Agenten:** vollständige API-Doku in [AGENTS.md](AGENTS.md)
-- **Suche** — filtert live über Name, IP, Hostname, URL, OS und Custom Fields.
-- **Export / Import** — kompletter Graph als JSON (Backup, Versionierung, Automatisierung).
+- **Suche** — filtert live über Name, IP, Hostname, URL, OS und Custom Fields; die
+  globale Suche springt in die richtige Ebene und **zentriert den Treffer**.
+- **Export / Import & Projekte teilen** — kompletter Graph als JSON-Backup, einzelne
+  Projekte separat exportieren und bei einem anderen Konto **als neues Projekt
+  hinzufügen** (Merge-Import, kollisionsfrei mit neuen IDs) — ideal für Teams.
+- **Produktiv arbeiten** — Duplizieren (Strg+D), Undo/Redo (Strg+Z / Strg+Y),
+  Löschen (Entf/Backspace), Kantenrichtung umkehren, Ebenen umbenennen; zuletzt
+  geöffnetes Projekt und Ebene werden pro Konto gemerkt.
 - **Offline-fähig** — keine externen CDNs/Fonts; läuft komplett lokal auf dem eigenen Host.
 
 ## Schnellstart
@@ -129,12 +143,16 @@ beschränkt** — fremde IDs verhalten sich wie „nicht vorhanden" (`404`).
 | `POST` | `/api/auth/register` | Konto anlegen (`{email, password}`), seedet ein Beispielprojekt, setzt Cookie |
 | `POST` | `/api/auth/login` | Anmelden (`{email, password}`), setzt Session-Cookie |
 | `POST` | `/api/auth/logout` | Session serverseitig beenden |
-| `GET` | `/api/auth/me` | Aktueller Nutzer (`401`, wenn nicht angemeldet) |
+| `GET` | `/api/auth/me` | Aktueller Nutzer inkl. Plan & Limits (`401`, wenn nicht angemeldet) |
+| `POST` | `/api/auth/password` | Passwort ändern (`{currentPassword, newPassword}`), beendet andere Sessions |
+| `DELETE` | `/api/auth/account` | Konto + alle Daten löschen (`{password}`) |
+| `GET` | `/api/billing` | Plan, Limits & Preisinfo |
+| `POST` | `/api/billing/checkout` | Pro-Upgrade starten (`501`, bis Stripe angebunden ist) |
 | `GET` | `/api/health` | Healthcheck (öffentlich) |
 | `GET` | `/api/meta/catalog` | Kategorien, Status, Verbindungsarten, Linienstile (öffentlich) |
 | `GET` | `/api/graph` | Kompletter Graph (`{nodes, edges}`) |
-| `GET` | `/api/graph/export` | JSON-Dump (Download) |
-| `POST` | `/api/graph/import` | Graph ersetzen (`{mode:"replace", nodes, edges}`) |
+| `GET` | `/api/graph/export?projectId=` | JSON-Dump (alles oder nur ein Projekt) |
+| `POST` | `/api/graph/import` | Graph ersetzen (`mode:"replace"`) oder additiv anfügen (`mode:"merge"`) |
 | `GET` | `/api/nodes?q=&category=&status=` | Nodes suchen/filtern |
 | `POST` | `/api/nodes` | Node anlegen (optional mit eigener `id`) |
 | `GET/PATCH/PUT/DELETE` | `/api/nodes/:id` | Node lesen / ändern / löschen |
@@ -212,6 +230,26 @@ damit `CF-Connecting-IP` vertrauenswürdig bleibt.
 
 > Läufst du die Prod-Images ausnahmsweise lokal über `http://localhost:8080`, setze
 > `COOKIE_SECURE=false`, sonst sendet der Browser das Session-Cookie nicht.
+
+## Monetarisierung (Freemium & Stripe)
+
+| Plan | Preis | Projekte | Ebenen pro Projekt |
+|---|---|---|---|
+| **Free** | 0 € | 1 | 3 |
+| **Pro** | 2,99 $/€ pro Monat | unbegrenzt | unbegrenzt |
+
+- **Enforcement:** serverseitig in `backend/src/plans.js` + `store.js`. Beim Erreichen
+  eines Limits antwortet die API mit **`402` und `code: "plan_limit"`**; die UI öffnet
+  daraufhin den Upgrade-Dialog (`frontend/src/components/billing/PaywallDialog.tsx`).
+- **Datenmodell:** `users.plan` (`free`/`pro`), `plan_updated_at`,
+  `stripe_customer_id`, `stripe_subscription_id` (werden von der Stripe-Integration gepflegt).
+- **Noch offen (bewusst):** die eigentliche **Stripe-Anbindung**. Der Integrationspunkt
+  ist `backend/src/routes/billing.js` — `POST /api/billing/checkout` soll eine
+  Stripe-Checkout-Session (Subscription, 2,99 $/€ monatlich) erzeugen und `{ url }`
+  liefern; ein Webhook (`checkout.session.completed` / `customer.subscription.deleted`)
+  setzt `users.plan`. Bis dahin liefert Checkout `501` mit `code: "billing_not_configured"`,
+  und die UI zeigt einen entsprechenden Hinweis. Das Frontend leitet automatisch auf
+  die Checkout-URL weiter, sobald das Backend eine liefert.
 
 ## Sicherheit
 
