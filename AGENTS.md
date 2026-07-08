@@ -50,7 +50,9 @@ curl -b cookies.txt http://localhost:8080/api/graph
 ```
 
 Auth-Endpunkte: `POST /api/auth/register` (`{email, password}`, legt Konto an + seedet ein
-Beispielprojekt), `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`.
+Beispielprojekt), `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`
+(inkl. `plan` + `limits`), `POST /api/auth/password` (`{currentPassword, newPassword}`,
+beendet alle anderen Sessions), `DELETE /api/auth/account` (`{password}`, löscht alle Daten).
 Zustandsändernde Requests aus dem Browser müssen einen zum Host passenden `Origin`-Header
 tragen (CSRF-Schutz); Cookie-basierte CLI-Clients wie `curl` sind davon nicht betroffen.
 
@@ -67,12 +69,21 @@ tragen (CSRF-Schutz); Cookie-basierte CLI-Clients wie `curl` sind davon nicht be
 |---|---|
 | `400` | Validierung / ungültige Referenz |
 | `401` | Nicht angemeldet (fehlende/abgelaufene Session) |
+| `402` | Plan-Limit erreicht (`code: "plan_limit"`) — Free: max. 1 Projekt, 3 Ebenen/Projekt |
 | `403` | CSRF-Schutz (unpassender Origin) |
 | `404` | Node/Edge/Route nicht gefunden **oder gehört einem anderen Nutzer** |
 | `409` | ID existiert bereits |
 | `413` | Request-Body zu groß |
 | `429` | Zu viele Login-/Registrierungsversuche |
 | `500` | Interner Serverfehler |
+| `501` | Billing-Aktion noch nicht verfügbar (`code: "billing_not_configured"`) |
+
+### Pläne (Freemium)
+
+`free` = 1 Projekt, max. 3 Ebenen pro Projekt. `pro` = unbegrenzt. Der aktive Plan
+steht in `GET /api/auth/me` (`user.plan`, `limits`) und `GET /api/billing`. Limits
+werden bei `POST /projects`, `POST /views` und `POST /graph/import` serverseitig
+geprüft (→ `402`).
 
 Erfolg ohne Body: `204 No Content` (DELETE, Logout).
 
@@ -234,14 +245,19 @@ Export enthält **alle** Projekte, Ebenen, Nodes und Edges:
 2. **Reihenfolge bei Import:** In `nodes` muss jeder Parent **vor** seinen Kindern stehen.
 
 3. **Zonen:** `category: "group"` + `width`/`height` für Gruppierungsrahmen.
-   Kinder via `parentId` zuweisen.
+   Kinder via `parentId` zuweisen. **Parent und Kind müssen in derselben Ebene liegen**;
+   ohne `viewId` erbt ein Kind die Ebene seines Parents. Wechselt ein Node per PATCH die
+   Ebene, wird ein zurückbleibender Parent automatisch gelöst (Position wird absolut).
 
 4. **Node löschen:** Verbundene Edges werden mitgelöscht.
    Kinder werden an den Großeltern-Node gehängt; Positionen werden angepasst (kein Sprung auf der Canvas).
 
 5. **Parent-Zyklen:** Werden abgelehnt (`400`).
 
-6. **Graph-Import:** `POST /graph/import` mit `mode: "replace"` **löscht alle** bestehenden Nodes/Edges und ersetzt sie.
+6. **Graph-Import:** `POST /graph/import` mit `mode: "replace"` **löscht alle** bestehenden
+   Daten des Nutzers und ersetzt sie. `mode: "merge"` fügt den Payload **additiv** hinzu:
+   alle IDs werden neu vergeben (Referenzen werden umgeschrieben), Bestehendes bleibt
+   unangetastet — so lassen sich exportierte Projekte zwischen Konten teilen.
 
 7. **PATCH vs. PUT:** Beide partielles Update (nur gesendete Felder ändern sich).
    `customFields` wird bei PATCH **ersetzt**, nicht gemerged.
@@ -249,9 +265,12 @@ Export enthält **alle** Projekte, Ebenen, Nodes und Edges:
 8. **Suche `GET /nodes?q=`:** Durchsucht `name`, `ip`, `hostname`, `url`, `os` — **nicht** `customFields`.
 
 9. **Ebenen (Views):** Jeder Node/jede Edge gehört zu genau einer Ebene (`viewId`). Kanten
-   verbinden nur Nodes **derselben** Ebene. Ebenen-übergreifende Bezüge werden über
-   `node.linkedViewId` (Drill-down) modelliert, nicht über Kanten. Auto-Align (`/graph/layout`)
-   wirkt nur auf die angegebene `viewId`. Import: `views` mit Parents **vor** Kindern.
+   verbinden nur Nodes **derselben** Ebene — das gilt auch für `PATCH /edges/:id`
+   (Endpunkt-Wechsel); die `viewId` einer Kante folgt immer ihren Endknoten.
+   Ebenen-übergreifende Bezüge werden über `node.linkedViewId` (Drill-down) modelliert,
+   nicht über Kanten. Auto-Align (`/graph/layout`) wirkt nur auf die angegebene `viewId`.
+   Import: `views` mit Parents **vor** Kindern. Eine Ebene, deren Unterbaum **alle**
+   Ebenen des Projekts umfasst, kann nicht gelöscht werden (`400`).
 
 10. **Projekte:** Oberste Ebene, komplett getrennt. `GET /views?projectId=` und
     `GET /nodes?projectId=` (globale Suche) scopen auf ein Projekt. Import: `projects` zuerst.
@@ -287,7 +306,17 @@ Export enthält **alle** Projekte, Ebenen, Nodes und Edges:
 | `POST` | `/auth/register` | Konto anlegen (`{email, password}`), seedet Beispielprojekt, setzt Cookie → `201` |
 | `POST` | `/auth/login` | Anmelden (`{email, password}`), setzt Cookie → `200` |
 | `POST` | `/auth/logout` | Session beenden → `204` |
-| `GET` | `/auth/me` | Aktueller Nutzer (`401`, wenn nicht angemeldet) |
+| `GET` | `/auth/me` | Aktueller Nutzer inkl. `plan`/`limits` (`401`, wenn nicht angemeldet) |
+| `POST` | `/auth/password` | Passwort ändern (`{currentPassword, newPassword}`) → `204`, beendet andere Sessions |
+| `DELETE` | `/auth/account` | Konto + alle Daten löschen (`{password}`) → `204` |
+
+### Billing (Freemium)
+
+| Methode | Pfad | Beschreibung |
+|---|---|---|
+| `GET` | `/billing` | Plan, Limits & Preisübersicht |
+| `POST` | `/billing/checkout` | Pro-Upgrade (liefert `{url}`; `501` bis Stripe angebunden ist) |
+| `POST` | `/billing/portal` | Abo-Verwaltung (`501` bis Stripe angebunden ist) |
 
 ### Health
 
@@ -311,8 +340,8 @@ Unbekannte Kategorien werden in der UI mit Fallback-Icon gerendert.
 | Methode | Pfad | Beschreibung |
 |---|---|---|
 | `GET` | `/graph?viewId=` | Graph **einer Ebene** (Default: Root) |
-| `GET` | `/graph/export` | Backup-JSON (alle Projekte/Ebenen; `version`, `exportedAt`) |
-| `POST` | `/graph/import` | Graph inkl. Projekte/Ebenen ersetzen |
+| `GET` | `/graph/export?projectId=` | Backup-JSON (alle Projekte — oder nur eines, zum Teilen) |
+| `POST` | `/graph/import` | Graph ersetzen (`mode:"replace"`) oder additiv anfügen (`mode:"merge"`) |
 | `POST` | `/graph/layout` | Auto-Align einer Ebene (`viewId` im Body) |
 
 **Import-Body:**
@@ -527,6 +556,8 @@ Vollständige Liste: `GET /meta/catalog`.
 | Datei | Inhalt |
 |---|---|
 | `backend/src/auth.js` | Passwort-Hashing (scrypt), Sessions, `requireAuth`, CSRF, Rate-Limit |
+| `backend/src/plans.js` | Freemium-Pläne (free/pro) + serverseitiges Limit-Enforcement |
+| `backend/src/routes/billing.js` | Billing-Endpunkte; vorbereiteter Stripe-Integrationspunkt |
 | `backend/src/validation.js` | Zod-Schemas, Limits (inkl. `register`/`login`) |
 | `backend/src/layout.js` | Auto-Layout-Algorithmus |
 | `backend/src/store.js` | CRUD, Import, Parent-Logik, Row-Level-Autorisierung |

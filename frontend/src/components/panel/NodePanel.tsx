@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ExternalLink, Layers, Plus, Save, Trash2, X } from 'lucide-react';
+import { Copy, ExternalLink, Layers, Plus, Save, Trash2, X } from 'lucide-react';
 import type { ApiNode, NodePatch } from '../../api/types';
 import { categoryOf, groupedCategories, iconOf } from '../../lib/catalog';
 import { absolutePosition, useGraphStore } from '../../store/graph';
@@ -41,6 +41,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
   const views = useGraphStore((s) => s.views);
   const saveNode = useGraphStore((s) => s.saveNode);
   const removeNode = useGraphStore((s) => s.removeNode);
+  const duplicateNode = useGraphStore((s) => s.duplicateNode);
   const createDetailView = useGraphStore((s) => s.createDetailView);
   const setActiveView = useGraphStore((s) => s.setActiveView);
 
@@ -316,6 +317,14 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
           className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-sky-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500"
         >
           <Save size={14} /> {saving ? 'Speichert …' : 'Speichern'}
+        </button>
+        <button
+          type="button"
+          onClick={() => void duplicateNode(entity.id)}
+          title="Node duplizieren (Strg+D)"
+          className="flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-2 text-xs font-medium text-slate-300 transition-colors hover:border-sky-500 hover:text-sky-300"
+        >
+          <Copy size={14} />
         </button>
         <button
           type="button"

@@ -2,10 +2,30 @@ import type { Node, Edge } from '@xyflow/react';
 
 export type Position = { x: number; y: number };
 
+/** Abrechnungsplan (Freemium): free = 1 Projekt / 3 Ebenen, pro = unbegrenzt. */
+export type Plan = 'free' | 'pro';
+
 /** Angemeldeter Nutzer (Account). */
 export type User = {
   id: string;
   email: string;
+  plan: Plan;
+};
+
+/** Limits des aktiven Plans (null = unbegrenzt). */
+export type PlanLimits = {
+  maxProjects: number | null;
+  maxViewsPerProject: number | null;
+};
+
+/** Antwort von GET /api/billing (Plan-Übersicht für die Paywall/Upgrade-UI). */
+export type BillingInfo = {
+  plan: Plan;
+  limits: PlanLimits;
+  plans: {
+    free: { id: 'free'; label: string; maxProjects: number; maxViewsPerProject: number };
+    pro: { id: 'pro'; label: string; priceMonthly: string; maxProjects: null; maxViewsPerProject: null };
+  };
 };
 
 /** Projekt: komplett getrennter Arbeitsbereich (z. B. „Homelab", „Arbeit"). */
