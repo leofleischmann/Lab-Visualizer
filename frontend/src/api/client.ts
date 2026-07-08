@@ -1,10 +1,12 @@
 import type {
   ApiEdge,
   ApiNode,
+  BillingInfo,
   Catalog,
   EdgePatch,
   GraphPayload,
   NodePatch,
+  PlanLimits,
   Project,
   ProjectPatch,
   User,
@@ -31,16 +33,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (res.status === 401 && !path.startsWith('/auth/')) onUnauthorized?.();
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;
+    let code: string | undefined;
     try {
       const body = await res.json();
       if (body?.error) message = body.error;
+      if (typeof body?.code === 'string') code = body.code;
       if (Array.isArray(body?.details) && body.details.length) {
         message += `: ${body.details.map((d: { path: string; message: string }) => `${d.path} – ${d.message}`).join(', ')}`;
       }
     } catch {
       /* Body war kein JSON */
     }
-    throw new ApiRequestError(message, res.status);
+    throw new ApiRequestError(message, res.status, code);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -48,38 +52,63 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export class ApiRequestError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  /** Maschinenlesbarer Fehlercode (z. B. "plan_limit" → Paywall anzeigen). */
+  code?: string;
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
+type AuthResponse = { user: User; limits: PlanLimits };
+
 export const api = {
   // ── Auth ──────────────────────────────────────────────────────
-  me: () => request<{ user: User }>('/auth/me'),
+  me: () => request<AuthResponse>('/auth/me'),
   register: (email: string, password: string) =>
-    request<{ user: User }>('/auth/register', {
+    request<AuthResponse>('/auth/register', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     }),
   login: (email: string, password: string) =>
-    request<{ user: User }>('/auth/login', {
+    request<AuthResponse>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     }),
   logout: () => request<void>('/auth/logout', { method: 'POST' }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<void>('/auth/password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    }),
+  deleteAccount: (password: string) =>
+    request<void>('/auth/account', {
+      method: 'DELETE',
+      body: JSON.stringify({ password }),
+    }),
+
+  // ── Billing (Freemium) ────────────────────────────────────────
+  billing: () => request<BillingInfo>('/billing'),
+  /** Startet das Pro-Upgrade. Liefert eine Checkout-URL, sobald Stripe aktiv ist. */
+  billingCheckout: () =>
+    request<{ url?: string }>('/billing/checkout', { method: 'POST', body: '{}' }),
 
   catalog: () => request<Catalog>('/meta/catalog'),
   graph: (viewId?: string) =>
     request<Required<Pick<GraphPayload, 'viewId' | 'nodes' | 'edges'>>>(
       viewId ? `/graph?viewId=${encodeURIComponent(viewId)}` : '/graph'
     ),
-  exportGraph: () =>
-    request<GraphPayload & { version: number; exportedAt: string }>('/graph/export'),
-  importGraph: (payload: GraphPayload) =>
+  /** Export aller Daten — oder nur eines Projekts (zum Teilen/Verschieben). */
+  exportGraph: (projectId?: string) =>
+    request<GraphPayload & { version: number; exportedAt: string }>(
+      projectId ? `/graph/export?projectId=${encodeURIComponent(projectId)}` : '/graph/export'
+    ),
+  /** mode=replace ersetzt alle eigenen Daten, mode=merge fügt sie additiv hinzu. */
+  importGraph: (payload: GraphPayload, mode: 'replace' | 'merge' = 'replace') =>
     request<{ views: number; nodes: number; edges: number }>('/graph/import', {
       method: 'POST',
-      body: JSON.stringify({ mode: 'replace', ...payload }),
+      body: JSON.stringify({ mode, ...payload }),
     }),
   autoLayout: (options?: { viewId?: string; maxCols?: number; profile?: 'default' | 'wide' }) =>
     request<{ updated: number }>('/graph/layout', {

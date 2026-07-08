@@ -13,6 +13,12 @@ CREATE TABLE IF NOT EXISTS users (
   id            TEXT PRIMARY KEY,
   email         TEXT NOT NULL UNIQUE COLLATE NOCASE,
   password_hash TEXT NOT NULL,
+  -- Abrechnungsplan: 'free' (limitiert) oder 'pro' (unbegrenzt, via Stripe).
+  plan               TEXT NOT NULL DEFAULT 'free',
+  plan_updated_at    TEXT,
+  -- Stripe-Verknüpfung (wird von der späteren Stripe-Integration gefüllt).
+  stripe_customer_id     TEXT,
+  stripe_subscription_id TEXT,
   created_at    TEXT NOT NULL,
   updated_at    TEXT NOT NULL
 );
@@ -115,7 +121,25 @@ export function createDb(dbFile) {
   db.pragma('foreign_keys = ON');
   resetLegacySchema(db);
   db.exec(SCHEMA);
+  migrateSchema(db);
   return db;
+}
+
+/**
+ * Additive Migrationen für bestehende Datenbanken: `CREATE TABLE IF NOT EXISTS`
+ * ergänzt keine neuen Spalten in Alt-Tabellen, daher hier per `ALTER TABLE`.
+ */
+function migrateSchema(db) {
+  const addColumn = (table, column, ddl) => {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+    if (!cols.some((c) => c.name === column)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+    }
+  };
+  addColumn('users', 'plan', "plan TEXT NOT NULL DEFAULT 'free'");
+  addColumn('users', 'plan_updated_at', 'plan_updated_at TEXT');
+  addColumn('users', 'stripe_customer_id', 'stripe_customer_id TEXT');
+  addColumn('users', 'stripe_subscription_id', 'stripe_subscription_id TEXT');
 }
 
 /**

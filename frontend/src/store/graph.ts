@@ -6,7 +6,8 @@ import {
   type EdgeChange,
   type NodeChange,
 } from '@xyflow/react';
-import { api } from '../api/client';
+import { api, ApiRequestError } from '../api/client';
+import { useAuthStore } from './auth';
 import type {
   ApiEdge,
   ApiNode,
@@ -159,11 +160,18 @@ type GraphStore = {
   search: string;
   loading: boolean;
   error: string | null;
+  /**
+   * Paywall-Zustand: non-null = Upgrade-Dialog sichtbar (Text = Anlass, z. B.
+   * die 402-Fehlermeldung des Backends; leerer String = manuell geöffnet).
+   */
+  paywall: string | null;
 
   load: () => Promise<void>;
   reload: () => Promise<void>;
   setSearch: (term: string) => void;
   setError: (message: string | null) => void;
+  openPaywall: (reason?: string) => void;
+  closePaywall: () => void;
   select: (selection: Selection) => void;
   syncSelection: (selection: Selection) => void;
   setHoverNode: (id: string | null) => void;
@@ -193,6 +201,8 @@ type GraphStore = {
   createNode: (data: NodePatch & { name: string }) => Promise<ApiNode | null>;
   saveNode: (id: string, patch: NodePatch) => Promise<boolean>;
   removeNode: (id: string) => Promise<void>;
+  /** Node samt Metadaten kopieren (leicht versetzt, selektiert). */
+  duplicateNode: (id: string) => Promise<void>;
 
   connect: (connection: Connection) => Promise<void>;
   saveEdge: (id: string, patch: EdgePatch) => Promise<boolean>;
@@ -200,7 +210,7 @@ type GraphStore = {
   updateEdgeRouting: (id: string, routing: EdgeRouting, persist?: boolean) => Promise<void>;
   resetEdgeRouting: (id: string) => Promise<void>;
 
-  importGraph: (payload: GraphPayload) => Promise<boolean>;
+  importGraph: (payload: GraphPayload, mode?: 'replace' | 'merge') => Promise<boolean>;
   clearGraph: () => Promise<boolean>;
   autoLayout: () => Promise<boolean>;
 
@@ -212,7 +222,46 @@ type GraphStore = {
 const errorMessage = (err: unknown) =>
   err instanceof Error ? err.message : 'Unbekannter Fehler';
 
-export const useGraphStore = create<GraphStore>((set, get) => ({
+// ── Zuletzt aktives Projekt/Ebene pro Konto merken (localStorage) ──
+const storageKey = (kind: 'project' | 'view') => {
+  const userId = useAuthStore.getState().user?.id;
+  return userId ? `labviz:last-${kind}:${userId}` : null;
+};
+
+function readLast(kind: 'project' | 'view'): string | null {
+  try {
+    const key = storageKey(kind);
+    return key ? localStorage.getItem(key) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLast(kind: 'project' | 'view', id: string | null) {
+  try {
+    const key = storageKey(kind);
+    if (!key) return;
+    if (id) localStorage.setItem(key, id);
+    else localStorage.removeItem(key);
+  } catch {
+    /* localStorage nicht verfügbar (z. B. Private Mode) — unkritisch */
+  }
+}
+
+export const useGraphStore = create<GraphStore>((set, get) => {
+  /**
+   * Zentrale Fehlerbehandlung: Plan-Limit-Fehler (402) öffnen die Paywall,
+   * alles andere landet als Meldung im Fehler-Toast.
+   */
+  const fail = (err: unknown) => {
+    if (err instanceof ApiRequestError && err.code === 'plan_limit') {
+      set({ paywall: err.message });
+    } else {
+      fail(err);
+    }
+  };
+
+  return {
   nodes: [],
   edges: [],
   projects: [],
@@ -229,17 +278,26 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   search: '',
   loading: true,
   error: null,
+  paywall: null,
 
   load: async () => {
     set({ loading: true, error: null });
     try {
       const [catalog, projects] = await Promise.all([api.catalog(), api.listProjects()]);
+      // Priorität: aktuelles Projekt im State → zuletzt genutztes (localStorage) → erstes.
+      const remembered = readLast('project');
       const activeProjectId =
         (get().activeProjectId && projects.some((p) => p.id === get().activeProjectId)
           ? get().activeProjectId
-          : projects[0]?.id) ?? null;
+          : remembered && projects.some((p) => p.id === remembered)
+            ? remembered
+            : projects[0]?.id) ?? null;
       const views = activeProjectId ? await api.listViews(activeProjectId) : [];
-      const wanted = pickRootView(views);
+      const rememberedView = readLast('view');
+      const wanted =
+        (rememberedView && views.some((v) => v.id === rememberedView)
+          ? rememberedView
+          : null) ?? pickRootView(views);
       const graph = await api.graph(wanted ?? undefined);
       const flowNodes = orderForFlow(graph.nodes.map(toFlowNode));
       set({
@@ -304,7 +362,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
         ),
       });
     } catch (err) {
-      set({ error: errorMessage(err) });
+      fail(err);
     }
   },
 
@@ -314,6 +372,8 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       const views = await api.listViews(id);
       const rootId = pickRootView(views);
       const graph = await api.graph(rootId ?? undefined);
+      writeLast('project', id);
+      writeLast('view', graph.viewId ?? rootId);
       set({
         activeProjectId: id,
         views,
@@ -328,7 +388,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
         future: [],
       });
     } catch (err) {
-      set({ error: errorMessage(err) });
+      fail(err);
     }
   },
 
@@ -339,7 +399,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       await get().setActiveProject(created.id);
       return created;
     } catch (err) {
-      set({ error: errorMessage(err) });
+      fail(err);
       return null;
     }
   },
@@ -350,7 +410,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       set((state) => ({ projects: state.projects.map((p) => (p.id === id ? updated : p)) }));
       return true;
     } catch (err) {
-      set({ error: errorMessage(err) });
+      fail(err);
       return false;
     }
   },
@@ -366,7 +426,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       }
       return true;
     } catch (err) {
-      set({ error: errorMessage(err) });
+      fail(err);
       return false;
     }
   },
@@ -375,6 +435,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     if (id === get().activeViewId) return;
     try {
       const graph = await api.graph(id);
+      writeLast('view', graph.viewId ?? id);
       set({
         activeViewId: graph.viewId ?? id,
         nodes: orderForFlow(graph.nodes.map(toFlowNode)),
@@ -384,7 +445,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
         focus: null,
       });
     } catch (err) {
-      set({ error: errorMessage(err) });
+      fail(err);
     }
   },
 
@@ -395,7 +456,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       set((state) => ({ views: [...state.views, created] }));
       return created;
     } catch (err) {
-      set({ error: errorMessage(err) });
+      fail(err);
       return null;
     }
   },
@@ -406,7 +467,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       set((state) => ({ views: state.views.map((v) => (v.id === id ? updated : v)) }));
       return true;
     } catch (err) {
-      set({ error: errorMessage(err) });
+      fail(err);
       return false;
     }
   },
@@ -425,7 +486,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       }
       return true;
     } catch (err) {
-      set({ error: errorMessage(err) });
+      fail(err);
       return false;
     }
   },
@@ -445,6 +506,8 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
 
   setSearch: (term) => set({ search: term }),
   setError: (message) => set({ error: message }),
+  openPaywall: (reason) => set({ paywall: reason ?? '' }),
+  closePaywall: () => set({ paywall: null }),
 
   select: (selection) =>
     set((state) => {
@@ -528,7 +591,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
         });
       }
     } catch (err) {
-      set({ error: errorMessage(err) });
+      fail(err);
     }
   },
 
@@ -579,7 +642,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
         });
       }
     } catch (err) {
-      set({ error: errorMessage(err) });
+      fail(err);
     }
   },
 
@@ -605,7 +668,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       });
       return created;
     } catch (err) {
-      set({ error: errorMessage(err) });
+      fail(err);
       return null;
     }
   },
@@ -638,7 +701,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       }
       return true;
     } catch (err) {
-      set({ error: errorMessage(err) });
+      fail(err);
       return false;
     }
   },
@@ -677,8 +740,31 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
         });
       }
     } catch (err) {
-      set({ error: errorMessage(err) });
+      fail(err);
     }
+  },
+
+  duplicateNode: async (id) => {
+    const source = get().nodes.find((n) => n.id === id)?.data.entity;
+    if (!source) return;
+    await get().createNode({
+      name: `${source.name} (Kopie)`,
+      category: source.category,
+      status: source.status,
+      parentId: source.parentId,
+      viewId: source.viewId,
+      linkedViewId: source.linkedViewId,
+      position: { x: source.position.x + 40, y: source.position.y + 40 },
+      width: source.width,
+      height: source.height,
+      ip: source.ip,
+      vlan: source.vlan,
+      os: source.os,
+      hostname: source.hostname,
+      url: source.url,
+      notes: source.notes,
+      customFields: { ...source.customFields },
+    });
   },
 
   connect: async (connection) => {
@@ -702,7 +788,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
         redo: async () => void (await api.createEdge(created)),
       });
     } catch (err) {
-      set({ error: errorMessage(err) });
+      fail(err);
     }
   },
 
@@ -725,7 +811,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       }
       return true;
     } catch (err) {
-      set({ error: errorMessage(err) });
+      fail(err);
       return false;
     }
   },
@@ -780,7 +866,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
         });
       }
     } catch (err) {
-      set({ error: errorMessage(err) });
+      fail(err);
     }
   },
 
@@ -788,9 +874,14 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     await get().updateEdgeRouting(id, { mode: 'auto', waypoints: [], labelT: null }, true);
   },
 
-  importGraph: async (payload) => {
+  importGraph: async (payload, mode = 'replace') => {
     try {
-      await api.importGraph(payload);
+      await api.importGraph(payload, mode);
+      if (mode === 'merge') {
+        // Additiver Import: bestehende Daten bleiben — nur Projektliste/Graph auffrischen.
+        await get().load();
+        return true;
+      }
       // Projekte/Ebenen wurden komplett ersetzt: aktives Projekt + Ebene können
       // auf gelöschte IDs zeigen. Zurücksetzen und über load() neu bestimmen,
       // sonst zeigt der ProjectSwitcher/die Ebenen-Leiste ins Leere. Undo-History
@@ -799,7 +890,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       await get().load();
       return true;
     } catch (err) {
-      set({ error: errorMessage(err) });
+      fail(err);
       return false;
     }
   },
@@ -812,7 +903,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       await get().load();
       return true;
     } catch (err) {
-      set({ error: errorMessage(err) });
+      fail(err);
       return false;
     }
   },
@@ -823,7 +914,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       await get().reload();
       return true;
     } catch (err) {
-      set({ error: errorMessage(err) });
+      fail(err);
       return false;
     }
   },
@@ -842,7 +933,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       else await get().reload();
       set((s) => ({ future: [entry, ...s.future] }));
     } catch (err) {
-      set({ error: errorMessage(err) });
+      fail(err);
     }
   },
 
@@ -856,7 +947,8 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       else await get().reload();
       set((s) => ({ past: [...s.past, entry] }));
     } catch (err) {
-      set({ error: errorMessage(err) });
+      fail(err);
     }
   },
-}));
+  };
+});

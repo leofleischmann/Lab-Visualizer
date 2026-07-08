@@ -6,6 +6,7 @@ import { Palette } from './components/Palette';
 import { TopBar } from './components/TopBar';
 import { ViewBar } from './components/views/ViewBar';
 import { AuthScreen } from './components/auth/AuthScreen';
+import { PaywallDialog } from './components/billing/PaywallDialog';
 import { useGraphStore } from './store/graph';
 import { useAuthStore } from './store/auth';
 
@@ -40,25 +41,34 @@ function Workspace() {
   const setError = useGraphStore((s) => s.setError);
   const undo = useGraphStore((s) => s.undo);
   const redo = useGraphStore((s) => s.redo);
+  const duplicateNode = useGraphStore((s) => s.duplicateNode);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  // Tastenkürzel für Undo/Redo (nicht, während in Eingabefeldern getippt wird).
+  // Tastenkürzel: Strg+Z / Strg+Umschalt+Z / Strg+Y (Undo/Redo),
+  // Strg+D (selektierten Node duplizieren) — nicht in Eingabefeldern.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z') return;
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const key = e.key.toLowerCase();
+      if (key !== 'z' && key !== 'y' && key !== 'd') return;
       const el = e.target as HTMLElement | null;
       const tag = el?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || el?.isContentEditable) return;
       e.preventDefault();
-      if (e.shiftKey) void redo();
+      if (key === 'd') {
+        const selection = useGraphStore.getState().selection;
+        if (selection?.kind === 'node') void duplicateNode(selection.id);
+        return;
+      }
+      if (key === 'y' || e.shiftKey) void redo();
       else void undo();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [undo, redo]);
+  }, [undo, redo, duplicateNode]);
 
   return (
     <div className="flex h-full flex-col bg-slate-950 text-slate-200">
@@ -77,6 +87,7 @@ function Workspace() {
           )}
         </main>
         <DetailDrawer />
+        <PaywallDialog />
 
         {error && (
           <div className="absolute bottom-4 left-1/2 z-50 flex max-w-xl -translate-x-1/2 items-start gap-2.5 rounded-lg border border-red-800 bg-red-950/95 px-4 py-2.5 text-xs text-red-200 shadow-xl">

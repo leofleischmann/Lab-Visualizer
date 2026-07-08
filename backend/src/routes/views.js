@@ -7,7 +7,12 @@ export function viewsRouter(db) {
 
   // GET /api/views?projectId= — Ebenen (eines Projekts; flach, Hierarchie über parentId)
   router.get('/', (req, res) => {
-    res.json(store.listViews(db, req.userId, { projectId: req.query.projectId }));
+    // Wiederholte Query-Parameter (?projectId=a&projectId=b) kommen als Array —
+    // auf String reduzieren, damit sie nicht ungeprüft als SQL-Bind-Wert landen.
+    const projectId = Array.isArray(req.query.projectId)
+      ? req.query.projectId[0]
+      : req.query.projectId;
+    res.json(store.listViews(db, req.userId, { projectId }));
   });
 
   // POST /api/views
