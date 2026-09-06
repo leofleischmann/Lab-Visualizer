@@ -16,11 +16,16 @@
  * (Registrierung), backend/src/limits.js (Startprüfung der Instanz-Limits),
  * frontend/src/components/projects/NewProjectDialog.tsx.
  *
- * WICHTIG: Dieses Modul importiert store.js — store.js darf daher NIEMALS
- * Templates importieren (Zirkelbezug). Angewendet wird ein Template deshalb in
- * der Route, nicht in store.createProject.
+ * WICHTIG — dieses Modul ist bewusst ABHÄNGIGKEITSFREI: es importiert nur die
+ * Template-Dateien nebenan, weder store.js noch ein npm-Paket. Das Aufbauen
+ * eines Templates (das store.js braucht) steht getrennt in ./apply.js.
+ *
+ * Grund: frontend/src/lib/catalog.test.ts liest diese Registry über die
+ * Paketgrenze, um Icon-Namen gegen das Icon-Mapping der UI abzugleichen. Im
+ * CI läuft der Frontend-Job ohne backend/node_modules — ein Import von `zod`
+ * & Co. in dieser Kette lässt den Job scheitern. Ein Test in derselben Datei
+ * hält die Kette dependency-frei.
  */
-import * as store from '../store.js';
 import { homelab } from './homelab.js';
 import { cloud } from './cloud.js';
 import { kubernetes } from './kubernetes.js';
@@ -77,53 +82,4 @@ export function maxTemplateFootprint() {
     viewsPerProject: Math.max(...TEMPLATES.map((t) => t.footprint.views)),
     nodesPerProject: Math.max(...TEMPLATES.map((t) => t.footprint.nodes)),
   };
-}
-
-/**
- * Wendet ein Template auf ein frisch angelegtes Projekt an.
- *
- * Die Helfer spiegeln bewusst die Struktur der Templates: `view()` legt eine
- * Detailebene an, `node()`/`edge()` arbeiten mit Kurz-IDs, die intern pro
- * Projekt eindeutig gemacht werden (mehrere Konten, gleiches Template).
- *
- * Der Aufrufer ist für die Transaktion zuständig (siehe routes/projects.js):
- * schlägt ein Limit mitten im Aufbau zu, soll kein halbes Projekt zurückbleiben.
- */
-export function applyTemplate(db, userId, project, templateId) {
-  const template = getTemplate(templateId);
-  if (!template) return;
-
-  const root = store
-    .listViews(db, userId, { projectId: project.id })
-    .find((v) => v.parentId === null);
-
-  // IDs müssen global eindeutig sein (Primärschlüssel), das Template kennt aber
-  // nur sprechende Kurznamen. Deterministisch aus der Projekt-ID abgeleitet.
-  const nid = (key) => `tpl-${project.id.slice(0, 8)}-${key}`;
-
-  const view = (data) =>
-    store.createView(db, userId, { projectId: project.id, parentId: root.id, ...data });
-
-  // store.createNode wendet (anders als die Routen) keine Zod-Defaults an —
-  // daher hier einen gültigen Standardstatus für status-lose Nodes (Zonen).
-  // `parentId` wird mitübersetzt: Templates arbeiten durchgehend mit Kurz-IDs.
-  const node = ({ id, parentId, ...data }) =>
-    store.createNode(db, userId, {
-      id: nid(id),
-      status: 'unknown',
-      viewId: root.id,
-      ...(parentId ? { parentId: nid(parentId) } : {}),
-      ...data,
-    });
-
-  // Ohne viewId leitet store.createEdge die Ebene aus dem Quell-Node ab —
-  // Templates müssen sie daher nicht mitführen.
-  const edge = (sourceId, targetId, options = {}) =>
-    store.createEdge(db, userId, {
-      sourceId: nid(sourceId),
-      targetId: nid(targetId),
-      ...options,
-    });
-
-  template.build({ root, view, node, edge, nid });
 }

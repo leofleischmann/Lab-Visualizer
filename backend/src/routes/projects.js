@@ -2,7 +2,8 @@ import { Router } from 'express';
 import * as store from '../store.js';
 import { projectCreateSchema, projectUpdateSchema, parseOrThrow } from '../validation.js';
 import { buildCatalog } from '../catalog/index.js';
-import { applyTemplate, getTemplate } from '../templates/index.js';
+import { getTemplate } from '../templates/index.js';
+import { applyTemplate } from '../templates/apply.js';
 import { assertTemplateFitsLimits } from '../limits.js';
 import { ApiError } from '../validation.js';
 

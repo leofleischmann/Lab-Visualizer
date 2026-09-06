@@ -14,7 +14,8 @@
  * Beispielprojekt zulassen, sonst kann sich niemand registrieren).
  */
 import * as store from './store.js';
-import { applyTemplate, getTemplate, REGISTRATION_TEMPLATE_ID } from './templates/index.js';
+import { getTemplate, REGISTRATION_TEMPLATE_ID } from './templates/index.js';
+import { applyTemplate } from './templates/apply.js';
 
 const registrationTemplate = getTemplate(REGISTRATION_TEMPLATE_ID);
 
