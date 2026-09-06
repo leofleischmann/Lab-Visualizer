@@ -284,6 +284,15 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     set({ loading: true, error: null });
     try {
       const [catalog, projects] = await Promise.all([api.catalog(), api.listProjects()]);
+      // Der Katalog bestimmt Palette, Status-Auswahl UND welche typisierten Felder
+      // das Deep-Dive-Panel zeigt. Fehlt hier etwas, liegt es am Backend-Katalog
+      // (backend/src/catalog.js), nicht an der UI.
+      console.debug('[Debug graph]: Katalog geladen', {
+        categories: catalog.categories.length,
+        statuses: catalog.statuses.map((s) => s.id),
+        edgeKinds: catalog.edgeKinds.length,
+        fields: catalog.fields.map((f) => `${f.key}:${f.type}`),
+      });
       // Priorität: aktuelles Projekt im State → zuletzt genutztes (localStorage) → erstes.
       const remembered = readLast('project');
       const activeProjectId =
@@ -756,11 +765,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       position: { x: source.position.x + 40, y: source.position.y + 40 },
       width: source.width,
       height: source.height,
-      ip: source.ip,
-      vlan: source.vlan,
-      os: source.os,
-      hostname: source.hostname,
-      url: source.url,
+      fields: { ...source.fields },
       notes: source.notes,
       customFields: { ...source.customFields },
     });

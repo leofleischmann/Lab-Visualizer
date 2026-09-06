@@ -1,8 +1,9 @@
 # 🕸️ Lab Visualizer
 
-Ein selbst gehostetes **Network Infrastructure Documentation Tool**: Homelab-Infrastruktur
-visuell pflegen und dokumentieren — mit interaktiver Canvas (React Flow), Deep-Dive-Panel
-(Markdown-Notizen + Custom Fields) und einer sauberen REST-API für Automatisierung.
+Ein selbst gehostetes **Infrastructure Documentation Tool**: Systeme, Dienste und ihre
+Abhängigkeiten visuell pflegen — vom Homelab über Cloud-Setups bis zu Software- und
+Prozesslandschaften. Mit interaktiver Canvas (React Flow), Deep-Dive-Panel
+(typisierte Felder + Markdown-Notizen) und einer sauberen REST-API für Automatisierung.
 
 ![Stack](https://img.shields.io/badge/Stack-React%20%2B%20Express%20%2B%20SQLite-38bdf8)
 ![Lizenz](https://img.shields.io/badge/Lizenz-MIT-38bdf8)
@@ -19,8 +20,9 @@ visuell pflegen und dokumentieren — mit interaktiver Canvas (React Flow), Deep
 ![Deep-Dive-Panel mit typisierten Feldern und Markdown-Notizen](docs/screenshot-detail.png)
 
 Ein Klick auf einen Node hebt ihn samt Nachbarn hervor, dimmt den Rest und öffnet
-rechts den Drawer: typisierte Felder (IP, VLAN, OS, Hostname, URL, Status), die
-Verknüpfung zur Detailebene und Markdown-Notizen mit Live-Vorschau.
+rechts den Drawer: typisierte Felder nach Themengruppen (Allgemein, Netzwerk,
+System, Betrieb), die Verknüpfung zur Detailebene und Markdown-Notizen mit
+Live-Vorschau.
 
 </details>
 
@@ -47,10 +49,10 @@ Verknüpfung zur Detailebene und Markdown-Notizen mit Live-Vorschau.
   eigene **Detailebene** mit seinem internen Routing; **Doppelklick** zoomt hinein (wie im
   C4-Modell). Navigation per **Breadcrumb** und Ebenen-Baum. Jede Ebene ist eine eigene,
   fokussierte Canvas — Kanten verbinden nur Nodes derselben Ebene.
-- **Visueller Editor** — Nodes (Server, LXCs, VMs, Dienste, Cloud-Komponenten) frei auf der
-  Canvas platzieren, per Drag & Drop aus der Palette erstellen und mit Verbindungen (Edges)
-  verknüpfen. Zonen/Gruppen (z. B. „Proxmox“, „Cloudflare Edge“) fassen Nodes zusammen und
-  bewegen ihre Kinder mit. Ausrichtungshilfen (Snap-Lines) beim Verschieben.
+- **Visueller Editor** — Nodes (Hosts, VMs, Container, Dienste, Cloud-Komponenten, aber
+  auch Fachsysteme oder Prozessschritte) frei auf der Canvas platzieren, per Drag & Drop aus
+  der Palette erstellen und mit Verbindungen (Edges) verknüpfen. Zonen/Gruppen fassen Nodes
+  zusammen und bewegen ihre Kinder mit. Ausrichtungshilfen (Snap-Lines) beim Verschieben.
 - **Kanten-Routing wie in bpmn.io** — Verbindungen docken automatisch an der besten
   Node-Seite an und weichen Hindernissen aus. Linien lassen sich direkt greifen und
   orthogonal verlegen: Doppelklick auf die Linie fügt Eckpunkte ein (Doppelklick auf einen
@@ -61,10 +63,11 @@ Verknüpfung zur Detailebene und Markdown-Notizen mit Live-Vorschau.
   Zusammenhänge sofort ablesen lassen. **Semantisches Zoomen** blendet Kanten-Labels in der
   Gesamtübersicht aus und beim Hineinzoomen wieder ein. Rendering bleibt flüssig (60 fps beim
   Verschieben), da Kanten nur bei Bewegung ihrer eigenen Endknoten neu berechnet werden.
-- **Deep-Dive Panel** — Klick auf Node oder Verbindung öffnet den Drawer: typisierte Felder
-  (IP, VLAN, OS, Hostname, URL, Status), **Markdown-Notizen** mit Live-Vorschau (GFM-Tabellen,
-  Listen, Code) und ein **Key-Value-System (Custom Fields)** für alles, was nicht in starre
-  Spalten passt („Cloudflare Access Policy“, „Portainer Agent Port“, …).
+- **Deep-Dive Panel** — Klick auf Node oder Verbindung öffnet den Drawer: **typisierte
+  Felder** aus dem Katalog, nach Themengruppen sortiert (Netzwerk, System, Betrieb, …).
+  Gruppen ohne Werte bleiben eingeklappt, sodass ein Setup ohne Netzwerkbezug auch kein
+  Netzwerkformular sieht. Dazu **Markdown-Notizen** mit Live-Vorschau (GFM-Tabellen,
+  Listen, Code) und ein **Key-Value-System (Custom Fields)** für alles Übrige.
 - **API-First** — jede UI-Aktion läuft über die REST-API; alles lässt sich skripten.
 - **KI-Agenten:** vollständige API-Doku in [AGENTS.md](AGENTS.md)
 - **Suche** — filtert live über Name, IP, Hostname, URL, OS und Custom Fields; die
@@ -90,7 +93,9 @@ registrierte Nutzer** erhält automatisch ein Best-Practice-Beispielprojekt
 **„Homelab (Beispiel)"**: eine dreistufige Drill-down-Infrastruktur (Übersicht
 *Internet → Cloudflare → Router → Proxmox → NAS*, Detailebene *Proxmox intern* mit
 Reverse-Proxy/SSO/DB, Detailebene *nginx Routing*) — so ist sofort ein sinnvolles
-Beispiel zum Erkunden da statt einer leeren Canvas.
+Beispiel zum Erkunden da statt einer leeren Canvas. Das Beispiel ist ein Homelab,
+das Werkzeug ist es nicht: Katalog und Felder sind domänenneutral (siehe
+[Architektur](#architektur)).
 
 > ⚠️ **HTTPS in Produktion:** Läuft die Instanz öffentlich (z. B. hinter einem
 > Cloudflare-Tunnel), unbedingt über **HTTPS** ausliefern und `COOKIE_SECURE=true`
@@ -129,16 +134,17 @@ cd backend && npm test
   das `/api` an das Backend weiterreicht.
 - **Backend:** Node.js 22 + Express, better-sqlite3 (synchron, schnell, eine Datei),
   Zod-Validierung. Kein ORM — das Schema ist bewusst klein.
-- **Datenmodell:** feste Kern-Felder + `customFields` (JSON Key-Value) pro Node/Edge.
-  Kategorien/Status/Verbindungsarten kommen aus einem zentralen Katalog
-  (`backend/src/catalog.js`) und sind über `/api/meta/catalog` abfragbar —
-  neue Kategorien = ein Eintrag dort. Der Katalog deckt das ganze Homelab-Spektrum ab:
-  **Infrastruktur** (Proxmox, VM, LXC, VPS, Router), **Dienste** (Docker, Datenbanken,
-  Monitoring, Medien, Game-Server, KI/LLM), **Netzwerk** (Reverse Proxy, Tunnel, VPN,
-  DNS, Switch/AP), **Security** (Firewall/WAF, IDS/IPS, Auth/Zero Trust, Secrets,
-  Zertifikate), **CI/CD & Automatisierung** (CI-Runner wie GitHub Actions, Git/GitOps,
-  Cronjobs), **Storage & Backup** (NAS, Backup, Sync), **Smart Home & IoT** sowie
-  **Externes** (Cloud-Dienste, E-Mail, Domains, Benachrichtigungen).
+- **Datenmodell:** Kern-Felder + `fields` (typisiert) + `customFields` (frei) pro Node.
+  Kategorien, Status, Verbindungsarten **und Felddefinitionen** kommen aus einem zentralen
+  Katalog (`backend/src/catalog.js`) und sind über `/api/meta/catalog` abfragbar. Ein neues
+  Feld ist ein Eintrag dort — keine DB-Migration, keine UI-Änderung: Panel, Canvas-Anzeige
+  und Validierung bauen sich daraus.
+- **Produktneutral:** Der Katalog beschreibt Bausteine (Hypervisor, Container, Datenbank,
+  Reverse Proxy), keine Hersteller. „Proxmox VE“, „AWS“ oder „Kubernetes“ sind **Werte** im
+  Feld `platform` — derselbe Node-Typ trägt damit auch ESXi, Hyper-V oder XCP-ng. Die
+  Verbindungsarten decken neben Protokollen (HTTP, SSH, VPN) auch technikfreie Beziehungen
+  ab (Abhängigkeit, Datenfluss, Steuerung), sodass sich Architektur- und Prozessdiagramme
+  genauso abbilden lassen.
 - **Eigene Kategorien:** Die API akzeptiert beliebige Kategorie-Strings, und im
   Drawer gibt es „Eigene Kategorie …“ — unbekannte Kategorien werden mit
   Fallback-Icon/-Farbe gerendert. Nichts ist auf den Katalog beschränkt.
@@ -191,9 +197,9 @@ curl -b cookies.txt -X POST http://localhost:8080/api/nodes \
     "id": "nginx",
     "name": "nginx Reverse Proxy",
     "category": "reverse-proxy",
-    "status": "running",
-    "ip": "192.168.2.104",
-    "customFields": { "LXC": "118", "Stack": "nginx:alpine + CrowdSec" }
+    "status": "active",
+    "fields": { "ip": "192.168.2.104", "platform": "Debian 12", "ram": "4" },
+    "customFields": { "Container-ID": "118", "Stack": "nginx:alpine + CrowdSec" }
   }'
 
 # Status aus einem Monitoring-Skript heraus aktualisieren
@@ -211,9 +217,9 @@ curl -s -b cookies.txt http://localhost:8080/api/graph/export > backup.json
 ```
 
 **Node-Felder:** `name` (Pflicht), `category`, `status`
-(`running|stopped|planned|error|unknown`), `parentId` (Zone/Gruppe), `position{x,y}`,
-`width/height` (Zonen), `ip`, `vlan`, `os`, `hostname`, `url`, `notes` (Markdown),
-`customFields` (String→String).
+(`active|inactive|planned|maintenance|error|unknown`), `parentId` (Zone/Gruppe),
+`position{x,y}`, `width/height` (Zonen), `notes` (Markdown), `fields` (String→String,
+Schlüssel und Typen aus `/api/meta/catalog`), `customFields` (String→String, frei).
 **Edge-Felder:** `sourceId`, `targetId` (Pflicht), `label`, `kind`, `lineStyle`
 (`solid|dashed|dotted`), `animated`, `notes`, `customFields`.
 

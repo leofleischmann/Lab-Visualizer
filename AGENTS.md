@@ -31,7 +31,7 @@ Alle Pfade unten sind relativ zu `/api`.
   `/api/meta/catalog`, `/api/meta/legal`, `/api/auth/*`.
 - **CORS:** standardmäßig aus (same-origin über den Proxy); optional via `CORS_ORIGIN`
 - **Body-Limit:** 2 MB je Request; nur `POST /graph/import` nimmt 20 MB (beides per Env änderbar)
-- **IDs:** `^[A-Za-z0-9_.:-]{1,64}$` — sprechende IDs wie `nginx` oder `proxmox-host` empfohlen
+- **IDs:** `^[A-Za-z0-9_.:-]{1,64}$` — sprechende IDs wie `nginx` oder `db-primary` empfohlen
 - **Zeitstempel:** ISO 8601 (`createdAt`, `updatedAt`)
 
 ### Authentifizierung
@@ -164,20 +164,23 @@ verlinken. Jeder Node/jede Edge gehört zu **genau einer** Ebene.
   "id": "nginx",
   "name": "nginx Reverse Proxy",
   "category": "reverse-proxy",
-  "status": "running",
-  "parentId": "proxmox-zone",
+  "status": "active",
+  "parentId": "host-zone",
   "viewId": "server-intern",
   "linkedViewId": null,
   "position": { "x": 120, "y": 80 },
   "width": null,
   "height": null,
-  "ip": "192.168.2.104",
-  "vlan": "10",
-  "os": "Debian 12",
-  "hostname": "nginx.lan",
-  "url": "https://example.com",
+  "fields": {
+    "ip": "192.168.2.104",
+    "vlan": "10",
+    "os": "Debian 12",
+    "hostname": "nginx.lan",
+    "url": "https://example.com",
+    "platform": "Proxmox VE"
+  },
   "notes": "# Markdown\nFreitext-Dokumentation (GFM).",
-  "customFields": { "LXC-ID": "118", "Stack": "nginx:alpine" },
+  "customFields": { "Container-ID": "118", "Stack": "nginx:alpine" },
   "createdAt": "2026-07-02T18:00:00.000Z",
   "updatedAt": "2026-07-02T18:00:00.000Z"
 }
@@ -194,11 +197,37 @@ verlinken. Jeder Node/jede Edge gehört zu **genau einer** Ebene.
 | `linkedViewId` | nein | `null` | Drill-down-Portal: verlinkte Detail-Ebene (Doppelklick öffnet sie) |
 | `position` | nein | `{x:0,y:0}` | Canvas-Position (siehe Parent-Regel) |
 | `width`, `height` | nein | `null` | Nur für Zonen (`category: "group"`) |
-| `ip`, `vlan`, `os`, `hostname`, `url` | nein | `null` | Typisierte Infrastruktur-Felder |
+| `fields` | nein | `{}` | Typisierte Felder; Schlüssel & Typen aus `GET /meta/catalog` |
 | `notes` | nein | `""` | Markdown (max. 200 KB) |
-| `customFields` | nein | `{}` | Key-Value, max. 100 Keys, Werte max. 4000 Zeichen |
+| `customFields` | nein | `{}` | Freiform-Key-Value, max. 100 Keys, Werte max. 4000 Zeichen |
 
-**Status-Werte:** `running` | `stopped` | `planned` | `maintenance` | `error` | `unknown`
+**Status-Werte:** `active` | `inactive` | `planned` | `maintenance` | `error` | `unknown`
+
+#### `fields` vs. `customFields`
+
+`fields` enthält die **im Katalog definierten** Felder (`GET /meta/catalog` → `fields`):
+sie haben Label, Typ, Gruppe und werden serverseitig geprüft. `customFields` ist der
+Freiform-Ausweg für alles, was der Katalog nicht kennt — dort ist der Schlüssel selbst
+das Label.
+
+Alle Werte sind **Strings**, auch bei `type: "number"` und `type: "date"`. Ein leerer
+String bedeutet „nicht gesetzt" und wird nie abgelehnt. Validiert wird nach Typ:
+
+| Typ | Regel |
+|---|---|
+| `number` | muss als Zahl parsebar sein (`"16"`, nicht `"viel"`) |
+| `date` | `JJJJ-MM-TT` |
+| `url` | braucht ein Schema (`https://…`) |
+| `select` | einer der Werte aus `options` |
+| `text` | max. 4000 Zeichen |
+
+Unbekannte Schlüssel in `fields` werden **akzeptiert und gespeichert**, nicht abgelehnt —
+sonst würde der Import eines Projekts scheitern, dessen Felddefinition diese Instanz
+nicht kennt.
+
+> **Produktneutralität:** Kategorien beschreiben Bausteine, keine Hersteller. Ein
+> Proxmox-, ESXi- oder Hyper-V-Host ist `category: "hypervisor"` mit
+> `fields.platform: "Proxmox VE"` — nicht eine eigene Kategorie pro Produkt.
 
 > Status ist **manuell/API-gesteuert**. Es gibt keinen Ping oder Health-Check.
 
@@ -276,9 +305,11 @@ Export enthält **alle** Projekte, Ebenen, Nodes und Edges:
    unangetastet — so lassen sich exportierte Projekte zwischen Konten teilen.
 
 7. **PATCH vs. PUT:** Beide partielles Update (nur gesendete Felder ändern sich).
-   `customFields` wird bei PATCH **ersetzt**, nicht gemerged.
+   `fields` und `customFields` werden bei PATCH **als Ganzes ersetzt**, nicht gemerged —
+   wer ein einzelnes Feld ändern will, sendet das komplette Objekt mit.
 
-8. **Suche `GET /nodes?q=`:** Durchsucht `name`, `ip`, `hostname`, `url`, `os` — **nicht** `customFields`.
+8. **Suche `GET /nodes?q=`:** Durchsucht `name` sowie alle **Werte** aus `fields` und
+   `customFields`. Schlüssel matchen nicht (`q=platform` findet nichts).
 
 9. **Ebenen (Views):** Jeder Node/jede Edge gehört zu genau einer Ebene (`viewId`). Kanten
    verbinden nur Nodes **derselben** Ebene — das gilt auch für `PATCH /edges/:id`
@@ -337,7 +368,17 @@ GET /health   (öffentlich, kein Login nötig)
 
 ```
 GET /meta/catalog
-→ 200 { "categories": [...], "statuses": [...], "edgeKinds": [...], "lineStyles": [...] }
+→ 200 { "categories": [...], "statuses": [...], "edgeKinds": [...], "lineStyles": [...], "fields": [...] }
+```
+
+`fields` beschreibt die typisierten Node-Felder. Ein Eintrag sieht so aus:
+
+```json
+{ "key": "ram", "label": "Arbeitsspeicher", "type": "number", "group": "System", "unit": "GB" }
+```
+
+Optional: `mono` (Monospace), `showOnNode` (Wert erscheint auf der Canvas), `wide`
+(volle Panel-Breite), `placeholder`, `options` (bei `select`), `unit` (bei `number`).
 ```
 
 ### Rechtstexte
@@ -352,7 +393,8 @@ GET /meta/legal
 ```
 
 Kategorien und Edge-Kinds sind **Referenzwerte** — beliebige Strings sind erlaubt.
-Unbekannte Kategorien werden in der UI mit Fallback-Icon gerendert.
+Unbekannte Kategorien werden in der UI mit Fallback-Icon gerendert. Status dagegen sind
+ein **geschlossenes Enum**; ein unbekannter Wert wird mit 400 abgelehnt.
 
 ### Graph
 
@@ -409,7 +451,7 @@ Ordnet die Nodes **der angegebenen Ebene** (Default: Root) deterministisch an:
 {
   "positions": [
     { "id": "nginx", "x": 100, "y": 200 },
-    { "id": "proxmox-zone", "x": 0, "y": 0, "width": 600, "height": 400 }
+    { "id": "host-zone", "x": 0, "y": 0, "width": 600, "height": 400 }
   ]
 }
 ```
@@ -441,10 +483,9 @@ Content-Type: application/json
   "id": "postgres",
   "name": "PostgreSQL",
   "category": "database",
-  "status": "running",
-  "ip": "192.168.2.50",
-  "hostname": "postgres.lan",
-  "customFields": { "Port": "5432", "Version": "16" }
+  "status": "active",
+  "fields": { "ip": "192.168.2.50", "hostname": "postgres.lan", "version": "16", "ram": "8" },
+  "customFields": { "Port": "5432" }
 }
 ```
 
@@ -457,7 +498,7 @@ Content-Type: application/json
 { "status": "error" }
 ```
 
-Gültige Status: `running`, `stopped`, `planned`, `maintenance`, `error`, `unknown`.
+Gültige Status: `active`, `inactive`, `planned`, `maintenance`, `error`, `unknown`.
 
 ### 3. Verbindung dokumentieren
 
@@ -539,7 +580,7 @@ Vollständige Liste: `GET /meta/catalog`.
 
 | id | Gruppe |
 |---|---|
-| `proxmox-host`, `vm`, `lxc`, `router`, `vps` | Infrastruktur |
+| `hypervisor`, `vm`, `system-container`, `physical-device`, `router`, `vps` | Infrastruktur |
 | `docker-stack`, `docker-container`, `database`, `web-app`, `monitoring` | Dienste |
 | `reverse-proxy`, `tunnel`, `vpn`, `dns` | Netzwerk |
 | `firewall`, `auth`, `secrets` | Security |
@@ -550,7 +591,20 @@ Vollständige Liste: `GET /meta/catalog`.
 
 ### Edge-Kinds (Auszug)
 
-`http`, `https`, `tcp`, `udp`, `ssh`, `tunnel`, `vpn`, `dns`, `mail`, `monitoring`, `backup`, `ci`, `dependency`, `generic`
+| Gruppe | ids |
+|---|---|
+| Allgemein | `generic`, `dependency`, `data-flow`, `control`, `api` |
+| Netzwerk | `http`, `https`, `tcp`, `udp`, `ssh`, `tunnel`, `vpn`, `dns`, `mail` |
+| Betrieb | `monitoring`, `backup`, `ci` |
+
+### Node-Felder (Auszug)
+
+| Gruppe | keys |
+|---|---|
+| Allgemein | `url`, `owner`, `environment`, `criticality` |
+| Netzwerk | `ip`, `hostname`, `vlan`, `mac` |
+| System | `platform`, `os`, `version`, `cpu`, `ram`, `disk` |
+| Betrieb | `location`, `reviewedAt` |
 
 ---
 
@@ -565,7 +619,7 @@ Vollständige Liste: `GET /meta/catalog`.
 | Migration / Sync | `GET /graph/export` + `POST /graph/import` |
 | Nur Positionen (Layout) | `POST /nodes/positions` |
 | Auto-Align (gesamter Graph) | `POST /graph/layout` |
-| Verfügbare Kategorien | `GET /meta/catalog` |
+| Verfügbare Kategorien, Status, Edge-Kinds & Felder | `GET /meta/catalog` |
 | API erreichbar? | `GET /health` |
 
 ---
@@ -579,7 +633,7 @@ Vollständige Liste: `GET /meta/catalog`.
 | `backend/src/validation.js` | Zod-Schemas, Limits (inkl. `register`/`login`) |
 | `backend/src/layout.js` | Auto-Layout-Algorithmus |
 | `backend/src/store.js` | CRUD, Import, Parent-Logik, Row-Level-Autorisierung |
-| `backend/src/catalog.js` | Kategorien, Status, Edge-Kinds |
+| `backend/src/catalog.js` | Kategorien, Status, Edge-Kinds, Felddefinitionen |
 | `backend/src/routes/*.js` | Route-Definitionen (inkl. `auth.js`) |
 | `frontend/src/api/types.ts` | TypeScript-Typen (Frontend) |
 

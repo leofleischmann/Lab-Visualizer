@@ -3,7 +3,7 @@ import { type NodeProps } from '@xyflow/react';
 import clsx from 'clsx';
 import { Layers } from 'lucide-react';
 import type { FlowNode } from '../../api/types';
-import { categoryOf, iconOf, matchesSearch, statusOf } from '../../lib/catalog';
+import { categoryOf, iconOf, matchesSearch, nodeBadges, statusOf } from '../../lib/catalog';
 import { useGraphStore } from '../../store/graph';
 import { ConnectionDropTarget, ConnectionHandles } from './handles';
 
@@ -19,6 +19,7 @@ function InfraNodeComponent({ id, data, selected }: NodeProps<FlowNode>) {
   const Icon = iconOf(category.icon);
   const match = search.trim() ? matchesSearch(entity, search.trim()) : null;
   const isPortal = !!entity.linkedViewId;
+  const badges = nodeBadges(catalog, entity);
 
   return (
     <div
@@ -65,15 +66,20 @@ function InfraNodeComponent({ id, data, selected }: NodeProps<FlowNode>) {
           title={status.label}
           className={clsx(
             'h-2.5 w-2.5 shrink-0 rounded-full',
-            entity.status === 'running' && 'animate-pulse'
+            entity.status === 'active' && 'animate-pulse'
           )}
           style={{ backgroundColor: status.color }}
         />
       </div>
-      {(entity.ip || entity.hostname) && (
+      {/* Welche Felder hier erscheinen, entscheidet der Katalog über `showOnNode`
+          (backend/src/catalog.js FIELDS) — nicht dieser Component. */}
+      {badges.length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-x-2 border-t border-slate-800 pt-1.5 font-mono text-[10px] text-slate-400">
-          {entity.ip && <span>{entity.ip}</span>}
-          {entity.hostname && <span className="truncate text-slate-500">{entity.hostname}</span>}
+          {badges.map((badge, i) => (
+            <span key={badge.key} className={i > 0 ? 'truncate text-slate-500' : undefined}>
+              {badge.value}
+            </span>
+          ))}
         </div>
       )}
     </div>

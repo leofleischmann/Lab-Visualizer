@@ -65,14 +65,26 @@ test('health check', async () => {
   assert.equal(res.body.status, 'ok');
 });
 
-test('catalog liefert Kategorien, Status und Edge-Arten', async () => {
+test('catalog liefert Kategorien, Status, Edge-Arten und Felddefinitionen', async () => {
   const res = await api('GET', '/api/meta/catalog');
   assert.equal(res.status, 200);
-  for (const id of ['lxc', 'ci-runner', 'ids', 'secrets', 'storage', 'iot-device']) {
+  for (const id of ['system-container', 'ci-runner', 'ids', 'secrets', 'storage', 'iot-device']) {
     assert.ok(res.body.categories.some((c) => c.id === id), `Kategorie ${id} fehlt`);
   }
+  // Der Katalog nennt keine Produkte: ein Hypervisor ist eine Kategorie,
+  // "Proxmox" ist ein Wert im Feld `platform`.
+  assert.ok(res.body.categories.some((c) => c.id === 'hypervisor'));
+  assert.ok(!res.body.categories.some((c) => c.id.includes('proxmox')));
+  assert.ok(res.body.statuses.some((s) => s.id === 'active'));
   assert.ok(res.body.statuses.some((s) => s.id === 'maintenance'));
+  // Verbindungsarten decken auch nicht-technische Beziehungen ab.
   assert.ok(res.body.edgeKinds.some((k) => k.id === 'ci'));
+  assert.ok(res.body.edgeKinds.some((k) => k.id === 'data-flow'));
+  // Felddefinitionen: die UI baut das Deep-Dive-Panel vollständig daraus.
+  const ip = res.body.fields.find((f) => f.key === 'ip');
+  assert.ok(ip && ip.type === 'text' && ip.showOnNode === true);
+  assert.ok(res.body.fields.some((f) => f.key === 'platform'));
+  assert.ok(res.body.fields.some((f) => f.type === 'select' && f.options?.length));
 });
 
 test('beliebige (Custom-)Kategorien werden akzeptiert', async () => {
@@ -87,30 +99,59 @@ test('beliebige (Custom-)Kategorien werden akzeptiert', async () => {
   assert.equal(res.body.status, 'maintenance');
 });
 
-test('node CRUD inkl. Custom Fields', async () => {
+test('node CRUD inkl. typisierter Felder und Custom Fields', async () => {
   const created = await api('POST', '/api/nodes', {
     id: 'test-nginx',
     name: 'nginx',
     category: 'reverse-proxy',
-    status: 'running',
-    ip: '192.168.2.104',
+    status: 'active',
+    fields: { ip: '192.168.2.104', platform: 'Debian 12', ram: '4' },
     position: { x: 10, y: 20 },
-    customFields: { LXC: '118' },
+    customFields: { 'Container-ID': '118' },
   });
   assert.equal(created.status, 201);
   assert.equal(created.body.id, 'test-nginx');
-  assert.equal(created.body.customFields.LXC, '118');
+  assert.equal(created.body.fields.ip, '192.168.2.104');
+  assert.equal(created.body.fields.platform, 'Debian 12');
+  assert.equal(created.body.customFields['Container-ID'], '118');
 
   const patched = await api('PATCH', '/api/nodes/test-nginx', {
     notes: '# Hallo\nMarkdown-Notiz',
-    customFields: { LXC: '118', Stack: 'nginx:alpine' },
+    customFields: { 'Container-ID': '118', Stack: 'nginx:alpine' },
   });
   assert.equal(patched.status, 200);
   assert.equal(patched.body.customFields.Stack, 'nginx:alpine');
-  assert.equal(patched.body.ip, '192.168.2.104'); // PATCH lässt andere Felder unangetastet
+  // PATCH ohne `fields` lässt die typisierten Felder unangetastet
+  assert.equal(patched.body.fields.ip, '192.168.2.104');
 
   const fetched = await api('GET', '/api/nodes/test-nginx');
   assert.equal(fetched.body.notes, '# Hallo\nMarkdown-Notiz');
+});
+
+test('fields: Typen werden geprüft, unbekannte Schlüssel bleiben erhalten', async () => {
+  // Unbekannte Schlüssel gehen durch — sonst würde der Import eines Projekts
+  // scheitern, dessen Felddefinition diese Instanz nicht kennt.
+  const ok = await api('POST', '/api/nodes', {
+    id: 'field-types',
+    name: 'Feldtypen',
+    fields: { ram: '16', environment: 'Produktion', reviewedAt: '2026-01-31', spaeteres_pack_feld: 'x' },
+  });
+  assert.equal(ok.status, 201);
+  assert.equal(ok.body.fields.spaeteres_pack_feld, 'x');
+
+  for (const fields of [
+    { ram: 'viel' },              // number
+    { environment: 'Irgendwas' }, // select ausserhalb der Optionen
+    { url: 'example.com' },       // url ohne Schema
+    { reviewedAt: '31.01.2026' }, // date im falschen Format
+  ]) {
+    const res = await api('POST', '/api/nodes', { name: 'Ungültig', fields });
+    assert.equal(res.status, 400, `${JSON.stringify(fields)} hätte abgelehnt werden müssen`);
+  }
+
+  // Leerer Wert = Feld nicht gesetzt und daher immer erlaubt.
+  const empty = await api('POST', '/api/nodes', { id: 'field-empty', name: 'Leer', fields: { ram: '' } });
+  assert.equal(empty.status, 201);
 });
 
 test('validierung: leerer Name wird abgelehnt', async () => {
@@ -493,17 +534,28 @@ test('views: Export/Import erhält Ebenen-Hierarchie', async () => {
   }
 });
 
-test('Suche: findet nach VLAN und behandelt Wildcards literal', async () => {
+test('Suche: findet in fields/customFields und behandelt Wildcards literal', async () => {
   const { call, close } = await freshApp();
   try {
     const projectId = (await call('GET', '/api/projects')).body[0].id;
-    await call('POST', '/api/nodes', { id: 's-vlan', name: 'Switch', vlan: 'VLAN20' });
+    await call('POST', '/api/nodes', { id: 's-vlan', name: 'Switch', fields: { vlan: 'VLAN20' } });
     await call('POST', '/api/nodes', { id: 's-pct', name: '100% Uptime Box' });
-    await call('POST', '/api/nodes', { id: 's-other', name: 'Anderer Host', vlan: 'VLAN99' });
+    await call('POST', '/api/nodes', { id: 's-other', name: 'Anderer Host', fields: { vlan: 'VLAN99' } });
+    await call('POST', '/api/nodes', { id: 's-cf', name: 'Box', customFields: { Rack: 'R42' } });
+    await call('POST', '/api/nodes', { id: 's-plat', name: 'Server', fields: { platform: 'Debian 12' } });
 
-    // VLAN ist durchsuchbar
+    // Werte aus `fields` sind durchsuchbar
     const byVlan = (await call('GET', '/api/nodes?q=VLAN20')).body;
     assert.deepEqual(byVlan.map((n) => n.id), ['s-vlan']);
+
+    // Werte aus `customFields` ebenfalls (deckungsgleich mit matchesSearch im Frontend)
+    const byCustom = (await call('GET', '/api/nodes?q=R42')).body;
+    assert.deepEqual(byCustom.map((n) => n.id), ['s-cf']);
+
+    // Feld-SCHLÜSSEL matchen nicht — sonst würde "platform" jeden Node mit
+    // Plattform-Feld liefern (json_each durchsucht nur die Werte).
+    assert.deepEqual((await call('GET', '/api/nodes?q=platform')).body.map((n) => n.id), []);
+    assert.deepEqual((await call('GET', '/api/nodes?q=Debian')).body.map((n) => n.id), ['s-plat']);
 
     // '%' wird literal gesucht, nicht als Wildcard (sonst würde es alles matchen)
     const byPercent = (await call('GET', `/api/nodes?q=${encodeURIComponent('100%')}`)).body;

@@ -3,7 +3,7 @@ import { useReactFlow } from '@xyflow/react';
 import { Layers, Search, X } from 'lucide-react';
 import { api } from '../api/client';
 import type { ApiNode } from '../api/types';
-import { categoryOf } from '../lib/catalog';
+import { categoryOf, nodeBadges } from '../lib/catalog';
 import { absolutePosition, useGraphStore } from '../store/graph';
 
 /**
@@ -93,6 +93,7 @@ export function GlobalSearch() {
           ) : (
             results.map((node) => {
               const cat = categoryOf(catalog, node.category);
+              const badge = nodeBadges(catalog, node)[0]?.value ?? '';
               return (
                 <button
                   key={node.id}
@@ -106,7 +107,9 @@ export function GlobalSearch() {
                     <span className="block truncate text-xs text-slate-200">{node.name}</span>
                     <span className="block truncate text-[10px] text-slate-500">
                       {cat.label}
-                      {node.ip ? ` · ${node.ip}` : ''}
+                      {/* Zweitzeile: erstes Canvas-Feld des Katalogs (showOnNode),
+                          statt einer fest verdrahteten IP. */}
+                      {badge ? ` · ${badge}` : ''}
                     </span>
                   </span>
                   <span className="flex shrink-0 items-center gap-1 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">

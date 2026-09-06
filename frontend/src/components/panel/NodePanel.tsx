@@ -1,24 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Copy, ExternalLink, Layers, Plus, Save, Trash2, X } from 'lucide-react';
-import type { ApiNode, NodePatch } from '../../api/types';
-import { categoryOf, groupedCategories, iconOf } from '../../lib/catalog';
+import { ChevronDown, ChevronRight, Copy, Layers, Plus, Save, Trash2, X } from 'lucide-react';
+import clsx from 'clsx';
+import type { ApiNode, FieldDef, NodePatch } from '../../api/types';
+import { categoryOf, groupedCategories, groupedFields, iconOf } from '../../lib/catalog';
 import { absolutePosition, useGraphStore } from '../../store/graph';
 import { CustomFieldsEditor, toRecord, toRows, type FieldRow } from './CustomFieldsEditor';
 import { MarkdownEditor } from './MarkdownEditor';
-import { Field, TextInput } from './controls';
+import { Field, FieldInput, TextInput } from './controls';
 
 type Draft = {
   name: string;
   category: string;
   status: string;
   parentId: string;
-  ip: string;
-  vlan: string;
-  os: string;
-  hostname: string;
-  url: string;
+  /** Typisierte Felder (Schlüssel aus dem Backend-Katalog). */
+  fields: Record<string, string>;
   notes: string;
-  fields: FieldRow[];
+  /** Freiform-Key-Value (Custom Fields) als editierbare Zeilenliste. */
+  customRows: FieldRow[];
 };
 
 const toDraft = (entity: ApiNode): Draft => ({
@@ -26,14 +25,78 @@ const toDraft = (entity: ApiNode): Draft => ({
   category: entity.category,
   status: entity.status,
   parentId: entity.parentId ?? '',
-  ip: entity.ip ?? '',
-  vlan: entity.vlan ?? '',
-  os: entity.os ?? '',
-  hostname: entity.hostname ?? '',
-  url: entity.url ?? '',
+  fields: { ...entity.fields },
   notes: entity.notes,
-  fields: toRows(entity.customFields),
+  customRows: toRows(entity.customFields),
 });
+
+/**
+ * Werte trimmen und leere entfernen: „nicht gesetzt" wird nicht persistiert.
+ * Ohne das bliebe der Speichern-Button aktiv, sobald jemand in ein leeres Feld
+ * tippt und den Text wieder löscht — und ein " 192.168.1.1" mit Leerzeichen
+ * würde die Suche verfehlen.
+ */
+const compactFields = (fields: Record<string, string>): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(fields)
+      .map(([key, value]) => [key, value.trim()] as const)
+      .filter(([, value]) => value !== '')
+  );
+
+/**
+ * Ein Abschnitt typisierter Felder (Allgemein, Netzwerk, System, …). Gruppen
+ * ohne einen einzigen Wert starten eingeklappt, damit das Panel nicht zur
+ * Formularwand wird — für ein Setup ohne Netzwerkbezug bleibt „Netzwerk"
+ * einfach zu.
+ */
+function FieldGroup({
+  name,
+  defs,
+  values,
+  onChange,
+}: {
+  name: string;
+  defs: FieldDef[];
+  values: Record<string, string>;
+  onChange: (key: string, value: string) => void;
+}) {
+  const filled = defs.filter((d) => (values[d.key] ?? '') !== '').length;
+  const [open, setOpen] = useState(filled > 0);
+  const Chevron = open ? ChevronDown : ChevronRight;
+
+  return (
+    <div className="rounded-md border border-slate-800">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-1.5 px-2.5 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-slate-500 transition-colors hover:text-slate-300"
+      >
+        <Chevron size={13} />
+        <span className="flex-1">{name}</span>
+        {filled > 0 && (
+          <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] normal-case tracking-normal text-slate-400">
+            {filled}
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className="grid grid-cols-2 gap-3 border-t border-slate-800 px-2.5 py-3">
+          {defs.map((def) => (
+            <div key={def.key} className={clsx(def.wide && 'col-span-2')}>
+              <Field label={def.label}>
+                <FieldInput
+                  def={def}
+                  value={values[def.key] ?? ''}
+                  onChange={(value) => onChange(def.key, value)}
+                />
+              </Field>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function NodePanel({ entity }: { entity: ApiNode }) {
   const catalog = useGraphStore((s) => s.catalog);
@@ -66,11 +129,12 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
   );
 
   const dirty = useMemo(() => {
-    const original = toDraft(entity);
-    return (
-      JSON.stringify({ ...draft, fields: toRecord(draft.fields) }) !==
-      JSON.stringify({ ...original, fields: toRecord(original.fields) })
-    );
+    const normalize = (d: Draft) => ({
+      ...d,
+      fields: compactFields(d.fields),
+      customRows: toRecord(d.customRows),
+    });
+    return JSON.stringify(normalize(draft)) !== JSON.stringify(normalize(toDraft(entity)));
   }, [draft, entity]);
 
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
@@ -78,17 +142,18 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
 
   const handleSave = async () => {
     setSaving(true);
+    const fields = compactFields(draft.fields);
+    console.debug('[Debug NodePanel]: speichere Node', entity.id, {
+      fields,
+      customFields: Object.keys(toRecord(draft.customRows)).length,
+    });
     const patch: NodePatch = {
       name: draft.name.trim() || entity.name,
       category: draft.category,
       status: draft.status,
-      ip: draft.ip.trim() || null,
-      vlan: draft.vlan.trim() || null,
-      os: draft.os.trim() || null,
-      hostname: draft.hostname.trim() || null,
-      url: draft.url.trim() || null,
+      fields,
       notes: draft.notes,
-      customFields: toRecord(draft.fields),
+      customFields: toRecord(draft.customRows),
     };
     const newParent = draft.parentId || null;
     if (newParent !== (entity.parentId ?? null)) {
@@ -201,42 +266,22 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
           </select>
         </Field>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="IP-Adresse">
-            <TextInput mono value={draft.ip} onChange={(v) => set('ip', v)} placeholder="192.168.2.x" />
-          </Field>
-          <Field label="VLAN">
-            <TextInput mono value={draft.vlan} onChange={(v) => set('vlan', v)} placeholder="–" />
-          </Field>
-          <Field label="Betriebssystem">
-            <TextInput value={draft.os} onChange={(v) => set('os', v)} placeholder="Debian 12 …" />
-          </Field>
-          <Field label="Hostname">
-            <TextInput mono value={draft.hostname} onChange={(v) => set('hostname', v)} />
-          </Field>
-        </div>
-
-        <Field label="URL">
-          <div className="flex gap-1.5">
-            <TextInput
-              mono
-              value={draft.url}
-              onChange={(v) => set('url', v)}
-              placeholder="https://…"
+        {/* Typisierte Felder — Struktur kommt komplett aus dem Backend-Katalog
+            (/api/meta/catalog → fields). Hier steht bewusst kein Feldname:
+            ein neues Feld = ein Eintrag in backend/src/catalog.js. */}
+        <div className="space-y-2">
+          {groupedFields(catalog).map(([groupName, defs]) => (
+            <FieldGroup
+              key={`${entity.id}:${groupName}`}
+              name={groupName}
+              defs={defs}
+              values={draft.fields}
+              onChange={(key, value) =>
+                setDraft((d) => ({ ...d, fields: { ...d.fields, [key]: value } }))
+              }
             />
-            {draft.url && (
-              <a
-                href={draft.url}
-                target="_blank"
-                rel="noreferrer"
-                title="URL öffnen"
-                className="flex items-center rounded-md border border-slate-700 px-2 text-slate-400 transition-colors hover:border-sky-500 hover:text-sky-300"
-              >
-                <ExternalLink size={14} />
-              </a>
-            )}
-          </div>
-        </Field>
+          ))}
+        </div>
 
         <Field label="Detailebene (Drill-down)">
           {linkedView ? (
@@ -300,7 +345,10 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
         </Field>
 
         <Field label="Custom Fields">
-          <CustomFieldsEditor rows={draft.fields} onChange={(rows) => set('fields', rows)} />
+          <CustomFieldsEditor
+            rows={draft.customRows}
+            onChange={(rows) => set('customRows', rows)}
+          />
         </Field>
 
         <p className="text-[10px] text-slate-600">
