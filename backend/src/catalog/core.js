@@ -54,7 +54,9 @@ export const core = {
     },
     // Das Produkt gehört ins Feld, nicht in die Kategorie: „Proxmox VE", „AWS",
     // „Kubernetes", „SAP" — derselbe Node-Typ trägt damit jeden Hersteller.
-    { key: 'platform', label: 'Plattform', type: 'text', group: 'Allgemein', wide: true, placeholder: 'Proxmox VE, AWS, Kubernetes …' },
+    // Der Platzhalter bleibt bewusst gemischt: das Feld ist im Kern und taucht
+    // damit auch in Prozess- und Architekturprojekten auf.
+    { key: 'platform', label: 'Plattform', type: 'text', group: 'Allgemein', wide: true, placeholder: 'z. B. Proxmox VE, AWS, Kubernetes, SAP' },
     { key: 'version', label: 'Version', type: 'text', group: 'Allgemein' },
     { key: 'location', label: 'Standort', type: 'text', group: 'Allgemein', placeholder: 'Rack 2, Büro Nord …' },
     { key: 'reviewedAt', label: 'Zuletzt geprüft', type: 'date', group: 'Allgemein' },

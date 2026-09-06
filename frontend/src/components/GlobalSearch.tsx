@@ -71,7 +71,7 @@ export function GlobalSearch() {
         }}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
-        placeholder="Projektweit suchen: Name, IP, Hostname …"
+        placeholder="Projektweit suchen: Name und alle Feldwerte …"
         spellCheck={false}
         className="w-full rounded-lg border border-slate-700 bg-slate-950/70 py-1.5 pl-8 pr-8 text-xs text-slate-200 placeholder:text-slate-600 focus:border-sky-500 focus:outline-none"
       />

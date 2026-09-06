@@ -515,7 +515,7 @@ Ordnet die Nodes **der angegebenen Ebene** (Default: Root) deterministisch an:
 
 | Methode | Pfad | Beschreibung |
 |---|---|---|
-| `GET` | `/edges?nodeId=` | Alle Edges, optional gefiltert nach Node |
+| `GET` | `/edges?nodeId=&viewId=&projectId=` | Alle Edges, gleiche Filter wie `/nodes` |
 | `POST` | `/edges` | Anlegen → `201` |
 | `GET` | `/edges/:id` | Einzelne Edge |
 | `PATCH` | `/edges/:id` | Partielles Update |

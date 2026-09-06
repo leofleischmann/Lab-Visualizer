@@ -1,5 +1,14 @@
 import { describe, expect, test } from 'vitest';
-import { ICON_NAMES, matchesSearch, nodeBadges, orphanFields } from './catalog';
+import {
+  categoryOf,
+  groupedCategories,
+  ICON_NAMES,
+  isInactiveCategory,
+  kindOf,
+  matchesSearch,
+  nodeBadges,
+  orphanFields,
+} from './catalog';
 // Bewusster Zugriff über die Paketgrenze: der Katalog des Backends IST die
 // Quelle der Wahrheit für Kategorien, Packs und Vorlagen — ein zweiter Abzug
 // hier würde genau das Auseinanderdriften erzeugen, das dieser Test verhindern
@@ -67,6 +76,61 @@ describe('Feldanzeige folgt den Packs des Projekts', () => {
 
   test('leere Werte gelten nicht als gesetzt', () => {
     expect(orphanFields(catalogOf(['business']), { ip: '' })).toEqual([]);
+  });
+
+  test('ohne geladenen Katalog gilt nichts als Waisenfeld', () => {
+    // Sonst würde das Panel während des Ladens kurz ALLE Werte nach
+    // „Weitere Felder" schieben.
+    expect(orphanFields(null, { ip: '10.0.0.1', owner: 'Team' })).toEqual([]);
+    expect(nodeBadges(null, node({ ip: '10.0.0.1' }))).toEqual([]);
+  });
+
+  test('Waisenfelder behalten Label und Typ ihres abgewählten Packs', () => {
+    const [replicas] = orphanFields(catalogOf(['network']), { replicas: '3' });
+    expect(replicas).toMatchObject({ key: 'replicas', label: 'Replicas', type: 'number' });
+    // Ein Schlüssel, den KEIN Pack kennt (Import aus fremder Instanz), fällt
+    // auf den rohen Namen zurück statt zu verschwinden.
+    const [foreign] = orphanFields(catalogOf(['network']), { irgendwas: 'x' });
+    expect(foreign).toMatchObject({ key: 'irgendwas', label: 'irgendwas', type: 'text' });
+  });
+});
+
+/**
+ * Regression: Ein Pack abzuwählen darf bestehende Diagramme nicht optisch
+ * zerlegen. Vor dieser Trennung verlor ein Node aus einem deaktivierten Pack
+ * Icon, Farbe und Label und wurde als graues Standardsymbol mit roher ID
+ * gezeichnet — bei einem Kubernetes-Projekt betraf das 12 von 13 Nodes.
+ */
+describe('Darstellen vs. Anbieten', () => {
+  const network = catalogOf(['network']);
+
+  test('Kategorie eines abgewählten Packs behält Icon, Farbe und Label', () => {
+    const category = categoryOf(network, 'k8s-workload');
+    expect(category.label).toBe('Deployment / StatefulSet');
+    expect(category.icon).toBe('boxes');
+    expect(category.color).not.toBe('#9ca3af');
+    expect(isInactiveCategory(network, 'k8s-workload')).toBe(true);
+  });
+
+  test('Verbindungsart eines abgewählten Packs behält ihre Farbe', () => {
+    const kind = kindOf(network, 'process-flow');
+    expect(kind.label).toBe('Ablauf / nächster Schritt');
+    expect(kind.color).not.toBe('#9ca3af');
+  });
+
+  test('die Palette bietet inaktive Bausteine trotzdem nicht an', () => {
+    const offered = groupedCategories(network).flatMap(([, list]) => list.map((c) => c.id));
+    expect(offered).not.toContain('k8s-workload');
+    expect(offered).toContain('router');
+    // Der Kern ist immer dabei.
+    expect(offered).toContain('generic');
+  });
+
+  test('eine wirklich unbekannte Kategorie fällt weiterhin auf den Standard zurück', () => {
+    const custom = categoryOf(network, 'mein-eigener-typ');
+    expect(custom.label).toBe('mein-eigener-typ');
+    expect(custom.color).toBe('#9ca3af');
+    expect(isInactiveCategory(network, 'mein-eigener-typ')).toBe(false);
   });
 
   test('Suche findet Feld- und Custom-Field-Werte', () => {

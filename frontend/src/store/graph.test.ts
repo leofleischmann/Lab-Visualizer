@@ -36,6 +36,7 @@ beforeEach(() => {
     lineStyles: [],
     fields: [],
     packs: [],
+    inactive: { categories: [], edgeKinds: [], fields: [] },
   });
   useGraphStore.setState({
     error: null,

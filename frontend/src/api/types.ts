@@ -197,6 +197,16 @@ export type Catalog = {
   fields: FieldDef[];
   /** Packs, aus denen dieser Katalog zusammengesetzt wurde. */
   packs: string[];
+  /**
+   * Definitionen aus NICHT aktiven Packs. Werden zum Darstellen vorhandener
+   * Daten gebraucht (Icon, Farbe, Label), aber nicht zum Anlegen angeboten —
+   * sonst würde ein abgewähltes Pack bestehende Diagramme optisch zerlegen.
+   */
+  inactive: {
+    categories: Category[];
+    edgeKinds: EdgeKind[];
+    fields: FieldDef[];
+  };
 };
 
 export type GraphPayload = {

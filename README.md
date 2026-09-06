@@ -191,7 +191,7 @@ beschränkt** — fremde IDs verhalten sich wie „nicht vorhanden" (`404`).
 | `POST` | `/api/nodes` | Node anlegen (optional mit eigener `id`) |
 | `GET/PATCH/PUT/DELETE` | `/api/nodes/:id` | Node lesen / ändern / löschen |
 | `POST` | `/api/nodes/positions` | Bulk-Positionsupdate (`{positions:[{id,x,y,width?,height?}]}`) |
-| `GET` | `/api/edges?nodeId=` | Verbindungen (optional je Node) |
+| `GET` | `/api/edges?nodeId=&viewId=&projectId=` | Verbindungen (Filter wie bei `/nodes`) |
 | `POST` | `/api/edges` | Verbindung anlegen (`{sourceId, targetId, …}`) |
 | `GET/PATCH/PUT/DELETE` | `/api/edges/:id` | Verbindung lesen / ändern / löschen |
 

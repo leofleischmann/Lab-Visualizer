@@ -7,7 +7,9 @@ import {
   groupedCategories,
   groupedFields,
   iconOf,
+  isInactiveCategory,
   orphanFields,
+  ORPHAN_GROUP,
 } from '../../lib/catalog';
 import { absolutePosition, useGraphStore } from '../../store/graph';
 import { CustomFieldsEditor, toRecord, toRows, type FieldRow } from './CustomFieldsEditor';
@@ -55,8 +57,6 @@ const compactFields = (fields: Record<string, string>): Record<string, string> =
  * Formularwand wird — für ein Setup ohne Netzwerkbezug bleibt „Netzwerk"
  * einfach zu.
  */
-const ORPHAN_GROUP = 'Weitere Felder';
-
 function FieldGroup({
   name,
   defs,
@@ -246,8 +246,15 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
               }}
               className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 focus:border-sky-500 focus:outline-none"
             >
+              {/* Die Kategorie des Nodes kann aus einem abgewählten Pack stammen
+                  oder frei erfunden sein — beides bleibt wählbar, damit ein
+                  Speichern sie nicht stillschweigend ersetzt. */}
               {!catalog?.categories.some((c) => c.id === draft.category) && (
-                <option value={draft.category}>{draft.category} (eigene)</option>
+                <option value={draft.category}>
+                  {isInactiveCategory(catalog, draft.category)
+                    ? `${category.label} (Baustein nicht aktiv)`
+                    : `${draft.category} (eigene)`}
+                </option>
               )}
               {groupedCategories(catalog).map(([groupName, categories]) => (
                 <optgroup key={groupName} label={groupName}>

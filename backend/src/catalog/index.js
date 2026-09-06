@@ -88,17 +88,46 @@ function mergeUnique(lists, idKey) {
  * Baut den Katalog für eine Pack-Auswahl. `packs = null` liefert ALLES
  * (Kern + sämtliche Packs) — das nutzen Skripte und Agenten, die die
  * vollständige Referenz brauchen, ohne ein Projekt zu kennen.
+ *
+ * Zwei Listen, zwei Zwecke:
+ *   categories/edgeKinds/fields  — was das Projekt ANBIETET (Palette, Auswahl)
+ *   inactive.*                   — Definitionen für alles Übrige
+ *
+ * `inactive` ist nötig, weil vorhandene Daten ein abgewähltes Pack überleben:
+ * ohne die Definitionen würde ein Node aus einem deaktivierten Pack als graues
+ * Standardsymbol mit roher ID statt Icon, Farbe und Label erscheinen — ein
+ * Pack-Wechsel würde das Diagramm also optisch zerlegen. Die UI zeichnet damit
+ * weiterhin korrekt, bietet die Bausteine aber nicht mehr zum Anlegen an.
+ *
+ * Beeinflusst: frontend/src/lib/catalog.ts (categoryOf/kindOf lesen beide
+ * Listen, groupedCategories & Co. nur die aktive).
  */
 export function buildCatalog(packs = null) {
-  const active = packs === null ? PACKS : normalizePacks(packs).map((id) => PACKS_BY_ID.get(id));
+  const activeIds = new Set(packs === null ? PACK_IDS : normalizePacks(packs));
+  const active = PACKS.filter((p) => activeIds.has(p.id));
+  const inactive = PACKS.filter((p) => !activeIds.has(p.id));
   const sources = [core, ...active];
+  const pick = (list, key) => mergeUnique(list.map((p) => p[key]), key === 'fields' ? 'key' : 'id');
+  // Der Kern ist immer aktiv, taucht in `inactive` also nie auf.
+  const activeCategories = pick(sources, 'categories');
+  const activeKinds = pick(sources, 'edgeKinds');
+  const activeFields = pick(sources, 'fields');
+  const without = (all, current, idKey) => {
+    const have = new Set(current.map((e) => e[idKey]));
+    return all.filter((e) => !have.has(e[idKey]));
+  };
   return {
-    categories: mergeUnique(sources.map((p) => p.categories), 'id'),
+    categories: activeCategories,
     statuses: STATUSES,
-    edgeKinds: mergeUnique(sources.map((p) => p.edgeKinds), 'id'),
+    edgeKinds: activeKinds,
     lineStyles: LINE_STYLES,
-    fields: mergeUnique(sources.map((p) => p.fields), 'key'),
+    fields: activeFields,
     packs: active.map((p) => p.id),
+    inactive: {
+      categories: without(pick(inactive, 'categories'), activeCategories, 'id'),
+      edgeKinds: without(pick(inactive, 'edgeKinds'), activeKinds, 'id'),
+      fields: without(pick(inactive, 'fields'), activeFields, 'key'),
+    },
   };
 }
 

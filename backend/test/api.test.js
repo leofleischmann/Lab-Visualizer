@@ -126,6 +126,70 @@ test('packs: Feldwerte überleben das Abwählen ihres Packs', async () => {
   }
 });
 
+test('packs: inaktive Definitionen kommen mit, damit vorhandene Daten darstellbar bleiben', async () => {
+  const { call, close } = await freshApp();
+  try {
+    const pid = (await call('GET', '/api/projects')).body[0].id;
+    await call('PATCH', `/api/projects/${pid}`, { packs: ['network'] });
+    const cat = (await call('GET', `/api/projects/${pid}/catalog`)).body;
+
+    // Aktiv = was die Palette anbietet
+    assert.ok(!cat.categories.some((c) => c.id === 'k8s-workload'));
+    // Inaktiv = Definitionen zum Zeichnen bereits vorhandener Nodes/Kanten.
+    // Ohne sie verlöre ein Node aus einem abgewählten Pack Icon, Farbe und Label.
+    const workload = cat.inactive.categories.find((c) => c.id === 'k8s-workload');
+    assert.ok(workload, 'inaktive Kategorie fehlt');
+    assert.equal(workload.label, 'Deployment / StatefulSet');
+    assert.ok(cat.inactive.edgeKinds.some((k) => k.id === 'process-flow'));
+    assert.ok(cat.inactive.fields.some((f) => f.key === 'replicas'));
+
+    // Keine Überschneidung: nichts ist gleichzeitig aktiv und inaktiv.
+    const active = new Set(cat.categories.map((c) => c.id));
+    assert.ok(!cat.inactive.categories.some((c) => active.has(c.id)));
+
+    // Beim Gesamtkatalog ist alles aktiv, `inactive` also leer.
+    const full = (await call('GET', '/api/meta/catalog')).body;
+    assert.deepEqual(full.inactive, { categories: [], edgeKinds: [], fields: [] });
+  } finally {
+    close();
+  }
+});
+
+test('edges: Filter nach viewId und projectId (wie bei /nodes)', async () => {
+  const { call, close } = await freshApp();
+  try {
+    const projectA = (await call('GET', '/api/projects')).body[0].id;
+    const rootA = (await call('GET', `/api/views?projectId=${projectA}`)).body[0].id;
+    await call('POST', '/api/nodes', { id: 'a1', name: 'A1', viewId: rootA });
+    await call('POST', '/api/nodes', { id: 'a2', name: 'A2', viewId: rootA });
+    await call('POST', '/api/edges', { id: 'e-a', sourceId: 'a1', targetId: 'a2' });
+
+    const projectB = (await call('POST', '/api/projects', { name: 'Zweitprojekt' })).body.id;
+    const rootB = (await call('GET', `/api/views?projectId=${projectB}`)).body[0].id;
+    await call('POST', '/api/nodes', { id: 'b1', name: 'B1', viewId: rootB });
+    await call('POST', '/api/nodes', { id: 'b2', name: 'B2', viewId: rootB });
+    await call('POST', '/api/edges', { id: 'e-b', sourceId: 'b1', targetId: 'b2' });
+
+    assert.equal((await call('GET', '/api/edges')).body.length, 2);
+    assert.deepEqual(
+      (await call('GET', `/api/edges?projectId=${projectA}`)).body.map((e) => e.id),
+      ['e-a']
+    );
+    assert.deepEqual(
+      (await call('GET', `/api/edges?viewId=${rootB}`)).body.map((e) => e.id),
+      ['e-b']
+    );
+    assert.deepEqual((await call('GET', '/api/edges?nodeId=a1')).body.map((e) => e.id), ['e-a']);
+
+    // Wiederholter Parameter darf nicht ungeprüft als Bind-Wert landen.
+    const repeated = await call('GET', `/api/edges?viewId=${rootA}&viewId=${rootB}`);
+    assert.equal(repeated.status, 200);
+    assert.deepEqual(repeated.body.map((e) => e.id), ['e-a']);
+  } finally {
+    close();
+  }
+});
+
 test('meta: /meta/catalog liefert ALLE Packs, /packs und /templates die Auswahl', async () => {
   const { call, close } = await freshApp();
   try {
@@ -185,6 +249,31 @@ test('templates: jede Vorlage baut auf und nutzt nur ihre eigenen Packs', async 
     }
   } finally {
     close();
+  }
+});
+
+test('templates: zu enge Limits lehnen ab, ohne ein halbes Projekt zu hinterlassen', async () => {
+  const app = await freshApp();
+  try {
+    const homelab = TEMPLATES.find((t) => t.id === 'homelab');
+    const before = (await app.call('GET', '/api/projects')).body.length;
+    await withLimits({ MAX_NODES_PER_PROJECT: homelab.footprint.nodes - 1 }, async () => {
+      const res = await app.call('POST', '/api/projects', {
+        name: 'Zu gross',
+        template: 'homelab',
+      });
+      assert.equal(res.status, 403);
+      assert.equal(res.body.code, 'limit_reached');
+      // Die Vorprüfung greift VOR dem Anlegen — es darf kein Rumpfprojekt und
+      // keine verwaiste Ebene entstehen.
+      assert.equal((await app.call('GET', '/api/projects')).body.length, before);
+      assert.equal(app.db.prepare('SELECT count(*) AS c FROM views').get().c, before);
+    });
+    // Mit passenden Limits geht dieselbe Vorlage durch.
+    const ok = await app.call('POST', '/api/projects', { name: 'Passt', template: 'homelab' });
+    assert.equal(ok.status, 201);
+  } finally {
+    app.close();
   }
 });
 

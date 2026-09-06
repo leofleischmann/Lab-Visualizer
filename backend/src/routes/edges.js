@@ -5,10 +5,21 @@ import { edgeCreateSchema, edgeUpdateSchema, parseOrThrow } from '../validation.
 export function edgesRouter(db) {
   const router = Router();
 
-  // GET /api/edges?nodeId= — optional: nur Edges eines Nodes
+  // GET /api/edges?nodeId=&viewId=&projectId=
+  // Gleiche Filter wie GET /api/nodes — store.listEdges konnte viewId/projectId
+  // schon immer, die Route hat sie nur nicht durchgereicht.
   router.get('/', (req, res) => {
-    const nodeId = Array.isArray(req.query.nodeId) ? req.query.nodeId[0] : req.query.nodeId;
-    res.json(store.listEdges(db, req.userId, { nodeId }));
+    // Wiederholte Query-Parameter (?viewId=a&viewId=b) kommen als Array — auf
+    // String reduzieren, damit sie nicht ungeprüft als SQL-Bind-Wert landen.
+    const str = (v) => (Array.isArray(v) ? v[0] : v);
+    const { nodeId, viewId, projectId } = req.query;
+    res.json(
+      store.listEdges(db, req.userId, {
+        nodeId: str(nodeId),
+        viewId: str(viewId),
+        projectId: str(projectId),
+      })
+    );
   });
 
   router.post('/', (req, res) => {

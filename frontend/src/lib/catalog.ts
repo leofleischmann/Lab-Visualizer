@@ -130,19 +130,42 @@ const FALLBACK_CATEGORY: Category = {
   icon: 'shapes',
 };
 
+/**
+ * Kategorie eines Nodes zum DARSTELLEN.
+ *
+ * Sucht bewusst auch in den inaktiven Packs: ein Node behält seine Kategorie,
+ * wenn das Projekt deren Pack abwählt, und soll trotzdem sein Icon, seine Farbe
+ * und sein Label behalten. Der graue Fallback greift nur noch für wirklich
+ * eigene Kategorien (die der Katalog nirgends kennt).
+ *
+ * Zum ANBIETEN (Palette, Auswahlfeld) dagegen `groupedCategories` benutzen —
+ * die liefert nur die aktiven.
+ */
 export function categoryOf(catalog: Catalog | null, id: string): Category {
   return (
-    catalog?.categories.find((c) => c.id === id) ?? { ...FALLBACK_CATEGORY, id, label: id }
+    catalog?.categories.find((c) => c.id === id) ??
+    catalog?.inactive.categories.find((c) => c.id === id) ?? {
+      ...FALLBACK_CATEGORY,
+      id,
+      label: id,
+    }
   );
+}
+
+/** true, wenn die Kategorie nur noch aus einem abgewählten Pack bekannt ist. */
+export function isInactiveCategory(catalog: Catalog | null, id: string): boolean {
+  return !!catalog?.inactive.categories.some((c) => c.id === id);
 }
 
 export function statusOf(catalog: Catalog | null, id: string): Status {
   return catalog?.statuses.find((s) => s.id === id) ?? { id, label: id, color: '#d97706' };
 }
 
+/** Verbindungsart zum DARSTELLEN — inaktive Packs eingeschlossen (siehe categoryOf). */
 export function kindOf(catalog: Catalog | null, id: string): EdgeKind {
   return (
-    catalog?.edgeKinds.find((k) => k.id === id) ?? {
+    catalog?.edgeKinds.find((k) => k.id === id) ??
+    catalog?.inactive.edgeKinds.find((k) => k.id === id) ?? {
       id,
       label: id,
       group: 'Sonstiges',
@@ -164,6 +187,9 @@ export function iconOf(name: string): LucideIcon {
  * enden. `catalog.test.ts` gleicht beide Seiten deshalb ab.
  */
 export const ICON_NAMES = Object.keys(ICONS);
+
+/** Abschnitt im Panel für Werte, deren Pack das Projekt abgewählt hat. */
+export const ORPHAN_GROUP = 'Weitere Felder';
 
 /** Gruppiert Einträge nach `group`; die Reihenfolge des Katalogs bleibt erhalten. */
 function groupBy<T extends { group: string }>(items: T[]): [string, T[]][] {
@@ -221,10 +247,22 @@ export function orphanFields(
   catalog: Catalog | null,
   fields: Record<string, string>
 ): FieldDef[] {
-  const known = new Set((catalog?.fields ?? []).map((f) => f.key));
+  // Ohne geladenen Katalog wäre JEDES Feld ein Waisenfeld — das Panel würde
+  // während des Ladens kurz alle Werte in „Weitere Felder" schieben.
+  if (!catalog) return [];
+  const active = new Set(catalog.fields.map((f) => f.key));
+  const byKey = new Map(catalog.inactive.fields.map((f) => [f.key, f]));
   return Object.keys(fields)
-    .filter((key) => !known.has(key) && fields[key] !== '')
-    .map((key) => ({ key, label: key, type: 'text' as const, group: 'Weitere Felder', wide: true }));
+    .filter((key) => !active.has(key) && fields[key] !== '')
+    .map((key) => {
+      // Definition aus dem abgewählten Pack übernehmen (Label, Typ, Einheit) —
+      // nur die Gruppe wird umgehängt. Ein Feld, das der Katalog gar nicht
+      // kennt (Import aus fremder Instanz), fällt auf den rohen Schlüssel zurück.
+      const known = byKey.get(key);
+      return known
+        ? { ...known, group: ORPHAN_GROUP }
+        : { key, label: key, type: 'text' as const, group: ORPHAN_GROUP, wide: true };
+    });
 }
 
 /**
