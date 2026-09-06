@@ -9,7 +9,7 @@ import {
   ApiError,
 } from '../validation.js';
 import { seedExampleForUser } from '../seed.js';
-import { getPlanLimits } from '../plans.js';
+import { getInstanceLimits } from '../limits.js';
 import {
   hashPassword,
   verifyPassword,
@@ -52,11 +52,7 @@ export function authRouter(db) {
       })();
       const { token } = createSession(db, id);
       setSessionCookie(req, res, token);
-      const limits = getPlanLimits(db, id);
-      res.status(201).json({
-        user: { id, email, plan: limits.plan },
-        limits: { maxProjects: limits.maxProjects, maxViewsPerProject: limits.maxViewsPerProject },
-      });
+      res.status(201).json({ user: { id, email }, limits: getInstanceLimits() });
     } catch (err) {
       next(err);
     }
@@ -72,11 +68,7 @@ export function authRouter(db) {
       if (!user || !ok) throw new ApiError(401, 'Ungültige Zugangsdaten');
       const { token } = createSession(db, user.id);
       setSessionCookie(req, res, token);
-      const limits = getPlanLimits(db, user.id);
-      res.json({
-        user: { id: user.id, email: user.email, plan: limits.plan },
-        limits: { maxProjects: limits.maxProjects, maxViewsPerProject: limits.maxViewsPerProject },
-      });
+      res.json({ user: { id: user.id, email: user.email }, limits: getInstanceLimits() });
     } catch (err) {
       next(err);
     }
@@ -89,7 +81,7 @@ export function authRouter(db) {
     res.status(204).end();
   });
 
-  // GET /api/auth/me — aktueller Nutzer inkl. Plan & Limits (Frontend-Bootstrap)
+  // GET /api/auth/me — aktueller Nutzer inkl. Instanz-Limits (Frontend-Bootstrap)
   router.get('/me', (req, res) => {
     const session = resolveSession(db, parseCookies(req)[sessionCookieName]);
     if (!session) {
@@ -97,10 +89,9 @@ export function authRouter(db) {
       return res.status(401).json({ error: 'Nicht angemeldet' });
     }
     if (session.renewed) setSessionCookie(req, res, parseCookies(req)[sessionCookieName]);
-    const limits = getPlanLimits(db, session.userId);
     res.json({
-      user: { id: session.userId, email: session.email, plan: limits.plan },
-      limits: { maxProjects: limits.maxProjects, maxViewsPerProject: limits.maxViewsPerProject },
+      user: { id: session.userId, email: session.email },
+      limits: getInstanceLimits(),
     });
   });
 

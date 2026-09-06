@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   Check,
   ChevronDown,
-  Crown,
   KeyRound,
   LogOut,
   RotateCw,
@@ -11,23 +10,32 @@ import {
   UserRound,
 } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
-import { useGraphStore } from '../../store/graph';
 import { Modal } from '../ui/Modal';
+import { LegalLinks } from '../ui/LegalLinks';
 
 /**
- * Konto-Menü in der TopBar: Plan-Badge, Upgrade, Passwort ändern,
- * Konto löschen, Abmelden.
+ * Konto-Menü in der TopBar: Passwort ändern, Konto löschen, Abmelden —
+ * plus die Obergrenzen dieser Instanz, falls welche gesetzt sind.
  */
 export function AccountMenu() {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
-  const openPaywall = useGraphStore((s) => s.openPaywall);
+  const limits = useAuthStore((s) => s.limits);
 
   const [open, setOpen] = useState(false);
   const [dialog, setDialog] = useState<'password' | 'delete' | null>(null);
 
   if (!user) return null;
-  const isPro = user.plan === 'pro';
+
+  // Auf einer unlimitierten (z. B. selbst gehosteten) Instanz gibt es nichts anzuzeigen.
+  const limitSummary = [
+    [limits?.maxProjectsPerUser, 'Projekt', 'Projekte'],
+    [limits?.maxViewsPerProject, 'Ebene', 'Ebenen'],
+    [limits?.maxNodesPerProject, 'Node', 'Nodes'],
+  ]
+    .filter(([value]) => typeof value === 'number')
+    .map(([value, one, many]) => `${value} ${value === 1 ? one : many}`)
+    .join(' · ');
 
   return (
     <div className="relative">
@@ -39,13 +47,6 @@ export function AccountMenu() {
       >
         <UserRound size={14} />
         <span className="hidden max-w-[12rem] truncate xl:block">{user.email}</span>
-        <span
-          className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
-            isPro ? 'bg-sky-500/20 text-sky-300' : 'bg-slate-700/60 text-slate-400'
-          }`}
-        >
-          {isPro ? 'Pro' : 'Free'}
-        </span>
         <ChevronDown size={13} className="text-slate-500" />
       </button>
 
@@ -55,29 +56,12 @@ export function AccountMenu() {
           <div className="absolute right-0 top-10 z-40 w-64 rounded-lg border border-slate-700 bg-slate-900 p-1.5 shadow-2xl shadow-black/60">
             <div className="border-b border-slate-800 px-2.5 py-2">
               <p className="truncate text-xs font-medium text-slate-200">{user.email}</p>
-              <p className="mt-0.5 flex items-center gap-1 text-[10px] text-slate-500">
-                {isPro ? (
-                  <>
-                    <Crown size={11} className="text-sky-400" /> Pro-Plan · unbegrenzt
-                  </>
-                ) : (
-                  'Free-Plan · 1 Projekt, 3 Ebenen'
-                )}
-              </p>
+              {limitSummary && (
+                <p className="mt-0.5 text-[10px] text-slate-500">
+                  Grenzen dieser Instanz: {limitSummary}
+                </p>
+              )}
             </div>
-
-            {!isPro && (
-              <button
-                type="button"
-                onClick={() => {
-                  openPaywall();
-                  setOpen(false);
-                }}
-                className="mt-1 flex w-full items-center gap-2 rounded-md bg-sky-500/10 px-2.5 py-2 text-xs font-medium text-sky-300 transition-colors hover:bg-sky-500/20"
-              >
-                <Crown size={13} /> Auf Pro upgraden — 2,99 €/Monat
-              </button>
-            )}
 
             <button
               type="button"
@@ -108,6 +92,8 @@ export function AccountMenu() {
               >
                 <LogOut size={13} className="text-slate-500" /> Abmelden
               </button>
+
+              <LegalLinks className="mt-1.5 border-t border-slate-800 pt-2" />
             </div>
           </div>
         </>

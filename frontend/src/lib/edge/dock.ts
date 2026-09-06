@@ -43,16 +43,6 @@ export function dockPoint(rect: Rect, side: Side, shift = 0): FlowPoint {
   return { x, y };
 }
 
-/** Dockpunkt, dessen Lage auf der Seite frei wählbar ist (0..1 entlang der Seite). */
-export function dockPointAt(rect: Rect, side: Side, along: number): FlowPoint {
-  const clamped = Math.min(0.9, Math.max(0.1, along));
-  if (sideAxis(side) === 'h') {
-    const x = side === 'left' ? rect.x : rect.x + rect.width;
-    return { x, y: rect.y + rect.height * clamped };
-  }
-  const y = side === 'top' ? rect.y : rect.y + rect.height;
-  return { x: rect.x + rect.width * clamped, y };
-}
 
 /**
  * Beste Seitenkombination für die Auto-Route zwischen zwei Nodes:

@@ -5,6 +5,24 @@ visuell pflegen und dokumentieren — mit interaktiver Canvas (React Flow), Deep
 (Markdown-Notizen + Custom Fields) und einer sauberen REST-API für Automatisierung.
 
 ![Stack](https://img.shields.io/badge/Stack-React%20%2B%20Express%20%2B%20SQLite-38bdf8)
+![Lizenz](https://img.shields.io/badge/Lizenz-MIT-38bdf8)
+
+![Lab Visualizer — Übersichtsebene mit Drill-down-Hierarchie](docs/screenshot.png)
+
+> Die Übersichtsebene des Beispielprojekts, das jedes neue Konto mitbringt:
+> *Internet → Cloudflare → Router → Proxmox → NAS*. Der Stapel-Marker am
+> Proxmox-Host zeigt an, dass sich per Doppelklick eine Detailebene öffnet.
+
+<details>
+<summary><b>Deep-Dive-Panel ansehen</b> — typisierte Felder, Markdown-Notizen, Fokus-Modus</summary>
+
+![Deep-Dive-Panel mit typisierten Feldern und Markdown-Notizen](docs/screenshot-detail.png)
+
+Ein Klick auf einen Node hebt ihn samt Nachbarn hervor, dimmt den Rest und öffnet
+rechts den Drawer: typisierte Felder (IP, VLAN, OS, Hostname, URL, Status), die
+Verknüpfung zur Detailebene und Markdown-Notizen mit Live-Vorschau.
+
+</details>
 
 ## Features
 
@@ -14,12 +32,9 @@ visuell pflegen und dokumentieren — mit interaktiver Canvas (React Flow), Deep
   in SQLite, sofort widerrufbar). Kontoverwaltung direkt in der App: **Passwort ändern**
   (beendet alle anderen Sitzungen) und **Konto löschen** (entfernt alle Daten).
   Siehe [Sicherheit](#sicherheit).
-- **Freemium (Free / Pro)** — der Free-Plan umfasst **1 Projekt mit bis zu 3 Ebenen**
-  (unbegrenzte Nodes/Verbindungen, volle API). **Pro** (2,99 $/€ pro Monat) hebt die
-  Limits auf: unbegrenzte Projekte und Ebenen. Die Limits werden **serverseitig**
-  durchgesetzt (HTTP 402 + `code: "plan_limit"`), die UI zeigt dann den Upgrade-Dialog.
-  Die Zahlungsabwicklung via **Stripe** ist vorbereitet, aber noch nicht angebunden —
-  siehe [Monetarisierung](#monetarisierung-freemium--stripe).
+- **Kostenlos & quelloffen** — keine Bezahlfunktionen, kein Abo, kein Konto-Upgrade.
+  Beim Self-Hosting gibt es **keine Obergrenzen**. Wer die App öffentlich für Fremde
+  betreibt, kann pro Instanz Grenzen setzen — siehe [Instanz-Limits](#instanz-limits).
 - **Projekte** — komplett getrennte Arbeitsbereiche (z. B. „Homelab”, „Arbeit”). Jedes Projekt
   hat eigene Ebenen, Nodes und Verbindungen; der Umschalter in der Kopfzeile wechselt zwischen
   ihnen. Anlegen, umbenennen, löschen (kaskadiert).
@@ -143,13 +158,12 @@ beschränkt** — fremde IDs verhalten sich wie „nicht vorhanden" (`404`).
 | `POST` | `/api/auth/register` | Konto anlegen (`{email, password}`), seedet ein Beispielprojekt, setzt Cookie |
 | `POST` | `/api/auth/login` | Anmelden (`{email, password}`), setzt Session-Cookie |
 | `POST` | `/api/auth/logout` | Session serverseitig beenden |
-| `GET` | `/api/auth/me` | Aktueller Nutzer inkl. Plan & Limits (`401`, wenn nicht angemeldet) |
+| `GET` | `/api/auth/me` | Aktueller Nutzer inkl. Instanz-Limits (`401`, wenn nicht angemeldet) |
 | `POST` | `/api/auth/password` | Passwort ändern (`{currentPassword, newPassword}`), beendet andere Sessions |
 | `DELETE` | `/api/auth/account` | Konto + alle Daten löschen (`{password}`) |
-| `GET` | `/api/billing` | Plan, Limits & Preisinfo |
-| `POST` | `/api/billing/checkout` | Pro-Upgrade starten (`501`, bis Stripe angebunden ist) |
 | `GET` | `/api/health` | Healthcheck (öffentlich) |
 | `GET` | `/api/meta/catalog` | Kategorien, Status, Verbindungsarten, Linienstile (öffentlich) |
+| `GET` | `/api/meta/legal` | Rechtstexte dieser Instanz als Markdown (öffentlich) |
 | `GET` | `/api/graph` | Kompletter Graph (`{nodes, edges}`) |
 | `GET` | `/api/graph/export?projectId=` | JSON-Dump (alles oder nur ein Projekt) |
 | `POST` | `/api/graph/import` | Graph ersetzen (`mode:"replace"`) oder additiv anfügen (`mode:"merge"`) |
@@ -231,25 +245,59 @@ damit `CF-Connecting-IP` vertrauenswürdig bleibt.
 > Läufst du die Prod-Images ausnahmsweise lokal über `http://localhost:8080`, setze
 > `COOKIE_SECURE=false`, sonst sendet der Browser das Session-Cookie nicht.
 
-## Monetarisierung (Freemium & Stripe)
+## Instanz-Limits
 
-| Plan | Preis | Projekte | Ebenen pro Projekt |
-|---|---|---|---|
-| **Free** | 0 € | 1 | 3 |
-| **Pro** | 2,99 $/€ pro Monat | unbegrenzt | unbegrenzt |
+Lab Visualizer ist vollständig kostenlos — es gibt nichts zu kaufen und keine
+Funktion, die hinter einer Schranke liegt. **Standardmäßig gilt kein einziges Limit.**
 
-- **Enforcement:** serverseitig in `backend/src/plans.js` + `store.js`. Beim Erreichen
-  eines Limits antwortet die API mit **`402` und `code: "plan_limit"`**; die UI öffnet
-  daraufhin den Upgrade-Dialog (`frontend/src/components/billing/PaywallDialog.tsx`).
-- **Datenmodell:** `users.plan` (`free`/`pro`), `plan_updated_at`,
-  `stripe_customer_id`, `stripe_subscription_id` (werden von der Stripe-Integration gepflegt).
-- **Noch offen (bewusst):** die eigentliche **Stripe-Anbindung**. Der Integrationspunkt
-  ist `backend/src/routes/billing.js` — `POST /api/billing/checkout` soll eine
-  Stripe-Checkout-Session (Subscription, 2,99 $/€ monatlich) erzeugen und `{ url }`
-  liefern; ein Webhook (`checkout.session.completed` / `customer.subscription.deleted`)
-  setzt `users.plan`. Bis dahin liefert Checkout `501` mit `code: "billing_not_configured"`,
-  und die UI zeigt einen entsprechenden Hinweis. Das Frontend leitet automatisch auf
-  die Checkout-URL weiter, sobald das Backend eine liefert.
+Wer die App allerdings öffentlich für Fremde betreibt, will nicht, dass ein einzelnes
+Konto das Volume füllt. Dafür lassen sich pro Instanz Obergrenzen setzen (leer oder
+`unlimited` = kein Limit):
+
+| Variable | Wirkung |
+|---|---|
+| `MAX_PROJECTS_PER_USER` | Projekte pro Konto |
+| `MAX_VIEWS_PER_PROJECT` | Ebenen pro Projekt |
+| `MAX_NODES_PER_PROJECT` | Nodes pro Projekt (über alle Ebenen) |
+| `RATE_LIMIT_WRITES_PER_MIN` | Schreib-Requests pro Minute und IP (Default `600`, `0` = aus) |
+| `MAX_BODY` / `MAX_IMPORT_BODY` | Größe eines Request-Bodys (Default `2mb`, für den Import `20mb`) |
+
+- **Enforcement:** serverseitig in `backend/src/limits.js` + `store.js` — auch der
+  Import wird geprüft, bevor etwas geschrieben wird. Beim Erreichen einer Grenze
+  antwortet die API mit **`403` und `code: "limit_reached"`**; die UI zeigt einen
+  Hinweis mit Verweis aufs Self-Hosting (`frontend/src/components/ui/LimitDialog.tsx`).
+- **Startprüfung:** Jedes neue Konto bekommt ein Beispielprojekt (1 Projekt, 3 Ebenen,
+  18 Nodes). Sind die Limits kleiner, bricht das Backend **beim Start** mit einer
+  klaren Meldung ab — statt später jede Registrierung mit `403` scheitern zu lassen.
+- **Betrieb einer öffentlichen Instanz:** Bedenke zusätzlich, dass du damit
+  personenbezogene Daten Dritter verarbeitest (Konten) und dass Nutzer sensible
+  Infrastruktur-Notizen ablegen. Sorge für Backups, HTTPS und — je nach Rechtsraum —
+  Rechtstexte (siehe unten).
+
+## Rechtstexte (Impressum & Datenschutz)
+
+Wer Lab Visualizer öffentlich anbietet, braucht je nach Rechtsraum eigene
+Rechtstexte. Sie sind deshalb **nicht** Teil des Quelltextes — sonst würde jeder
+Fork die Anschrift eines Fremden ausliefern. Stattdessen legt jede Instanz ihre
+eigenen Dateien im Datenverzeichnis ab:
+
+```
+data/legal/impressum.md
+data/legal/datenschutz.md
+```
+
+`data/` ist bereits das persistente Docker-Volume und liegt außerhalb der
+Versionsverwaltung. Ausfüllbare Vorlagen mit Hinweisen stehen in
+[`docs/legal/`](docs/legal); die Dateien werden als Markdown gerendert.
+
+Vorhandene Texte verlinkt die Oberfläche automatisch — auf dem Anmeldebildschirm
+(also **ohne Konto erreichbar**, wie es das Impressum verlangt) und im Konto-Menü.
+Fehlt eine Datei, erscheint kein Link; beim Self-Hosting im eigenen Netz braucht
+es sie in der Regel nicht. Abrufbar sind sie auch über `GET /api/meta/legal`.
+
+> Die Vorlagen sind nach bestem Wissen erstellt und beschreiben die Verarbeitung,
+> die diese Software tatsächlich vornimmt — sie sind aber **keine Rechtsberatung**.
+> Prüfe sie, bevor du eine Instanz öffentlich stellst.
 
 ## Sicherheit
 
@@ -262,7 +310,8 @@ damit `CF-Connecting-IP` vertrauenswürdig bleibt.
   Besitz. Jeder Zugriff wird geprüft — fremde IDs liefern `404`.
 - **CSRF:** Bei zustandsändernden Requests wird der `Origin`-Header gegen den Host geprüft.
 - **Brute-Force:** Login/Registrierung sind pro IP rate-limitiert; Login-Fehler sind
-  generisch (keine Nutzer-Enumeration).
+  generisch (keine Nutzer-Enumeration). Schreibende API-Requests sind zusätzlich pro
+  IP gedrosselt (`RATE_LIMIT_WRITES_PER_MIN`, Default 600/min).
 - **CORS** ist standardmäßig aus (Frontend & API sind same-origin über den Proxy); nur bei
   gesetztem `CORS_ORIGIN` wird ein Cross-Origin mit Credentials erlaubt.
 
@@ -278,11 +327,19 @@ damit `CF-Connecting-IP` vertrauenswürdig bleibt.
 | `SESSION_TTL_DAYS` | `30` | Gültigkeitsdauer einer Session (mit Sliding-Renewal) |
 | `ALLOW_REGISTRATION` | `true` | Auf `false` sperrt die Selbst-Registrierung |
 | `CORS_ORIGIN` | _(leer)_ | Kommagetrennte Origin(s) für Cross-Origin-Zugriff mit Credentials |
+| `MAX_PROJECTS_PER_USER` | _(unbegrenzt)_ | Obergrenze Projekte pro Konto — siehe [Instanz-Limits](#instanz-limits) |
+| `MAX_VIEWS_PER_PROJECT` | _(unbegrenzt)_ | Obergrenze Ebenen pro Projekt |
+| `MAX_NODES_PER_PROJECT` | _(unbegrenzt)_ | Obergrenze Nodes pro Projekt |
+| `RATE_LIMIT_WRITES_PER_MIN` | `600` | Schreib-Requests pro Minute und IP (`0` = aus) |
+| `MAX_BODY` | `2mb` | Größter Request-Body außerhalb des Imports |
+| `MAX_IMPORT_BODY` | `20mb` | Größter Body für `POST /api/graph/import` |
+| `LEGAL_DIR` | `$DATA_DIR/legal` | Verzeichnis mit `impressum.md` / `datenschutz.md` |
 
 ## Projektstruktur
 
 ```
 ├── docker-compose.yml
+├── docs/                     # Screenshots und Rechtstext-Vorlagen
 ├── backend/
 │   ├── src/
 │   │   ├── server.js         # Bootstrap
@@ -291,6 +348,8 @@ damit `CF-Connecting-IP` vertrauenswürdig bleibt.
 │   │   ├── db.js             # SQLite-Schema (users, sessions, projects.user_id …)
 │   │   ├── store.js          # CRUD, Import/Export, Row-Level-Autorisierung
 │   │   ├── seed.js           # Beispielprojekt je Nutzer (bei Registrierung)
+│   │   ├── limits.js         # Optionale Instanz-Limits (Standard: unbegrenzt)
+│   │   ├── legal.js          # Rechtstexte je Instanz (aus $DATA_DIR/legal)
 │   │   ├── validation.js     # Zod-Schemas (inkl. register/login)
 │   │   ├── catalog.js        # Kategorien / Status / Edge-Arten
 │   │   └── routes/           # auth, projects, views, nodes, edges, graph, meta
@@ -304,3 +363,25 @@ damit `CF-Connecting-IP` vertrauenswürdig bleibt.
         ├── components/panel  # Drawer, Formulare, Markdown, Custom Fields
         └── lib/catalog.ts    # Icons/Farben, Suche
 ```
+
+## Mitmachen
+
+Issues und Pull Requests sind willkommen — Details in
+[CONTRIBUTING.md](CONTRIBUTING.md). Vor einem PR bitte durchlaufen lassen, was
+auch die CI prüft:
+
+```bash
+cd backend && npm test
+```
+
+```bash
+cd frontend && npm test && npm run build
+```
+
+Sicherheitslücken bitte **nicht** als öffentliches Issue melden, sondern über den
+Weg in [SECURITY.md](SECURITY.md).
+
+## Lizenz
+
+[MIT](LICENSE) — nutze, ändere und betreibe das Projekt frei, gewerblich wie privat.
+Einzige Bedingung ist der Erhalt des Copyright-Hinweises.

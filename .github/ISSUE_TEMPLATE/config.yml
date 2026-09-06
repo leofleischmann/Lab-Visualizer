@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Sicherheitslücke melden
+    url: https://github.com/leofleischmann/Lab-Visualizer/security/advisories/new
+    about: Bitte vertraulich melden, nicht als oeffentliches Issue.

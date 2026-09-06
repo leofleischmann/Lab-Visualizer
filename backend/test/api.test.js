@@ -1,9 +1,13 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { createApp } from '../src/app.js';
 import { createSession } from '../src/auth.js';
 import * as store from '../src/store.js';
+import { seedExampleForUser, SEED_FOOTPRINT } from '../src/seed.js';
 
 let server;
 let base;
@@ -12,19 +16,18 @@ let authCookie;
 
 /**
  * Legt einen Nutzer mit genau EINEM leeren Projekt (+ Root-Ebene) an — ohne den
- * Beispiel-Seed — und öffnet dafür eine Session. So starten die Tests vom selben
- * „leeren" Zustand wie vor der Account-Umstellung. Liefert das Cookie.
- * Standard-Plan ist `pro`, damit die CRUD-Tests nicht an Freemium-Limits stoßen;
- * die Limits selbst werden in eigenen Tests mit `plan: 'free'` geprüft.
+ * Beispiel-Seed — und öffnet dafür eine Session. Liefert das Cookie.
+ * Instanz-Limits sind in Tests standardmäßig aus (keine Env gesetzt); die
+ * Limit-Tests setzen sie gezielt für die Dauer des jeweiligen Tests.
  */
-function bootstrapUser(database, { plan = 'pro' } = {}) {
+function bootstrapUser(database) {
   const userId = crypto.randomUUID();
   const ts = new Date().toISOString();
   database
     .prepare(
-      'INSERT INTO users (id, email, password_hash, plan, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+      'INSERT INTO users (id, email, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
     )
-    .run(userId, `u-${userId.slice(0, 8)}@test.local`, 'scrypt$1$00$00', plan, ts, ts);
+    .run(userId, `u-${userId.slice(0, 8)}@test.local`, 'scrypt$1$00$00', ts, ts);
   store.createProject(database, userId, { name: 'Test' });
   const { token } = createSession(database, userId);
   return { userId, cookie: `sid=${token}` };
@@ -863,65 +866,291 @@ test('export: projectId exportiert nur ein Projekt; merge-Import fügt es additi
   }
 });
 
-// ── Freemium-Plan-Limits ────────────────────────────────────────
+// ── Rechtstexte (Impressum / Datenschutz je Instanz) ───────────
 
-test('plan: free ist auf 1 Projekt und 3 Ebenen begrenzt (402 + code)', async () => {
+test('legal: ohne hinterlegte Dateien liefert die Instanz eine leere Liste', async () => {
   const app = await freshApp();
-  const freeUser = bootstrapUser(app.db, { plan: 'free' });
+  const dir = path.join(os.tmpdir(), `labviz-legal-leer-${crypto.randomUUID()}`);
+  fs.mkdirSync(dir, { recursive: true });
+  const previous = process.env.LEGAL_DIR;
+  process.env.LEGAL_DIR = dir;
   try {
-    const call = (m, p, b) => app.call(m, p, b, freeUser.cookie);
+    const res = await app.call('GET', '/api/meta/legal', null, null);
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.documents, []);
+  } finally {
+    if (previous === undefined) delete process.env.LEGAL_DIR;
+    else process.env.LEGAL_DIR = previous;
+    fs.rmSync(dir, { recursive: true, force: true });
+    app.close();
+  }
+});
 
-    // 2. Projekt → 402 mit maschinenlesbarem Code für die Paywall.
-    const second = await call('POST', '/api/projects', { name: 'Zweites' });
-    assert.equal(second.status, 402);
-    assert.equal(second.body.code, 'plan_limit');
+test('legal: hinterlegte Texte sind OHNE Anmeldung abrufbar', async () => {
+  const app = await freshApp();
+  const dir = path.join(os.tmpdir(), `labviz-legal-${crypto.randomUUID()}`);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'impressum.md'), '# Impressum\n\nMax Mustermann');
+  fs.writeFileSync(path.join(dir, 'datenschutz.md'), '# Datenschutz\n\nKeine Cookies.');
+  const previous = process.env.LEGAL_DIR;
+  process.env.LEGAL_DIR = dir;
+  try {
+    // Bewusst ohne Cookie: Ein Impressum muss ohne Konto erreichbar sein.
+    const res = await app.call('GET', '/api/meta/legal', null, null);
+    assert.equal(res.status, 200);
+    assert.deepEqual(
+      res.body.documents.map((d) => d.id),
+      ['impressum', 'privacy']
+    );
+    assert.match(res.body.documents[0].markdown, /Max Mustermann/);
+    assert.equal(res.body.documents[1].title, 'Datenschutzerklärung');
+  } finally {
+    if (previous === undefined) delete process.env.LEGAL_DIR;
+    else process.env.LEGAL_DIR = previous;
+    fs.rmSync(dir, { recursive: true, force: true });
+    app.close();
+  }
+});
 
-    // Ebenen: Root existiert → 2 weitere ok, die 4. → 402.
-    const rootId = (await call('GET', '/api/views')).body[0].id;
-    assert.equal((await call('POST', '/api/views', { name: 'E2', parentId: rootId })).status, 201);
-    assert.equal((await call('POST', '/api/views', { name: 'E3', parentId: rootId })).status, 201);
-    const fourth = await call('POST', '/api/views', { name: 'E4', parentId: rootId });
-    assert.equal(fourth.status, 402);
-    assert.equal(fourth.body.code, 'plan_limit');
+test('legal: leere und übergroße Dateien werden übersprungen', async () => {
+  const app = await freshApp();
+  const dir = path.join(os.tmpdir(), `labviz-legal-grenz-${crypto.randomUUID()}`);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'impressum.md'), '   \n  ');
+  fs.writeFileSync(path.join(dir, 'datenschutz.md'), 'x'.repeat(600 * 1024));
+  const previous = process.env.LEGAL_DIR;
+  process.env.LEGAL_DIR = dir;
+  try {
+    const res = await app.call('GET', '/api/meta/legal', null, null);
+    assert.deepEqual(res.body.documents, []);
+  } finally {
+    if (previous === undefined) delete process.env.LEGAL_DIR;
+    else process.env.LEGAL_DIR = previous;
+    fs.rmSync(dir, { recursive: true, force: true });
+    app.close();
+  }
+});
 
-    // Import über dem Limit → 402; Merge-Import (zusätzliches Projekt) → 402.
-    const bigImport = await call('POST', '/api/graph/import', {
+// ── Instanz-Limits (Missbrauchsschutz öffentlicher Instanzen) ───
+
+/**
+ * Setzt Limit-Env-Variablen für die Dauer eines Tests und stellt sie danach
+ * wieder her. Die Limits werden bei jedem Check frisch aus der Umgebung
+ * gelesen, wirken also sofort — auch auf eine bereits laufende App.
+ */
+function withLimits(vars, fn) {
+  const previous = {};
+  for (const [key, value] of Object.entries(vars)) {
+    previous[key] = process.env[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = String(value);
+  }
+  const restore = () => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  };
+  return Promise.resolve().then(fn).finally(restore);
+}
+
+test('limits: Standard ist unbegrenzt — ohne Env greift keine Grenze', async () => {
+  const app = await freshApp();
+  try {
+    // bootstrapUser hat bereits ein Projekt angelegt; weitere sind erlaubt.
+    for (const name of ['Zwei', 'Drei', 'Vier']) {
+      assert.equal((await app.call('POST', '/api/projects', { name })).status, 201);
+    }
+    assert.deepEqual((await app.call('GET', '/api/auth/me')).body.limits, {
+      maxProjectsPerUser: null,
+      maxViewsPerProject: null,
+      maxNodesPerProject: null,
+    });
+  } finally {
+    app.close();
+  }
+});
+
+test('limits: Projekte, Ebenen und Nodes werden begrenzt (403 + code)', async () => {
+  const app = await freshApp();
+  try {
+    await withLimits(
+      { MAX_PROJECTS_PER_USER: 1, MAX_VIEWS_PER_PROJECT: 3, MAX_NODES_PER_PROJECT: 2 },
+      async () => {
+        // bootstrapUser hat schon 1 Projekt → das zweite scheitert.
+        const second = await app.call('POST', '/api/projects', { name: 'Zweites' });
+        assert.equal(second.status, 403);
+        assert.equal(second.body.code, 'limit_reached');
+
+        // Ebenen: Root existiert → 2 weitere ok, die 4. scheitert.
+        const rootId = (await app.call('GET', '/api/views')).body[0].id;
+        assert.equal((await app.call('POST', '/api/views', { name: 'E2', parentId: rootId })).status, 201);
+        assert.equal((await app.call('POST', '/api/views', { name: 'E3', parentId: rootId })).status, 201);
+        const fourth = await app.call('POST', '/api/views', { name: 'E4', parentId: rootId });
+        assert.equal(fourth.status, 403);
+        assert.equal(fourth.body.code, 'limit_reached');
+
+        // Nodes zählen über ALLE Ebenen eines Projekts zusammen.
+        assert.equal((await app.call('POST', '/api/nodes', { name: 'N1', viewId: rootId })).status, 201);
+        assert.equal((await app.call('POST', '/api/nodes', { name: 'N2', viewId: rootId })).status, 201);
+        const third = await app.call('POST', '/api/nodes', { name: 'N3', viewId: rootId });
+        assert.equal(third.status, 403);
+        assert.equal(third.body.code, 'limit_reached');
+      }
+    );
+
+    // Nach dem Zurücksetzen der Env gelten sofort wieder keine Grenzen.
+    assert.equal((await app.call('POST', '/api/projects', { name: 'Wieder erlaubt' })).status, 201);
+  } finally {
+    app.close();
+  }
+});
+
+test('limits: Verschieben zwischen Projekten umgeht das Node-Limit nicht', async () => {
+  const app = await freshApp();
+  try {
+    // Zweites Projekt anlegen, solange noch kein Limit gilt.
+    const projectB = (await app.call('POST', '/api/projects', { name: 'B' })).body;
+    const viewA = (await app.call('GET', '/api/views')).body[0].id;
+    const viewB = (await app.call('GET', `/api/views?projectId=${projectB.id}`)).body[0].id;
+
+    // Projekt B bis ans spätere Limit füllen, dazu ein Node in Projekt A.
+    for (const name of ['B1', 'B2']) {
+      assert.equal((await app.call('POST', '/api/nodes', { name, viewId: viewB })).status, 201);
+    }
+    const wanderer = (await app.call('POST', '/api/nodes', { name: 'Wanderer', viewId: viewA })).body;
+
+    await withLimits({ MAX_NODES_PER_PROJECT: 2 }, async () => {
+      // Direkt anlegen ist blockiert …
+      assert.equal((await app.call('POST', '/api/nodes', { name: 'B3', viewId: viewB })).status, 403);
+      // … und der Umweg über einen Ebenenwechsel ebenfalls.
+      const moved = await app.call('PATCH', `/api/nodes/${wanderer.id}`, { viewId: viewB });
+      assert.equal(moved.status, 403);
+      assert.equal(moved.body.code, 'limit_reached');
+    });
+
+    // Der Node ist in seinem ursprünglichen Projekt geblieben.
+    assert.equal((await app.call('GET', `/api/nodes/${wanderer.id}`)).body.viewId, viewA);
+  } finally {
+    app.close();
+  }
+});
+
+test('limits: Import wird vor dem Schreiben gegen die Grenzen geprüft', async () => {
+  const app = await freshApp();
+  try {
+    await withLimits(
+      { MAX_PROJECTS_PER_USER: 1, MAX_VIEWS_PER_PROJECT: 3, MAX_NODES_PER_PROJECT: 2 },
+      async () => {
+        // Replace-Import mit zu vielen Projekten.
+        const tooManyProjects = await app.call('POST', '/api/graph/import', {
+          mode: 'replace',
+          projects: [{ id: 'p1', name: 'P1' }, { id: 'p2', name: 'P2' }],
+          nodes: [],
+          edges: [],
+        });
+        assert.equal(tooManyProjects.status, 403);
+        assert.equal(tooManyProjects.body.code, 'limit_reached');
+
+        // Replace-Import mit zu vielen Nodes in einem Projekt.
+        const tooManyNodes = await app.call('POST', '/api/graph/import', {
+          mode: 'replace',
+          projects: [{ id: 'p1', name: 'P1' }],
+          views: [{ id: 'v1', projectId: 'p1', name: 'Root' }],
+          nodes: [
+            { id: 'n1', name: 'N1', viewId: 'v1' },
+            { id: 'n2', name: 'N2', viewId: 'v1' },
+            { id: 'n3', name: 'N3', viewId: 'v1' },
+          ],
+          edges: [],
+        });
+        assert.equal(tooManyNodes.status, 403);
+        assert.equal(tooManyNodes.body.code, 'limit_reached');
+
+        // Merge-Import legt ein zusätzliches Projekt an → über dem Konto-Limit.
+        const merge = await app.call('POST', '/api/graph/import', { mode: 'merge', nodes: [], edges: [] });
+        assert.equal(merge.status, 403);
+        assert.equal(merge.body.code, 'limit_reached');
+      }
+    );
+  } finally {
+    app.close();
+  }
+});
+
+test('limits: nur der Import nimmt große Bodies an', async () => {
+  const app = await freshApp();
+  try {
+    // Normale Route: 3 MB liegen über dem Limit von 2 MB → 413.
+    const fatNode = await app.call('POST', '/api/nodes', { name: 'x'.repeat(3 * 1024 * 1024) });
+    assert.equal(fatNode.status, 413);
+
+    // Der Import darf deutlich mehr (Standard 20 MB) und wird inhaltlich geprüft.
+    const bigImport = await app.call('POST', '/api/graph/import', {
       mode: 'replace',
-      projects: [{ id: 'p1', name: 'P1' }, { id: 'p2', name: 'P2' }],
       nodes: [],
       edges: [],
+      padding: 'x'.repeat(5 * 1024 * 1024),
     });
-    assert.equal(bigImport.status, 402);
-    const merge = await call('POST', '/api/graph/import', { mode: 'merge', nodes: [], edges: [] });
-    assert.equal(merge.status, 402);
-
-    // Pro-Nutzer (Haupt-Cookie) darf beliebig viele Projekte/Ebenen anlegen.
-    assert.equal((await app.call('POST', '/api/projects', { name: 'P2' })).status, 201);
+    assert.notEqual(bigImport.status, 413);
   } finally {
     app.close();
   }
 });
 
-test('billing: Plan-Info verfügbar, Checkout meldet 501 bis Stripe integriert ist', async () => {
-  const app = await freshApp();
-  const freeUser = bootstrapUser(app.db, { plan: 'free' });
+test('limits: zu enge Konfiguration bricht den Start ab statt die Registrierung', async () => {
+  // Jedes neue Konto bekommt ein Beispielprojekt; eine Instanz mit Limits
+  // darunter könnte niemanden registrieren — das muss beim Start auffallen.
+  await withLimits({ MAX_VIEWS_PER_PROJECT: SEED_FOOTPRINT.viewsPerProject - 1 }, () => {
+    assert.throws(() => createApp({ dbFile: ':memory:' }), /MAX_VIEWS_PER_PROJECT/);
+  });
+  await withLimits({ MAX_NODES_PER_PROJECT: SEED_FOOTPRINT.nodesPerProject - 1 }, () => {
+    assert.throws(() => createApp({ dbFile: ':memory:' }), /MAX_NODES_PER_PROJECT/);
+  });
+  // Genau auf dem Bedarf ist zulässig.
+  await withLimits(
+    {
+      MAX_PROJECTS_PER_USER: SEED_FOOTPRINT.projects,
+      MAX_VIEWS_PER_PROJECT: SEED_FOOTPRINT.viewsPerProject,
+      MAX_NODES_PER_PROJECT: SEED_FOOTPRINT.nodesPerProject,
+    },
+    () => {
+      const { db: fresh } = createApp({ dbFile: ':memory:' });
+      fresh.close();
+    }
+  );
+});
+
+test('limits: ungültige Env-Werte werden beim Start gemeldet', async () => {
+  await withLimits({ MAX_PROJECTS_PER_USER: 'viele' }, () => {
+    assert.throws(() => createApp({ dbFile: ':memory:' }), /nicht-negative ganze Zahl/);
+  });
+});
+
+test('limits: SEED_FOOTPRINT beschreibt den tatsächlichen Seed', async () => {
+  // Hält die Startup-Prüfung ehrlich, falls das Beispielprojekt wächst.
+  const { db: fresh } = createApp({ dbFile: ':memory:' });
   try {
-    const info = await app.call('GET', '/api/billing', null, freeUser.cookie);
-    assert.equal(info.status, 200);
-    assert.equal(info.body.plan, 'free');
-    assert.equal(info.body.limits.maxProjects, 1);
-    assert.equal(info.body.limits.maxViewsPerProject, 3);
-    assert.equal(info.body.plans.pro.priceMonthly, '2,99');
+    const userId = crypto.randomUUID();
+    const ts = new Date().toISOString();
+    fresh
+      .prepare('INSERT INTO users (id, email, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+      .run(userId, 'seed@test.local', 'scrypt$1$00$00', ts, ts);
+    seedExampleForUser(fresh, userId);
 
-    const checkout = await app.call('POST', '/api/billing/checkout', {}, freeUser.cookie);
-    assert.equal(checkout.status, 501);
-    assert.equal(checkout.body.code, 'billing_not_configured');
+    const count = (sql, ...args) => fresh.prepare(sql).get(...args).c;
+    assert.equal(
+      count('SELECT count(*) AS c FROM projects WHERE user_id = ?', userId),
+      SEED_FOOTPRINT.projects
+    );
+    assert.equal(count('SELECT count(*) AS c FROM views'), SEED_FOOTPRINT.viewsPerProject);
+    assert.equal(count('SELECT count(*) AS c FROM nodes'), SEED_FOOTPRINT.nodesPerProject);
   } finally {
-    app.close();
+    fresh.close();
   }
 });
 
-test('auth: /me liefert Plan + Limits; Passwort ändern beendet andere Sessions', async () => {
+test('auth: /me liefert Nutzer + Instanz-Limits; Passwort ändern beendet andere Sessions', async () => {
   const { base: b, close } = await freshApp();
   try {
     const raw = async (method, path, body, cookie) => {
@@ -943,12 +1172,18 @@ test('auth: /me liefert Plan + Limits; Passwort ändern beendet andere Sessions'
 
     const reg = await raw('POST', '/api/auth/register', { email: 'pw@test.de', password: 'startpasswort' });
     assert.equal(reg.status, 201);
-    assert.equal(reg.body.user.plan, 'free');
+    assert.equal(reg.body.user.email, 'pw@test.de');
+    // Ohne gesetzte Env-Limits ist die Instanz unbegrenzt.
+    assert.deepEqual(reg.body.limits, {
+      maxProjectsPerUser: null,
+      maxViewsPerProject: null,
+      maxNodesPerProject: null,
+    });
     const cookie1 = reg.setCookie.split(';')[0];
 
     const me = await raw('GET', '/api/auth/me', null, cookie1);
-    assert.equal(me.body.user.plan, 'free');
-    assert.equal(me.body.limits.maxProjects, 1);
+    assert.equal(me.body.user.email, 'pw@test.de');
+    assert.equal(me.body.limits.maxProjectsPerUser, null);
 
     // Zweite Session (anderes Gerät).
     const login2 = await raw('POST', '/api/auth/login', { email: 'pw@test.de', password: 'startpasswort' });

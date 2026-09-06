@@ -1,19 +1,19 @@
 import { create } from 'zustand';
 import { api, ApiRequestError, setUnauthorizedHandler } from '../api/client';
-import type { PlanLimits, User } from '../api/types';
+import type { InstanceLimits, User } from '../api/types';
 
 type AuthStatus = 'loading' | 'authed' | 'anon';
 
 type AuthStore = {
   user: User | null;
-  /** Limits des aktiven Plans (null-Felder = unbegrenzt). */
-  limits: PlanLimits | null;
+  /** Obergrenzen dieser Instanz (null-Felder = unbegrenzt). */
+  limits: InstanceLimits | null;
   status: AuthStatus;
   error: string | null;
 
   /** Beim App-Start: bestehende Session prüfen. */
   bootstrap: () => Promise<void>;
-  /** Nutzer/Plan neu laden (z. B. nach einem Upgrade). */
+  /** Nutzer und Instanz-Limits neu laden. */
   refresh: () => Promise<void>;
   login: (email: string, password: string) => Promise<boolean>;
   register: (email: string, password: string) => Promise<boolean>;
