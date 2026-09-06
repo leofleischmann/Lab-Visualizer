@@ -6,7 +6,7 @@ import { Palette } from './components/Palette';
 import { TopBar } from './components/TopBar';
 import { ViewBar } from './components/views/ViewBar';
 import { AuthScreen } from './components/auth/AuthScreen';
-import { PaywallDialog } from './components/billing/PaywallDialog';
+import { LimitDialog } from './components/ui/LimitDialog';
 import { useGraphStore } from './store/graph';
 import { useAuthStore } from './store/auth';
 
@@ -87,7 +87,7 @@ function Workspace() {
           )}
         </main>
         <DetailDrawer />
-        <PaywallDialog />
+        <LimitDialog />
 
         {error && (
           <div className="absolute bottom-4 left-1/2 z-50 flex max-w-xl -translate-x-1/2 items-start gap-2.5 rounded-lg border border-red-800 bg-red-950/95 px-4 py-2.5 text-xs text-red-200 shadow-xl">

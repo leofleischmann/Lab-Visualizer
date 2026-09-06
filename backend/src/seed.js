@@ -8,6 +8,13 @@
  */
 import * as store from './store.js';
 
+/**
+ * Ressourcen, die das Beispielprojekt belegt. Eine Instanz, deren Limits darunter
+ * liegen, könnte niemanden mehr registrieren — `createApp` prüft das beim Start
+ * (siehe limits.js). Ein Test hält die Werte mit dem echten Seed synchron.
+ */
+export const SEED_FOOTPRINT = { projects: 1, viewsPerProject: 3, nodesPerProject: 18 };
+
 export function seedExampleForUser(db, userId) {
   const project = store.createProject(db, userId, {
     name: 'Homelab (Beispiel)',

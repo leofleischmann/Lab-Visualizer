@@ -2,30 +2,30 @@ import type { Node, Edge } from '@xyflow/react';
 
 export type Position = { x: number; y: number };
 
-/** Abrechnungsplan (Freemium): free = 1 Projekt / 3 Ebenen, pro = unbegrenzt. */
-export type Plan = 'free' | 'pro';
+/**
+ * Rechtstext dieser Instanz (Impressum / Datenschutz). Wird pro Instanz unter
+ * `$DATA_DIR/legal/` hinterlegt; fehlt er, blendet die UI den Link aus.
+ */
+export type LegalDocument = {
+  id: 'impressum' | 'privacy';
+  title: string;
+  markdown: string;
+};
 
 /** Angemeldeter Nutzer (Account). */
 export type User = {
   id: string;
   email: string;
-  plan: Plan;
 };
 
-/** Limits des aktiven Plans (null = unbegrenzt). */
-export type PlanLimits = {
-  maxProjects: number | null;
+/**
+ * Obergrenzen dieser Instanz (`null` = unbegrenzt). Beim Self-Hosting sind
+ * standardmäßig alle Werte `null`; öffentliche Instanzen setzen sie per Env.
+ */
+export type InstanceLimits = {
+  maxProjectsPerUser: number | null;
   maxViewsPerProject: number | null;
-};
-
-/** Antwort von GET /api/billing (Plan-Übersicht für die Paywall/Upgrade-UI). */
-export type BillingInfo = {
-  plan: Plan;
-  limits: PlanLimits;
-  plans: {
-    free: { id: 'free'; label: string; maxProjects: number; maxViewsPerProject: number };
-    pro: { id: 'pro'; label: string; priceMonthly: string; maxProjects: null; maxViewsPerProject: null };
-  };
+  maxNodesPerProject: number | null;
 };
 
 /** Projekt: komplett getrennter Arbeitsbereich (z. B. „Homelab", „Arbeit"). */
@@ -94,8 +94,6 @@ export type EdgeRouting = {
   mode: 'auto' | 'manual';
   waypoints: FlowPoint[];
   labelT?: number | null;
-  /** Veraltet (absolute Label-Position) — wird ignoriert, nur für Alt-Daten. */
-  label?: FlowPoint | null;
 };
 
 export type ApiEdge = {

@@ -4,21 +4,10 @@ import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
 
 const SCHEMA = `
-CREATE TABLE IF NOT EXISTS meta (
-  key   TEXT PRIMARY KEY,
-  value TEXT
-);
-
 CREATE TABLE IF NOT EXISTS users (
   id            TEXT PRIMARY KEY,
   email         TEXT NOT NULL UNIQUE COLLATE NOCASE,
   password_hash TEXT NOT NULL,
-  -- Abrechnungsplan: 'free' (limitiert) oder 'pro' (unbegrenzt, via Stripe).
-  plan               TEXT NOT NULL DEFAULT 'free',
-  plan_updated_at    TEXT,
-  -- Stripe-Verknüpfung (wird von der späteren Stripe-Integration gefüllt).
-  stripe_customer_id     TEXT,
-  stripe_subscription_id TEXT,
   created_at    TEXT NOT NULL,
   updated_at    TEXT NOT NULL
 );
@@ -46,7 +35,7 @@ CREATE INDEX IF NOT EXISTS idx_projects_user ON projects(user_id);
 
 CREATE TABLE IF NOT EXISTS views (
   id            TEXT PRIMARY KEY,
-  project_id    TEXT REFERENCES projects(id) ON DELETE CASCADE,
+  project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   name          TEXT NOT NULL,
   parent_id     TEXT REFERENCES views(id) ON DELETE CASCADE,
   description   TEXT NOT NULL DEFAULT '',
@@ -65,7 +54,7 @@ CREATE TABLE IF NOT EXISTS nodes (
   category       TEXT NOT NULL DEFAULT 'generic',
   status         TEXT NOT NULL DEFAULT 'unknown',
   parent_id      TEXT REFERENCES nodes(id) ON DELETE SET NULL,
-  view_id        TEXT REFERENCES views(id) ON DELETE CASCADE,
+  view_id        TEXT NOT NULL REFERENCES views(id) ON DELETE CASCADE,
   linked_view_id TEXT REFERENCES views(id) ON DELETE SET NULL,
   pos_x          REAL NOT NULL DEFAULT 0,
   pos_y          REAL NOT NULL DEFAULT 0,
@@ -88,7 +77,7 @@ CREATE TABLE IF NOT EXISTS edges (
   id            TEXT PRIMARY KEY,
   source_id     TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
   target_id     TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
-  view_id       TEXT REFERENCES views(id) ON DELETE CASCADE,
+  view_id       TEXT NOT NULL REFERENCES views(id) ON DELETE CASCADE,
   label         TEXT NOT NULL DEFAULT '',
   kind          TEXT NOT NULL DEFAULT 'generic',
   line_style    TEXT NOT NULL DEFAULT 'solid',
@@ -119,62 +108,8 @@ export function createDb(dbFile) {
   const db = new Database(file);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
-  resetLegacySchema(db);
   db.exec(SCHEMA);
-  migrateSchema(db);
   return db;
-}
-
-/**
- * Additive Migrationen für bestehende Datenbanken: `CREATE TABLE IF NOT EXISTS`
- * ergänzt keine neuen Spalten in Alt-Tabellen, daher hier per `ALTER TABLE`.
- */
-function migrateSchema(db) {
-  const addColumn = (table, column, ddl) => {
-    const cols = db.prepare(`PRAGMA table_info(${table})`).all();
-    if (!cols.some((c) => c.name === column)) {
-      db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
-    }
-  };
-  addColumn('users', 'plan', "plan TEXT NOT NULL DEFAULT 'free'");
-  addColumn('users', 'plan_updated_at', 'plan_updated_at TEXT');
-  addColumn('users', 'stripe_customer_id', 'stripe_customer_id TEXT');
-  addColumn('users', 'stripe_subscription_id', 'stripe_subscription_id TEXT');
-}
-
-/**
- * Vor der Einführung von Accounts gab es Projekte ohne Eigentümer. Diese Altdaten
- * sind bewusst verzichtbar (kein Migrationspfad gefordert): Erkennt eine alte DB
- * (Tabelle `projects` ohne Spalte `user_id`), werden die App-Daten verworfen, damit
- * das neue, besitzergebundene Schema sauber greift. Nutzer/Sessions bleiben unberührt.
- */
-function resetLegacySchema(db) {
-  const hasProjects = db
-    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'projects'")
-    .get();
-  if (!hasProjects) return;
-  const cols = db.prepare('PRAGMA table_info(projects)').all();
-  if (cols.some((c) => c.name === 'user_id')) return; // bereits neues Schema
-
-  db.pragma('foreign_keys = OFF');
-  db.exec(`
-    DROP TABLE IF EXISTS edges;
-    DROP TABLE IF EXISTS nodes;
-    DROP TABLE IF EXISTS views;
-    DROP TABLE IF EXISTS projects;
-  `);
-  db.pragma('foreign_keys = ON');
-}
-
-/** Kleiner Key-Value-Speicher für App-Metadaten. */
-export function getMeta(db, key) {
-  return db.prepare('SELECT value FROM meta WHERE key = ?').get(key)?.value ?? null;
-}
-
-export function setMeta(db, key, value) {
-  db.prepare(
-    'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
-  ).run(key, value);
 }
 
 /**

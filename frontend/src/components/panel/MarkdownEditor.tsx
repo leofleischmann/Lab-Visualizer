@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import clsx from 'clsx';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+
+// Erst beim Öffnen der Vorschau nachladen — spart ~200 kB im Erst-Bundle.
+const MarkdownPreview = lazy(() => import('./MarkdownPreview'));
 
 type Props = {
   value: string;
@@ -47,7 +48,9 @@ export function MarkdownEditor({ value, onChange }: Props) {
       ) : (
         <div className="prose prose-invert prose-sm max-w-none p-3 prose-headings:mt-3 prose-headings:mb-1.5 prose-p:my-1.5 prose-table:text-xs prose-th:px-2 prose-th:py-1 prose-td:px-2 prose-td:py-1">
           {value.trim() ? (
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{value}</ReactMarkdown>
+            <Suspense fallback={<p className="italic text-slate-500">Vorschau wird geladen …</p>}>
+              <MarkdownPreview value={value} />
+            </Suspense>
           ) : (
             <p className="italic text-slate-500">Keine Notizen vorhanden.</p>
           )}

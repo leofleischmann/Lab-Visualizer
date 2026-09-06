@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
@@ -15,4 +16,22 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: { proxy: apiProxy },
   preview: { proxy: apiProxy },
+  build: {
+    rollupOptions: {
+      output: {
+        // Getrennte Vendor-Chunks: React Flow ist die mit Abstand größte
+        // Abhängigkeit und ändert sich selten — so bleibt sie über App-Updates
+        // hinweg im Browser-Cache.
+        manualChunks: {
+          reactflow: ['@xyflow/react'],
+        },
+      },
+    },
+  },
+  test: {
+    // jsdom, weil der Store localStorage nutzt (zuletzt geöffnetes Projekt).
+    environment: 'jsdom',
+    include: ['src/**/*.test.ts'],
+    restoreMocks: true,
+  },
 });
