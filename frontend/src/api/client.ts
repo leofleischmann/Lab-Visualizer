@@ -1,12 +1,12 @@
 import type {
   ApiEdge,
   ApiNode,
-  BillingInfo,
   Catalog,
   EdgePatch,
   GraphPayload,
   NodePatch,
-  PlanLimits,
+  InstanceLimits,
+  LegalDocument,
   Project,
   ProjectPatch,
   User,
@@ -52,7 +52,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export class ApiRequestError extends Error {
   status: number;
-  /** Maschinenlesbarer Fehlercode (z. B. "plan_limit" → Paywall anzeigen). */
+  /** Maschinenlesbarer Fehlercode (z. B. "limit_reached" → Limit-Hinweis anzeigen). */
   code?: string;
   constructor(message: string, status: number, code?: string) {
     super(message);
@@ -61,7 +61,7 @@ export class ApiRequestError extends Error {
   }
 }
 
-type AuthResponse = { user: User; limits: PlanLimits };
+type AuthResponse = { user: User; limits: InstanceLimits };
 
 export const api = {
   // ── Auth ──────────────────────────────────────────────────────
@@ -88,13 +88,9 @@ export const api = {
       body: JSON.stringify({ password }),
     }),
 
-  // ── Billing (Freemium) ────────────────────────────────────────
-  billing: () => request<BillingInfo>('/billing'),
-  /** Startet das Pro-Upgrade. Liefert eine Checkout-URL, sobald Stripe aktiv ist. */
-  billingCheckout: () =>
-    request<{ url?: string }>('/billing/checkout', { method: 'POST', body: '{}' }),
-
   catalog: () => request<Catalog>('/meta/catalog'),
+  /** Rechtstexte dieser Instanz — ohne Anmeldung abrufbar. */
+  legal: () => request<{ documents: LegalDocument[] }>('/meta/legal'),
   graph: (viewId?: string) =>
     request<Required<Pick<GraphPayload, 'viewId' | 'nodes' | 'edges'>>>(
       viewId ? `/graph?viewId=${encodeURIComponent(viewId)}` : '/graph'

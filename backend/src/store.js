@@ -5,8 +5,9 @@ import { computeLayout } from './layout.js';
 import {
   assertCanCreateProject,
   assertCanCreateView,
+  assertCanCreateNode,
   assertImportWithinLimits,
-} from './plans.js';
+} from './limits.js';
 
 const now = () => new Date().toISOString();
 
@@ -110,6 +111,11 @@ function nodeOwnedExists(db, userId, id) {
 }
 
 /** Ebene eines Nodes lesen (nur intern nach bereits geprüftem Besitz). */
+/** Projekt, zu dem eine Ebene gehört. */
+function viewProjectId(db, id) {
+  return db.prepare('SELECT project_id FROM views WHERE id = ?').get(id)?.project_id ?? null;
+}
+
 function nodeViewId(db, id) {
   return db.prepare('SELECT view_id FROM nodes WHERE id = ?').get(id)?.view_id ?? null;
 }
@@ -308,7 +314,7 @@ export function createView(db, userId, data) {
   if (!projectId || !projectOwnedExists(db, userId, projectId)) {
     throw new ApiError(400, `Projekt "${projectId}" existiert nicht`);
   }
-  assertCanCreateView(db, userId, projectId);
+  assertCanCreateView(db, projectId);
   const maxOrder =
     db.prepare('SELECT max(sort_order) AS m FROM views WHERE project_id = ?').get(projectId)?.m ?? -1;
   const ts = now();
@@ -506,6 +512,7 @@ export function createNode(db, userId, data) {
   if (data.parentId && nodeViewId(db, data.parentId) !== viewId) {
     throw new ApiError(400, 'Parent-Node muss in derselben Ebene liegen');
   }
+  assertCanCreateNode(db, viewId);
   if (data.linkedViewId && !viewOwnedExists(db, userId, data.linkedViewId)) {
     throw new ApiError(400, `Verlinkte Ebene "${data.linkedViewId}" existiert nicht`);
   }
@@ -596,6 +603,12 @@ export function updateNode(db, userId, id, patch) {
   };
   const viewChanged =
     patch.viewId !== undefined && patch.viewId !== null && patch.viewId !== existing.viewId;
+  // Ein Wechsel über Projektgrenzen bringt den kompletten Subtree ins Zielprojekt
+  // und muss daher gegen dessen Node-Budget geprüft werden — sonst ließe sich das
+  // Limit umgehen, indem man Nodes woanders anlegt und anschließend verschiebt.
+  if (viewChanged && viewProjectId(db, existing.viewId) !== viewProjectId(db, merged.viewId)) {
+    assertCanCreateNode(db, merged.viewId, collectSubtree(db, id).length);
+  }
   // Wechselt der Node die Ebene, bleibt sein bisheriger Parent in der alten
   // Ebene zurück (nur der Subtree des Nodes wandert mit). Ohne explizit neuen
   // Parent wird der Node daher gelöst — mit absoluter Position, damit er in
@@ -864,7 +877,7 @@ export function importGraph(db, userId, { mode = 'replace', projects = [], views
     }
   }
   if (mode === 'merge') return mergeGraph(db, userId, { projects, views, nodes, edges });
-  assertImportWithinLimits(db, userId, { projects, views });
+  assertImportWithinLimits(db, userId, { projects, views, nodes });
   const ts = now();
   const tx = db.transaction(() => {
     db.pragma('defer_foreign_keys = ON');
@@ -1001,21 +1014,12 @@ export function importGraph(db, userId, { mode = 'replace', projects = [], views
  */
 function mergeGraph(db, userId, { projects, views, nodes, edges }) {
   const ts = now();
-  // Plan-Limits: Merge legt neue Projekte an (mindestens eines).
+  // Instanz-Limits: Merge legt neue Projekte an (mindestens eines).
   const newProjects = projects.length ? projects : [{ name: 'Importiertes Projekt' }];
   assertCanCreateProject(db, userId, newProjects.length);
-  {
-    const perProject = new Map();
-    for (const v of views) {
-      const key = v.projectId ?? '__default__';
-      perProject.set(key, (perProject.get(key) ?? 0) + 1);
-    }
-    for (const [, count] of perProject) {
-      // Neue Projekte starten leer; die Ebenen des Payloads sind ihr Bestand.
-      const probe = { projects: [], views: Array.from({ length: count }, () => ({})) };
-      assertImportWithinLimits(db, userId, probe);
-    }
-  }
+  // Neue Projekte starten leer; Ebenen und Nodes des Payloads sind ihr gesamter
+  // Bestand — die Projektzahl ist oben bereits geprüft.
+  assertImportWithinLimits(db, userId, { projects: [], views, nodes });
 
   const projectMap = new Map(); // alte Projekt-ID → neue ID
   const viewMap = new Map(); // alte Ebenen-ID → neue ID

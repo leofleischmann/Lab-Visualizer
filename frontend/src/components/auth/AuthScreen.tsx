@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { AlertTriangle, LogIn, Network, RotateCw, UserPlus } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
+import { LegalLinks } from '../ui/LegalLinks';
 
 type Mode = 'login' | 'register';
 
@@ -134,11 +135,13 @@ export function AuthScreen() {
           {isRegister && (
             <>
               <br />
-              Kostenlos starten: 1 Projekt mit bis zu 3 Ebenen — Pro mit unbegrenzten
-              Projekten für 2,99 €/Monat.
+              Kostenlos und quelloffen — keine Bezahlfunktionen, kein Abo.
             </>
           )}
         </p>
+
+        {/* Muss ohne Konto erreichbar sein — daher schon auf dem Login-Screen. */}
+        <LegalLinks className="mt-3" />
       </div>
     </div>
   );

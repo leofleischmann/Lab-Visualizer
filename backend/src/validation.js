@@ -100,8 +100,6 @@ const routingSchema = z.object({
   waypoints: z.array(positionSchema).max(32).default([]),
   /** Label-Anker auf dem Kantenpfad (0..1 entlang der Linie) */
   labelT: z.number().min(0).max(1).nullable().optional(),
-  /** Veraltet: absolute Label-Position (wird von der UI ignoriert) */
-  label: positionSchema.nullable().optional(),
 });
 
 export const edgeCreateSchema = z.object({

@@ -1,6 +1,11 @@
 {
   "name": "labviz-backend",
   "version": "1.0.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/leofleischmann/Lab-Visualizer.git"
+  },
   "description": "REST-API für den Lab Visualizer (Network Infrastructure Documentation Tool)",
   "type": "module",
   "main": "src/server.js",
