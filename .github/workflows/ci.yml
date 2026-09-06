@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Mehrere Pushes auf denselben Branch: nur der letzte Lauf zaehlt.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (Tests)
+    # Bewusst GitHub-hosted statt self-hosted: hier laeuft Code aus fremden
+    # Pull Requests, der niemals auf den Deploy-Server gehoert.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Abhaengigkeiten installieren
+        working-directory: backend
+        run: npm ci
+      - name: Tests
+        working-directory: backend
+        run: npm test
+
+  frontend:
+    name: Frontend (Typecheck, Tests, Build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Abhaengigkeiten installieren
+        working-directory: frontend
+        run: npm ci
+      - name: Tests
+        working-directory: frontend
+        run: npm test
+      # `npm run build` fuehrt `tsc --noEmit` selbst aus (Typecheck + Bundle).
+      - name: Typecheck & Build
+        working-directory: frontend
+        run: npm run build
+
+  docker:
+    name: Docker-Images bauen
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compose-Build
+        run: docker compose build

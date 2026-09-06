@@ -28,9 +28,9 @@ Alle Pfade unten sind relativ zu `/api`.
 - **Auth:** **Anmeldung erforderlich** (Session-Cookie). Alle Daten-Endpunkte setzen eine
   gültige Session voraus und sind **auf den angemeldeten Nutzer beschränkt** — siehe
   [Authentifizierung](#authentifizierung). Öffentlich ohne Login: `/api/health`,
-  `/api/meta/catalog`, `/api/auth/*`.
+  `/api/meta/catalog`, `/api/meta/legal`, `/api/auth/*`.
 - **CORS:** standardmäßig aus (same-origin über den Proxy); optional via `CORS_ORIGIN`
-- **Body-Limit:** 20 MB
+- **Body-Limit:** 2 MB je Request; nur `POST /graph/import` nimmt 20 MB (beides per Env änderbar)
 - **IDs:** `^[A-Za-z0-9_.:-]{1,64}$` — sprechende IDs wie `nginx` oder `proxmox-host` empfohlen
 - **Zeitstempel:** ISO 8601 (`createdAt`, `updatedAt`)
 
@@ -51,7 +51,7 @@ curl -b cookies.txt http://localhost:8080/api/graph
 
 Auth-Endpunkte: `POST /api/auth/register` (`{email, password}`, legt Konto an + seedet ein
 Beispielprojekt), `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`
-(inkl. `plan` + `limits`), `POST /api/auth/password` (`{currentPassword, newPassword}`,
+(inkl. `limits` der Instanz), `POST /api/auth/password` (`{currentPassword, newPassword}`,
 beendet alle anderen Sessions), `DELETE /api/auth/account` (`{password}`, löscht alle Daten).
 Zustandsändernde Requests aus dem Browser müssen einen zum Host passenden `Origin`-Header
 tragen (CSRF-Schutz); Cookie-basierte CLI-Clients wie `curl` sind davon nicht betroffen.
@@ -69,21 +69,37 @@ tragen (CSRF-Schutz); Cookie-basierte CLI-Clients wie `curl` sind davon nicht be
 |---|---|
 | `400` | Validierung / ungültige Referenz |
 | `401` | Nicht angemeldet (fehlende/abgelaufene Session) |
-| `402` | Plan-Limit erreicht (`code: "plan_limit"`) — Free: max. 1 Projekt, 3 Ebenen/Projekt |
-| `403` | CSRF-Schutz (unpassender Origin) |
+| `403` | CSRF-Schutz (unpassender Origin) **oder** Instanz-Limit erreicht (`code: "limit_reached"`) |
 | `404` | Node/Edge/Route nicht gefunden **oder gehört einem anderen Nutzer** |
 | `409` | ID existiert bereits |
 | `413` | Request-Body zu groß |
-| `429` | Zu viele Login-/Registrierungsversuche |
+| `429` | Zu viele Login-/Registrierungsversuche **oder** Schreib-Rate-Limit überschritten |
 | `500` | Interner Serverfehler |
-| `501` | Billing-Aktion noch nicht verfügbar (`code: "billing_not_configured"`) |
 
-### Pläne (Freemium)
+### Instanz-Limits
 
-`free` = 1 Projekt, max. 3 Ebenen pro Projekt. `pro` = unbegrenzt. Der aktive Plan
-steht in `GET /api/auth/me` (`user.plan`, `limits`) und `GET /api/billing`. Limits
-werden bei `POST /projects`, `POST /views` und `POST /graph/import` serverseitig
-geprüft (→ `402`).
+Das Projekt ist vollständig kostenlos; es gibt keine Pläne und keine Bezahlfunktionen.
+**Standardmäßig gilt kein Limit.** Öffentlich betriebene Instanzen können jedoch
+Obergrenzen per Umgebungsvariable setzen (`MAX_PROJECTS_PER_USER`,
+`MAX_VIEWS_PER_PROJECT`, `MAX_NODES_PER_PROJECT`).
+
+Die geltenden Werte stehen in `GET /api/auth/me` unter `limits` — `null` bedeutet
+unbegrenzt:
+
+```json
+{
+  "user": { "id": "…", "email": "du@example.com" },
+  "limits": { "maxProjectsPerUser": null, "maxViewsPerProject": null, "maxNodesPerProject": null }
+}
+```
+
+Geprüft wird serverseitig bei `POST /projects`, `POST /views`, `POST /nodes` und
+`POST /graph/import` (der Import vollständig vorab, bevor etwas geschrieben wird).
+Eine erreichte Grenze liefert `403` mit `code: "limit_reached"` — ein Client sollte
+darauf mit einem Hinweis reagieren, nicht mit einem Retry.
+
+Schreibende Requests sind zusätzlich pro IP gedrosselt
+(`RATE_LIMIT_WRITES_PER_MIN`, Default 600/min, `0` = aus) → `429` mit `Retry-After`.
 
 Erfolg ohne Body: `204 No Content` (DELETE, Logout).
 
@@ -306,17 +322,9 @@ Export enthält **alle** Projekte, Ebenen, Nodes und Edges:
 | `POST` | `/auth/register` | Konto anlegen (`{email, password}`), seedet Beispielprojekt, setzt Cookie → `201` |
 | `POST` | `/auth/login` | Anmelden (`{email, password}`), setzt Cookie → `200` |
 | `POST` | `/auth/logout` | Session beenden → `204` |
-| `GET` | `/auth/me` | Aktueller Nutzer inkl. `plan`/`limits` (`401`, wenn nicht angemeldet) |
+| `GET` | `/auth/me` | Aktueller Nutzer inkl. `limits` der Instanz (`401`, wenn nicht angemeldet) |
 | `POST` | `/auth/password` | Passwort ändern (`{currentPassword, newPassword}`) → `204`, beendet andere Sessions |
 | `DELETE` | `/auth/account` | Konto + alle Daten löschen (`{password}`) → `204` |
-
-### Billing (Freemium)
-
-| Methode | Pfad | Beschreibung |
-|---|---|---|
-| `GET` | `/billing` | Plan, Limits & Preisübersicht |
-| `POST` | `/billing/checkout` | Pro-Upgrade (liefert `{url}`; `501` bis Stripe angebunden ist) |
-| `POST` | `/billing/portal` | Abo-Verwaltung (`501` bis Stripe angebunden ist) |
 
 ### Health
 
@@ -330,6 +338,17 @@ GET /health   (öffentlich, kein Login nötig)
 ```
 GET /meta/catalog
 → 200 { "categories": [...], "statuses": [...], "edgeKinds": [...], "lineStyles": [...] }
+```
+
+### Rechtstexte
+
+Impressum und Datenschutzerklärung werden pro Instanz unter `$DATA_DIR/legal/`
+hinterlegt und sind ohne Anmeldung abrufbar. Ein leeres Array bedeutet, dass die
+Instanz keine Texte veröffentlicht (Normalfall beim Self-Hosting).
+
+```
+GET /meta/legal
+→ 200 { "documents": [ { "id": "impressum", "title": "Impressum", "markdown": "# Impressum…" } ] }
 ```
 
 Kategorien und Edge-Kinds sind **Referenzwerte** — beliebige Strings sind erlaubt.
@@ -556,8 +575,7 @@ Vollständige Liste: `GET /meta/catalog`.
 | Datei | Inhalt |
 |---|---|
 | `backend/src/auth.js` | Passwort-Hashing (scrypt), Sessions, `requireAuth`, CSRF, Rate-Limit |
-| `backend/src/plans.js` | Freemium-Pläne (free/pro) + serverseitiges Limit-Enforcement |
-| `backend/src/routes/billing.js` | Billing-Endpunkte; vorbereiteter Stripe-Integrationspunkt |
+| `backend/src/limits.js` | Optionale Instanz-Limits (Standard: unbegrenzt) + Enforcement |
 | `backend/src/validation.js` | Zod-Schemas, Limits (inkl. `register`/`login`) |
 | `backend/src/layout.js` | Auto-Layout-Algorithmus |
 | `backend/src/store.js` | CRUD, Import, Parent-Logik, Row-Level-Autorisierung |

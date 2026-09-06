@@ -17,6 +17,23 @@ services:
       - ALLOW_REGISTRATION=${ALLOW_REGISTRATION:-true}
       # Optional: erlaubte Cross-Origin(s) mit Credentials (leer = nur same-origin).
       - CORS_ORIGIN=${CORS_ORIGIN:-}
+      # Instanz-Limits (leer = unbegrenzt). Keine Bezahlschranke, sondern
+      # Missbrauchsschutz für öffentlich erreichbare Instanzen — siehe .env.example.
+      - MAX_PROJECTS_PER_USER=${MAX_PROJECTS_PER_USER:-}
+      - MAX_VIEWS_PER_PROJECT=${MAX_VIEWS_PER_PROJECT:-}
+      - MAX_NODES_PER_PROJECT=${MAX_NODES_PER_PROJECT:-}
+      # Schreib-Requests pro Minute und IP (0 = aus).
+      - RATE_LIMIT_WRITES_PER_MIN=${RATE_LIMIT_WRITES_PER_MIN:-600}
+      # Maximale Body-Größe (nur der Graph-Import braucht viel).
+      - MAX_BODY=${MAX_BODY:-2mb}
+      - MAX_IMPORT_BODY=${MAX_IMPORT_BODY:-20mb}
+    # Protokolle rollierend begrenzen: Zugriffslogs enthalten IP-Adressen und
+    # sollen sich nicht unbegrenzt ansammeln (siehe Datenschutzerklärung).
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     # Optional: API zusätzlich direkt (ohne Frontend-Proxy) freigeben:
     # ports:
     #   - "3000:3000"
@@ -29,5 +46,12 @@ services:
       # Erst starten, wenn das Backend laut Healthcheck bereit ist.
       backend:
         condition: service_healthy
+    # Protokolle rollierend begrenzen: Zugriffslogs enthalten IP-Adressen und
+    # sollen sich nicht unbegrenzt ansammeln (siehe Datenschutzerklärung).
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     ports:
       - "8080:80"

@@ -1,0 +1,48 @@
+name: Fehler melden
+description: Etwas funktioniert nicht wie erwartet
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Sicherheitslücken bitte **nicht** hier melden, sondern über den Weg in
+        [SECURITY.md](https://github.com/leofleischmann/Lab-Visualizer/blob/main/SECURITY.md).
+  - type: textarea
+    id: was-passiert
+    attributes:
+      label: Was passiert?
+      description: Beobachtetes Verhalten und was du stattdessen erwartet hast.
+    validations:
+      required: true
+  - type: textarea
+    id: schritte
+    attributes:
+      label: Schritte zum Nachstellen
+      placeholder: |
+        1. Neues Projekt anlegen
+        2. Node auf die Canvas ziehen
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / Commit
+      placeholder: "z. B. main @ 4ccf911"
+  - type: dropdown
+    id: betrieb
+    attributes:
+      label: Wie betreibst du Lab Visualizer?
+      options:
+        - Docker Compose
+        - Lokale Entwicklung (npm run dev)
+        - Oeffentliche Instanz (fremd gehostet)
+        - Anders
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevante Logausgaben
+      description: Browser-Konsole und/oder `docker compose logs backend`.
+      render: shell

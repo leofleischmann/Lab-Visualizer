@@ -161,17 +161,16 @@ type GraphStore = {
   loading: boolean;
   error: string | null;
   /**
-   * Paywall-Zustand: non-null = Upgrade-Dialog sichtbar (Text = Anlass, z. B.
-   * die 402-Fehlermeldung des Backends; leerer String = manuell geöffnet).
+   * Limit-Hinweis: non-null = Dialog sichtbar (Text = Anlass, also die
+   * 403-Meldung des Backends zur erreichten Instanz-Grenze).
    */
-  paywall: string | null;
+  limitNotice: string | null;
 
   load: () => Promise<void>;
   reload: () => Promise<void>;
   setSearch: (term: string) => void;
   setError: (message: string | null) => void;
-  openPaywall: (reason?: string) => void;
-  closePaywall: () => void;
+  closeLimitNotice: () => void;
   select: (selection: Selection) => void;
   syncSelection: (selection: Selection) => void;
   setHoverNode: (id: string | null) => void;
@@ -250,14 +249,15 @@ function writeLast(kind: 'project' | 'view', id: string | null) {
 
 export const useGraphStore = create<GraphStore>((set, get) => {
   /**
-   * Zentrale Fehlerbehandlung: Plan-Limit-Fehler (402) öffnen die Paywall,
-   * alles andere landet als Meldung im Fehler-Toast.
+   * Zentrale Fehlerbehandlung: Eine erreichte Instanz-Grenze (403, code
+   * "limit_reached") öffnet den Limit-Hinweis, alles andere landet als
+   * Meldung im Fehler-Toast.
    */
   const fail = (err: unknown) => {
-    if (err instanceof ApiRequestError && err.code === 'plan_limit') {
-      set({ paywall: err.message });
+    if (err instanceof ApiRequestError && err.code === 'limit_reached') {
+      set({ limitNotice: err.message });
     } else {
-      fail(err);
+      set({ error: errorMessage(err) });
     }
   };
 
@@ -278,7 +278,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   search: '',
   loading: true,
   error: null,
-  paywall: null,
+  limitNotice: null,
 
   load: async () => {
     set({ loading: true, error: null });
@@ -506,8 +506,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
 
   setSearch: (term) => set({ search: term }),
   setError: (message) => set({ error: message }),
-  openPaywall: (reason) => set({ paywall: reason ?? '' }),
-  closePaywall: () => set({ paywall: null }),
+  closeLimitNotice: () => set({ limitNotice: null }),
 
   select: (selection) =>
     set((state) => {
