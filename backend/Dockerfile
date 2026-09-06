@@ -1,5 +1,5 @@
 # Lab Visualizer — Backend (Express + SQLite)
-FROM node:22-slim
+FROM node:26-slim
 
 ENV NODE_ENV=production \
     DATA_DIR=/data \
