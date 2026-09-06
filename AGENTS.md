@@ -31,7 +31,7 @@ Alle Pfade unten sind relativ zu `/api`.
   `/api/meta/catalog`, `/api/meta/legal`, `/api/auth/*`.
 - **CORS:** standardmäßig aus (same-origin über den Proxy); optional via `CORS_ORIGIN`
 - **Body-Limit:** 2 MB je Request; nur `POST /graph/import` nimmt 20 MB (beides per Env änderbar)
-- **IDs:** `^[A-Za-z0-9_.:-]{1,64}$` — sprechende IDs wie `nginx` oder `proxmox-host` empfohlen
+- **IDs:** `^[A-Za-z0-9_.:-]{1,64}$` — sprechende IDs wie `nginx` oder `db-primary` empfohlen
 - **Zeitstempel:** ISO 8601 (`createdAt`, `updatedAt`)
 
 ### Authentifizierung
@@ -114,12 +114,44 @@ gehört zu genau einem Projekt; beim Arbeiten sieht man nur die Ebenen/Nodes des
 Projekts. Hierarchie: **Projekt → Ebenen (Baum) → Nodes/Edges**.
 
 ```json
-{ "id": "homelab", "name": "Mein Homelab", "color": "#38bdf8", "icon": "boxes", "sortOrder": 0 }
+{
+  "id": "homelab",
+  "name": "Mein Homelab",
+  "color": "#38bdf8",
+  "icon": "boxes",
+  "packs": ["infrastructure", "network", "operations"],
+  "sortOrder": 0
+}
 ```
 
 - Jedes Projekt gehört **genau einem Nutzer**; du siehst/änderst nur deine eigenen Projekte.
   Bei der Registrierung wird automatisch ein Beispielprojekt „Homelab (Beispiel)" angelegt.
   Ein neues Projekt startet mit einer eigenen Root-Ebene.
+- **`packs`** bestimmt, welche Kategorien, Felder und Verbindungsarten dieses Projekt sieht
+  (siehe [Domain-Packs](#domain-packs)). Beim Anlegen kann stattdessen `template` gesetzt
+  werden — dann kommen die Packs von der Vorlage und ihr Startinhalt wird mit aufgebaut.
+  `template` ist eine reine Anlege-Option: ein PATCH ignoriert sie.
+
+#### Domain-Packs
+
+Der Katalog ist in thematische Pakete geteilt. Ein **Kern-Pack** (Anwendung, Datenbank,
+Gruppe, Nutzer, Abhängigkeit, Datenfluss, `url`, `owner`, `platform` …) ist immer aktiv;
+alles Weitere kommt aus den gewählten Packs:
+
+| id | Inhalt |
+|---|---|
+| `infrastructure` | Hypervisor, VM, Container, physische Geräte · `os`, `cpu`, `ram`, `disk` |
+| `network` | Router, Proxy, VPN, DNS · Protokolle · `ip`, `hostname`, `vlan`, `mac` |
+| `security` | Firewall, IDS, SSO, Secrets, Zertifikate · `expiresAt` |
+| `operations` | Monitoring, Backup, CI/CD, Cronjobs · `sla` |
+| `cloud` | Region, VPC, Managed Service, Bucket, Serverless · `region`, `accountId`, `cost` |
+| `kubernetes` | Cluster, Namespace, Workload, Service, Volume · `namespace`, `image`, `replicas` |
+| `software` | System, Komponente, API, Queue, Akteur · `repository`, `language` |
+| `business` | Prozess, Schritt, Entscheidung, Rolle, Abteilung · `costCenter`, `frequency` |
+| `homelab` | Medien, Game-Server, Smart Home, IoT |
+
+Ein Pack abzuwählen **löscht nichts**: Werte zu dessen Feldern bleiben am Node erhalten und
+werden weiterhin akzeptiert (die Validierung prüft gegen alle Packs, nicht nur die aktiven).
 - Ein Projekt löschen **kaskadiert** auf alle Ebenen/Nodes/Edges; das **letzte** Projekt
   bleibt erhalten.
 
@@ -164,20 +196,23 @@ verlinken. Jeder Node/jede Edge gehört zu **genau einer** Ebene.
   "id": "nginx",
   "name": "nginx Reverse Proxy",
   "category": "reverse-proxy",
-  "status": "running",
-  "parentId": "proxmox-zone",
+  "status": "active",
+  "parentId": "host-zone",
   "viewId": "server-intern",
   "linkedViewId": null,
   "position": { "x": 120, "y": 80 },
   "width": null,
   "height": null,
-  "ip": "192.168.2.104",
-  "vlan": "10",
-  "os": "Debian 12",
-  "hostname": "nginx.lan",
-  "url": "https://example.com",
+  "fields": {
+    "ip": "192.168.2.104",
+    "vlan": "10",
+    "os": "Debian 12",
+    "hostname": "nginx.lan",
+    "url": "https://example.com",
+    "platform": "Proxmox VE"
+  },
   "notes": "# Markdown\nFreitext-Dokumentation (GFM).",
-  "customFields": { "LXC-ID": "118", "Stack": "nginx:alpine" },
+  "customFields": { "Container-ID": "118", "Stack": "nginx:alpine" },
   "createdAt": "2026-07-02T18:00:00.000Z",
   "updatedAt": "2026-07-02T18:00:00.000Z"
 }
@@ -194,11 +229,37 @@ verlinken. Jeder Node/jede Edge gehört zu **genau einer** Ebene.
 | `linkedViewId` | nein | `null` | Drill-down-Portal: verlinkte Detail-Ebene (Doppelklick öffnet sie) |
 | `position` | nein | `{x:0,y:0}` | Canvas-Position (siehe Parent-Regel) |
 | `width`, `height` | nein | `null` | Nur für Zonen (`category: "group"`) |
-| `ip`, `vlan`, `os`, `hostname`, `url` | nein | `null` | Typisierte Infrastruktur-Felder |
+| `fields` | nein | `{}` | Typisierte Felder; Schlüssel & Typen aus `GET /meta/catalog` |
 | `notes` | nein | `""` | Markdown (max. 200 KB) |
-| `customFields` | nein | `{}` | Key-Value, max. 100 Keys, Werte max. 4000 Zeichen |
+| `customFields` | nein | `{}` | Freiform-Key-Value, max. 100 Keys, Werte max. 4000 Zeichen |
 
-**Status-Werte:** `running` | `stopped` | `planned` | `maintenance` | `error` | `unknown`
+**Status-Werte:** `active` | `inactive` | `planned` | `maintenance` | `error` | `unknown`
+
+#### `fields` vs. `customFields`
+
+`fields` enthält die **im Katalog definierten** Felder (`GET /meta/catalog` → `fields`):
+sie haben Label, Typ, Gruppe und werden serverseitig geprüft. `customFields` ist der
+Freiform-Ausweg für alles, was der Katalog nicht kennt — dort ist der Schlüssel selbst
+das Label.
+
+Alle Werte sind **Strings**, auch bei `type: "number"` und `type: "date"`. Ein leerer
+String bedeutet „nicht gesetzt" und wird nie abgelehnt. Validiert wird nach Typ:
+
+| Typ | Regel |
+|---|---|
+| `number` | muss als Zahl parsebar sein (`"16"`, nicht `"viel"`) |
+| `date` | `JJJJ-MM-TT` |
+| `url` | braucht ein Schema (`https://…`) |
+| `select` | einer der Werte aus `options` |
+| `text` | max. 4000 Zeichen |
+
+Unbekannte Schlüssel in `fields` werden **akzeptiert und gespeichert**, nicht abgelehnt —
+sonst würde der Import eines Projekts scheitern, dessen Felddefinition diese Instanz
+nicht kennt.
+
+> **Produktneutralität:** Kategorien beschreiben Bausteine, keine Hersteller. Ein
+> Proxmox-, ESXi- oder Hyper-V-Host ist `category: "hypervisor"` mit
+> `fields.platform: "Proxmox VE"` — nicht eine eigene Kategorie pro Produkt.
 
 > Status ist **manuell/API-gesteuert**. Es gibt keinen Ping oder Health-Check.
 
@@ -276,9 +337,11 @@ Export enthält **alle** Projekte, Ebenen, Nodes und Edges:
    unangetastet — so lassen sich exportierte Projekte zwischen Konten teilen.
 
 7. **PATCH vs. PUT:** Beide partielles Update (nur gesendete Felder ändern sich).
-   `customFields` wird bei PATCH **ersetzt**, nicht gemerged.
+   `fields` und `customFields` werden bei PATCH **als Ganzes ersetzt**, nicht gemerged —
+   wer ein einzelnes Feld ändern will, sendet das komplette Objekt mit.
 
-8. **Suche `GET /nodes?q=`:** Durchsucht `name`, `ip`, `hostname`, `url`, `os` — **nicht** `customFields`.
+8. **Suche `GET /nodes?q=`:** Durchsucht `name` sowie alle **Werte** aus `fields` und
+   `customFields`. Schlüssel matchen nicht (`q=platform` findet nichts).
 
 9. **Ebenen (Views):** Jeder Node/jede Edge gehört zu genau einer Ebene (`viewId`). Kanten
    verbinden nur Nodes **derselben** Ebene — das gilt auch für `PATCH /edges/:id`
@@ -302,8 +365,21 @@ Export enthält **alle** Projekte, Ebenen, Nodes und Edges:
 | `GET` | `/projects` | Alle Projekte |
 | `POST` | `/projects` | Projekt (inkl. leerer Root-Ebene) anlegen → `201` |
 | `GET` | `/projects/:id` | Einzelnes Projekt |
+| `GET` | `/projects/:id/catalog` | Katalog **dieses Projekts** (nur seine Packs) |
 | `PATCH`/`PUT` | `/projects/:id` | Partielles Update |
 | `DELETE` | `/projects/:id` | Kaskadiert auf Ebenen/Nodes/Edges (letztes Projekt: `400`) |
+
+**Projekt mit Vorlage anlegen:**
+
+```http
+POST /api/projects
+{ "name": "Prod-Cluster", "template": "kubernetes" }
+```
+
+Baut Ebenen, Nodes und Kanten der Vorlage auf und übernimmt deren Packs. Ein
+mitgesendetes `packs` gewinnt gegenüber der Vorlage. Projekt und Inhalt entstehen in
+**einer Transaktion** — läuft der Aufbau in ein Instanz-Limit, bleibt kein halbes Projekt
+zurück. Verfügbare Vorlagen: `GET /meta/templates`.
 
 ### Ebenen (Views)
 
@@ -337,7 +413,25 @@ GET /health   (öffentlich, kein Login nötig)
 
 ```
 GET /meta/catalog
-→ 200 { "categories": [...], "statuses": [...], "edgeKinds": [...], "lineStyles": [...] }
+→ 200 { "categories": [...], "statuses": [...], "edgeKinds": [...], "lineStyles": [...],
+        "fields": [...], "packs": [...] }
+
+GET /meta/packs      → 200 { "packs": [ { "id": "network", "label": "Netzwerk", … } ] }
+GET /meta/templates  → 200 { "templates": [ { "id": "kubernetes", "packs": [...], … } ] }
+```
+
+`/meta/catalog` liefert den **vollständigen** Katalog über alle Packs — die Referenz, wenn
+du kein konkretes Projekt im Blick hast. Für ein Projekt nimm `GET /projects/:id/catalog`;
+nur dessen Kategorien und Felder erscheinen dort auch in der UI.
+
+`fields` beschreibt die typisierten Node-Felder. Ein Eintrag sieht so aus:
+
+```json
+{ "key": "ram", "label": "Arbeitsspeicher", "type": "number", "group": "System", "unit": "GB" }
+```
+
+Optional: `mono` (Monospace), `showOnNode` (Wert erscheint auf der Canvas), `wide`
+(volle Panel-Breite), `placeholder`, `options` (bei `select`), `unit` (bei `number`).
 ```
 
 ### Rechtstexte
@@ -352,7 +446,8 @@ GET /meta/legal
 ```
 
 Kategorien und Edge-Kinds sind **Referenzwerte** — beliebige Strings sind erlaubt.
-Unbekannte Kategorien werden in der UI mit Fallback-Icon gerendert.
+Unbekannte Kategorien werden in der UI mit Fallback-Icon gerendert. Status dagegen sind
+ein **geschlossenes Enum**; ein unbekannter Wert wird mit 400 abgelehnt.
 
 ### Graph
 
@@ -409,7 +504,7 @@ Ordnet die Nodes **der angegebenen Ebene** (Default: Root) deterministisch an:
 {
   "positions": [
     { "id": "nginx", "x": 100, "y": 200 },
-    { "id": "proxmox-zone", "x": 0, "y": 0, "width": 600, "height": 400 }
+    { "id": "host-zone", "x": 0, "y": 0, "width": 600, "height": 400 }
   ]
 }
 ```
@@ -420,7 +515,7 @@ Ordnet die Nodes **der angegebenen Ebene** (Default: Root) deterministisch an:
 
 | Methode | Pfad | Beschreibung |
 |---|---|---|
-| `GET` | `/edges?nodeId=` | Alle Edges, optional gefiltert nach Node |
+| `GET` | `/edges?nodeId=&viewId=&projectId=` | Alle Edges, gleiche Filter wie `/nodes` |
 | `POST` | `/edges` | Anlegen → `201` |
 | `GET` | `/edges/:id` | Einzelne Edge |
 | `PATCH` | `/edges/:id` | Partielles Update |
@@ -441,10 +536,9 @@ Content-Type: application/json
   "id": "postgres",
   "name": "PostgreSQL",
   "category": "database",
-  "status": "running",
-  "ip": "192.168.2.50",
-  "hostname": "postgres.lan",
-  "customFields": { "Port": "5432", "Version": "16" }
+  "status": "active",
+  "fields": { "ip": "192.168.2.50", "hostname": "postgres.lan", "version": "16", "ram": "8" },
+  "customFields": { "Port": "5432" }
 }
 ```
 
@@ -457,7 +551,7 @@ Content-Type: application/json
 { "status": "error" }
 ```
 
-Gültige Status: `running`, `stopped`, `planned`, `maintenance`, `error`, `unknown`.
+Gültige Status: `active`, `inactive`, `planned`, `maintenance`, `error`, `unknown`.
 
 ### 3. Verbindung dokumentieren
 
@@ -533,24 +627,54 @@ Empfohlen direkt nach Bulk-Import oder wenn viele Nodes bei (0,0) liegen.
 
 ## Katalog-Referenz (häufige Werte)
 
-Vollständige Liste: `GET /meta/catalog`.
+Vollständige Liste: `GET /meta/catalog` (alle Packs) bzw. `GET /projects/:id/catalog`
+(nur die eines Projekts). Nach Pack gruppiert — welche davon sichtbar sind, entscheidet
+`project.packs`, siehe [Domain-Packs](#domain-packs).
 
 ### Node-Kategorien (Auszug)
 
-| id | Gruppe |
+| Pack | ids |
 |---|---|
-| `proxmox-host`, `vm`, `lxc`, `router`, `vps` | Infrastruktur |
-| `docker-stack`, `docker-container`, `database`, `web-app`, `monitoring` | Dienste |
-| `reverse-proxy`, `tunnel`, `vpn`, `dns` | Netzwerk |
-| `firewall`, `auth`, `secrets` | Security |
-| `ci-runner`, `git-repo`, `automation` | CI/CD |
-| `storage`, `backup` | Storage |
-| `cloud-service`, `domain`, `internet` | Extern |
-| `group` | Zone/Gruppierung |
+| *Kern* (immer aktiv) | `generic`, `group`, `web-app`, `native-service`, `database`, `storage`, `client`, `internet`, `cloud-service`, `domain`, `email` |
+| `infrastructure` | `hypervisor`, `vm`, `system-container`, `physical-device`, `vps`, `docker-stack`, `docker-container` |
+| `network` | `router`, `wifi-ap`, `reverse-proxy`, `tunnel`, `vpn`, `dns` |
+| `security` | `firewall`, `ids`, `auth`, `secrets`, `certificate` |
+| `operations` | `monitoring`, `backup`, `file-share`, `ci-runner`, `git-repo`, `automation` |
+| `cloud` | `cloud-region`, `cloud-network`, `managed-service`, `object-storage`, `serverless`, `load-balancer` |
+| `kubernetes` | `k8s-cluster`, `k8s-namespace`, `k8s-workload`, `k8s-service`, `k8s-ingress`, `k8s-volume` |
+| `software` | `software-system`, `component`, `api-endpoint`, `message-queue`, `external-system`, `actor`, `ai-service` |
+| `business` | `process`, `process-step`, `decision`, `document`, `role`, `department`, `business-system` |
+| `homelab` | `media`, `game-server`, `smart-home`, `iot-device` |
 
-### Edge-Kinds (Auszug)
+### Edge-Kinds
 
-`http`, `https`, `tcp`, `udp`, `ssh`, `tunnel`, `vpn`, `dns`, `mail`, `monitoring`, `backup`, `ci`, `dependency`, `generic`
+| Pack | ids |
+|---|---|
+| *Kern* | `generic`, `dependency`, `data-flow`, `control`, `api` |
+| `network` | `http`, `https`, `tcp`, `udp`, `dns`, `tunnel`, `vpn`, `mail` |
+| `infrastructure` | `ssh` |
+| `operations` | `monitoring`, `backup`, `ci` |
+| `software` | `event` |
+| `business` | `process-flow`, `responsibility` |
+
+### Node-Felder
+
+| Pack | keys |
+|---|---|
+| *Kern* | `url`, `owner`, `environment`, `criticality`, `platform`, `version`, `location`, `reviewedAt` |
+| `infrastructure` | `os`, `cpu`, `ram`, `disk` |
+| `network` | `ip`, `hostname`, `vlan`, `mac` |
+| `security` | `expiresAt` |
+| `operations` | `sla` |
+| `cloud` | `region`, `accountId`, `resourceId`, `cost` |
+| `kubernetes` | `namespace`, `image`, `replicas` |
+| `software` | `repository`, `language` |
+| `business` | `costCenter`, `frequency` |
+
+### Vorlagen
+
+`empty` · `homelab` · `network` · `cloud` · `kubernetes` · `software` · `business`
+(`GET /meta/templates` liefert Beschreibung, Packs und Grösse jeder Vorlage.)
 
 ---
 
@@ -565,7 +689,9 @@ Vollständige Liste: `GET /meta/catalog`.
 | Migration / Sync | `GET /graph/export` + `POST /graph/import` |
 | Nur Positionen (Layout) | `POST /nodes/positions` |
 | Auto-Align (gesamter Graph) | `POST /graph/layout` |
-| Verfügbare Kategorien | `GET /meta/catalog` |
+| Alle Kategorien, Status, Edge-Kinds & Felder | `GET /meta/catalog` |
+| Was ein bestimmtes Projekt sieht | `GET /projects/:id/catalog` |
+| Verfügbare Packs / Vorlagen | `GET /meta/packs` · `GET /meta/templates` |
 | API erreichbar? | `GET /health` |
 
 ---
@@ -579,7 +705,8 @@ Vollständige Liste: `GET /meta/catalog`.
 | `backend/src/validation.js` | Zod-Schemas, Limits (inkl. `register`/`login`) |
 | `backend/src/layout.js` | Auto-Layout-Algorithmus |
 | `backend/src/store.js` | CRUD, Import, Parent-Logik, Row-Level-Autorisierung |
-| `backend/src/catalog.js` | Kategorien, Status, Edge-Kinds |
+| `backend/src/catalog/` | Kern + Domain-Packs (Kategorien, Edge-Kinds, Felddefinitionen) |
+| `backend/src/templates/` | Startvorlagen für neue Projekte |
 | `backend/src/routes/*.js` | Route-Definitionen (inkl. `auth.js`) |
 | `frontend/src/api/types.ts` | TypeScript-Typen (Frontend) |
 

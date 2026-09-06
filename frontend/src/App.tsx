@@ -80,7 +80,7 @@ function Workspace() {
           {loading ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-slate-500">
               <RotateCw size={22} className="animate-spin" />
-              <p className="text-sm">Lade Infrastruktur …</p>
+              <p className="text-sm">Lade Projekt …</p>
             </div>
           ) : (
             <FlowCanvas />

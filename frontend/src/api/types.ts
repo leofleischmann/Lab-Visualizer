@@ -34,12 +34,39 @@ export type Project = {
   name: string;
   color: string | null;
   icon: string | null;
+  /**
+   * Aktive Domain-Packs. Bestimmt, welche Kategorien, Felder und
+   * Verbindungsarten dieses Projekt sieht — der Katalog kommt daher pro Projekt
+   * über GET /projects/:id/catalog, nicht global.
+   */
+  packs: string[];
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
 };
 
 export type ProjectPatch = Partial<Omit<Project, 'id' | 'createdAt' | 'updatedAt'>>;
+
+/** Domain-Pack: thematisches Bündel aus Kategorien, Feldern und Kantenarten. */
+export type Pack = {
+  id: string;
+  label: string;
+  description: string;
+  icon: string;
+  categories: number;
+  fields: number;
+};
+
+/** Startvorlage für ein neues Projekt (Packs + fertiger Inhalt). */
+export type Template = {
+  id: string;
+  label: string;
+  description: string;
+  icon: string;
+  color: string;
+  packs: string[];
+  footprint: { views: number; nodes: number };
+};
 
 /** Ebene (View): benannter Canvas in einer Drill-down-Hierarchie eines Projekts. */
 export type View = {
@@ -70,13 +97,16 @@ export type ApiNode = {
   position: Position;
   width: number | null;
   height: number | null;
-  ip: string | null;
-  vlan: string | null;
-  os: string | null;
-  hostname: string | null;
-  url: string | null;
-  notes: string;
+  /**
+   * Typisierte Felder (IP, Hostname, Plattform, ...). Welche Schlüssel es gibt,
+   * definiert allein der Katalog des Backends (`Catalog.fields`) — das Frontend
+   * kennt keine festen Feldnamen mehr. Werte sind immer Strings; ein leerer
+   * String bedeutet „nicht gesetzt".
+   */
+  fields: Record<string, string>;
+  /** Freiform-Key-Value für alles, was der Katalog nicht kennt. */
   customFields: Record<string, string>;
+  notes: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -130,13 +160,53 @@ export type Category = {
 };
 
 export type Status = { id: string; label: string; color: string };
-export type EdgeKind = { id: string; label: string; color: string };
+export type EdgeKind = { id: string; label: string; group: string; color: string };
+
+/** Eingabetyp eines Node-Feldes — steuert Eingabefeld und Validierung. */
+export type FieldType = 'text' | 'url' | 'number' | 'select' | 'date';
+
+/**
+ * Definition eines typisierten Node-Feldes. Kommt aus backend/src/catalog/
+ * (FIELDS); das Deep-Dive-Panel und die Node-Darstellung werden vollständig
+ * daraus gebaut. Ein neues Feld = ein Eintrag im Backend-Katalog, keine
+ * Frontend-Änderung.
+ */
+export type FieldDef = {
+  key: string;
+  label: string;
+  type: FieldType;
+  group: string;
+  /** Monospace-Darstellung (IPs, Hostnamen). */
+  mono?: boolean;
+  /** Wert wird direkt auf der Canvas unter dem Node-Namen angezeigt. */
+  showOnNode?: boolean;
+  placeholder?: string;
+  /** Nur bei type='select': erlaubte Werte. */
+  options?: string[];
+  /** Nur bei type='number': Einheit hinter dem Eingabefeld. */
+  unit?: string;
+  /** Feld belegt im Panel die volle Breite statt einer Rasterspalte. */
+  wide?: boolean;
+};
 
 export type Catalog = {
   categories: Category[];
   statuses: Status[];
   edgeKinds: EdgeKind[];
   lineStyles: LineStyle[];
+  fields: FieldDef[];
+  /** Packs, aus denen dieser Katalog zusammengesetzt wurde. */
+  packs: string[];
+  /**
+   * Definitionen aus NICHT aktiven Packs. Werden zum Darstellen vorhandener
+   * Daten gebraucht (Icon, Farbe, Label), aber nicht zum Anlegen angeboten —
+   * sonst würde ein abgewähltes Pack bestehende Diagramme optisch zerlegen.
+   */
+  inactive: {
+    categories: Category[];
+    edgeKinds: EdgeKind[];
+    fields: FieldDef[];
+  };
 };
 
 export type GraphPayload = {
