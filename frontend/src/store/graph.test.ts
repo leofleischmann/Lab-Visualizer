@@ -12,9 +12,11 @@ vi.mock('../api/client', async (importOriginal) => {
     ...actual,
     api: {
       createProject: vi.fn(),
-      // Nach dem Anlegen wechselt der Store ins neue Projekt und lädt dessen Graph.
+      // Nach dem Anlegen wechselt der Store ins neue Projekt und lädt dessen
+      // Graph — inkl. Katalog, der seit den Domain-Packs am Projekt hängt.
       listViews: vi.fn(),
       graph: vi.fn(),
+      projectCatalog: vi.fn(),
     },
   };
 });
@@ -27,6 +29,15 @@ beforeEach(() => {
   // `restoreMocks` leert die Implementierungen nach jedem Test — daher hier setzen.
   mocked.listViews.mockResolvedValue([]);
   mocked.graph.mockResolvedValue({ viewId: null, nodes: [], edges: [] });
+  mocked.projectCatalog.mockResolvedValue({
+    categories: [],
+    statuses: [],
+    edgeKinds: [],
+    lineStyles: [],
+    fields: [],
+    packs: [],
+    inactive: { categories: [], edgeKinds: [], fields: [] },
+  });
   useGraphStore.setState({
     error: null,
     limitNotice: null,

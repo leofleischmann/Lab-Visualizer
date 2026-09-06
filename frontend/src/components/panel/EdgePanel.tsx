@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeftRight, ArrowRight, RotateCcw, Save, Trash2 } from 'lucide-react';
 import type { ApiEdge, EdgePatch, LineStyle } from '../../api/types';
-import { kindOf } from '../../lib/catalog';
+import { groupedEdgeKinds, kindOf } from '../../lib/catalog';
 import { isRoutingCustomized, normalizeRouting } from '../../lib/edge/routing';
 import { useGraphStore } from '../../store/graph';
 import { CustomFieldsEditor, toRecord, toRows, type FieldRow } from './CustomFieldsEditor';
@@ -119,10 +119,17 @@ export function EdgePanel({ entity }: { entity: ApiEdge }) {
               onChange={(e) => set('kind', e.target.value)}
               className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 focus:border-sky-500 focus:outline-none"
             >
-              {(catalog?.edgeKinds ?? []).map((k) => (
-                <option key={k.id} value={k.id}>
-                  {k.label}
-                </option>
+              {/* Gruppiert nach Allgemein / Netzwerk / Betrieb: die allgemeinen
+                  Beziehungen (Abhängigkeit, Datenfluss) stehen zuerst, damit
+                  nicht-technische Diagramme nicht durch Protokolle scrollen. */}
+              {groupedEdgeKinds(catalog).map(([groupName, kinds]) => (
+                <optgroup key={groupName} label={groupName}>
+                  {kinds.map((k) => (
+                    <option key={k.id} value={k.id}>
+                      {k.label}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </Field>
