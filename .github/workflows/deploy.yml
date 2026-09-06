@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Synchronisiere Dateien auf den Server
         # rsync --delete: data/ ausschließen, sonst würde die SQLite-DB auf dem Server gelöscht
