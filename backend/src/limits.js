@@ -125,6 +125,28 @@ export function assertCanCreateNode(db, viewId, additional = 1) {
 }
 
 /**
+ * Prüft VOR dem Anlegen, ob ein Template unter den Instanz-Limits überhaupt
+ * Platz hat. Ohne diese Vorprüfung würde der Aufbau mitten im Template auf ein
+ * Limit laufen; die Transaktion in routes/projects.js macht das zwar rückgängig,
+ * aber die Fehlermeldung wäre für den Nutzer nicht nachvollziehbar.
+ */
+export function assertTemplateFitsLimits(template) {
+  const { maxViewsPerProject, maxNodesPerProject } = getInstanceLimits();
+  const checks = [
+    [maxViewsPerProject, template.footprint.views, 'Ebene', 'Ebenen'],
+    [maxNodesPerProject, template.footprint.nodes, 'Node', 'Nodes'],
+  ];
+  for (const [limit, needed, one, many] of checks) {
+    if (limit !== null && limit < needed) {
+      throw limitError(
+        `Die Vorlage „${template.label}" braucht ${plural(needed, one, many)} — diese Instanz ` +
+          `erlaubt maximal ${plural(limit, one, many)} pro Projekt.`
+      );
+    }
+  }
+}
+
+/**
  * Prüft einen kompletten Import gegen die Instanz-Limits (Projekte, Ebenen und
  * Nodes pro Projekt), bevor Daten geschrieben werden.
  */

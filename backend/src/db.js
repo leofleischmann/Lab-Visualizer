@@ -27,6 +27,10 @@ CREATE TABLE IF NOT EXISTS projects (
   name          TEXT NOT NULL,
   color         TEXT,
   icon          TEXT,
+  -- Aktive Domain-Packs als JSON-Array. Bestimmt, welche Kategorien, Felder und
+  -- Verbindungsarten dieses Projekt sieht (backend/src/catalog/index.js).
+  -- Unbekannte IDs werden beim Lesen verworfen, ein Pack darf also verschwinden.
+  packs         TEXT NOT NULL DEFAULT '[]',
   sort_order    INTEGER NOT NULL DEFAULT 0,
   created_at    TEXT NOT NULL,
   updated_at    TEXT NOT NULL
@@ -60,13 +64,13 @@ CREATE TABLE IF NOT EXISTS nodes (
   pos_y          REAL NOT NULL DEFAULT 0,
   width          REAL,
   height         REAL,
-  ip             TEXT,
-  vlan           TEXT,
-  os             TEXT,
-  hostname       TEXT,
-  url            TEXT,
-  notes          TEXT NOT NULL DEFAULT '',
+  -- Typisierte Felder (IP, Hostname, Plattform, ...) als JSON-Objekt. Die Struktur
+  -- definiert ausschliesslich backend/src/catalog/ (Kern + Domain-Packs) -- ein Feld
+  -- kostet dort einen Eintrag und hier KEINE Schemaaenderung.
+  fields         TEXT NOT NULL DEFAULT '{}',
+  -- Freiform-Key-Value fuer alles, was der Katalog nicht kennt.
   custom_fields  TEXT NOT NULL DEFAULT '{}',
+  notes          TEXT NOT NULL DEFAULT '',
   created_at     TEXT NOT NULL,
   updated_at     TEXT NOT NULL
 );

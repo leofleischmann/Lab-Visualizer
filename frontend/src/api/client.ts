@@ -7,8 +7,10 @@ import type {
   NodePatch,
   InstanceLimits,
   LegalDocument,
+  Pack,
   Project,
   ProjectPatch,
+  Template,
   User,
   View,
   ViewPatch,
@@ -88,7 +90,17 @@ export const api = {
       body: JSON.stringify({ password }),
     }),
 
-  catalog: () => request<Catalog>('/meta/catalog'),
+  /**
+   * Katalog eines Projekts — auf dessen Domain-Packs eingeschränkt. Die UI nutzt
+   * IMMER diese Variante; /meta/catalog (alle Packs) ist die Referenz für
+   * Skripte und Agenten.
+   */
+  projectCatalog: (projectId: string) =>
+    request<Catalog>(`/projects/${encodeURIComponent(projectId)}/catalog`),
+  /** Verfügbare Domain-Packs für die Projekt-Einstellungen. */
+  packs: () => request<{ packs: Pack[] }>('/meta/packs'),
+  /** Startvorlagen für neue Projekte. */
+  templates: () => request<{ templates: Template[] }>('/meta/templates'),
   /** Rechtstexte dieser Instanz — ohne Anmeldung abrufbar. */
   legal: () => request<{ documents: LegalDocument[] }>('/meta/legal'),
   graph: (viewId?: string) =>
@@ -113,7 +125,8 @@ export const api = {
     }),
 
   listProjects: () => request<Project[]>('/projects'),
-  createProject: (data: ProjectPatch & { name: string }) =>
+  /** `template` baut zusätzlich den Startinhalt auf (siehe /meta/templates). */
+  createProject: (data: ProjectPatch & { name: string; template?: string }) =>
     request<Project>('/projects', { method: 'POST', body: JSON.stringify(data) }),
   updateProject: (id: string, patch: ProjectPatch) =>
     request<Project>(`/projects/${encodeURIComponent(id)}`, {

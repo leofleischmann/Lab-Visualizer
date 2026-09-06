@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { STATUS_IDS, LINE_STYLES } from './catalog.js';
+import { STATUS_IDS, LINE_STYLES, FIELDS_BY_KEY, PACK_IDS } from './catalog/index.js';
 
 /** Fehler mit HTTP-Status, wird vom zentralen Error-Handler in JSON übersetzt. */
 export class ApiError extends Error {
@@ -21,7 +21,55 @@ const customFieldsSchema = z
   .record(z.string().min(1).max(100), z.string().max(4000))
   .refine((obj) => Object.keys(obj).length <= 100, 'Maximal 100 Custom Fields pro Objekt');
 
-const optionalText = (max) => z.string().max(max).nullable().optional();
+/**
+ * Typisierte Node-Felder (`node.fields`). Werte werden immer als String gespeichert;
+ * die Prüfung richtet sich nach der Definition im Katalog (catalog.js FIELDS).
+ *
+ * Unbekannte Schlüssel werden bewusst DURCHGELASSEN statt abgelehnt: sonst würde
+ * der Import eines Projekts scheitern, dessen Felddefinition diese Instanz (noch)
+ * nicht kennt. Sie werden gespeichert und bleiben erhalten, das Panel zeigt sie
+ * erst, wenn der Katalog sie kennt.
+ *
+ * Geprüft wird gegen die VEREINIGUNG aller Packs (catalog/index.js ALL_FIELDS),
+ * nicht gegen die Packs des Projekts — sonst würde ein Wert ungültig, sobald
+ * jemand ein Pack abwählt.
+ *
+ * Beeinflusst: catalog/index.js (Quelle der Wahrheit), store.js (Serialisierung
+ * nach JSON), frontend/src/components/panel/NodePanel.tsx.
+ */
+const fieldValueChecks = {
+  number: (value) =>
+    Number.isFinite(Number(value)) ? null : 'muss eine Zahl sein',
+  date: (value) =>
+    /^\d{4}-\d{2}-\d{2}$/.test(value) ? null : 'muss ein Datum im Format JJJJ-MM-TT sein',
+  url: (value) =>
+    /^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? null : 'muss mit einem Schema wie https:// beginnen',
+};
+
+const fieldsSchema = z
+  .record(z.string().min(1).max(100), z.string().max(4000))
+  .refine((obj) => Object.keys(obj).length <= 100, 'Maximal 100 Felder pro Node')
+  .superRefine((obj, ctx) => {
+    for (const [key, value] of Object.entries(obj)) {
+      const def = FIELDS_BY_KEY.get(key);
+      // Leerer Wert = Feld nicht gesetzt, jeder Typ akzeptiert das.
+      if (!def || value === '') continue;
+      if (def.type === 'select') {
+        if (!def.options.includes(value)) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [key],
+            message: `"${def.label}" muss einer von: ${def.options.join(', ')} sein`,
+          });
+        }
+        continue;
+      }
+      const problem = fieldValueChecks[def.type]?.(value);
+      if (problem) {
+        ctx.addIssue({ code: 'custom', path: [key], message: `"${def.label}" ${problem}` });
+      }
+    }
+  });
 
 // ── Auth ────────────────────────────────────────────────────────
 
@@ -56,9 +104,20 @@ export const projectCreateSchema = z.object({
   color: z.string().max(32).nullable().optional(),
   icon: z.string().max(50).nullable().optional(),
   sortOrder: z.number().int().optional(),
+  /** Aktive Domain-Packs; bestimmt Palette, Panel-Felder und Verbindungsarten. */
+  packs: z.array(z.enum(PACK_IDS)).max(PACK_IDS.length).optional(),
+  /**
+   * Nur beim Anlegen: Startinhalt aus backend/src/templates/. Das Template
+   * setzt auch die Packs, sofern `packs` nicht ausdrücklich mitgesendet wird.
+   */
+  template: z.string().min(1).max(50).optional(),
 });
 
-export const projectUpdateSchema = projectCreateSchema.omit({ id: true }).partial();
+// `template` ist eine Anlege-Option, kein Feld des Projekts — ein PATCH darf
+// den Inhalt eines bestehenden Projekts nicht nachträglich überschreiben.
+export const projectUpdateSchema = projectCreateSchema
+  .omit({ id: true, template: true })
+  .partial();
 
 export const viewCreateSchema = z.object({
   id: idSchema.optional(),
@@ -84,11 +143,7 @@ export const nodeCreateSchema = z.object({
   position: positionSchema.default({ x: 0, y: 0 }),
   width: z.number().positive().max(100000).nullable().optional(),
   height: z.number().positive().max(100000).nullable().optional(),
-  ip: optionalText(100),
-  vlan: optionalText(100),
-  os: optionalText(200),
-  hostname: optionalText(255),
-  url: optionalText(2000),
+  fields: fieldsSchema.default({}),
   notes: z.string().max(200000).default(''),
   customFields: customFieldsSchema.default({}),
 });
