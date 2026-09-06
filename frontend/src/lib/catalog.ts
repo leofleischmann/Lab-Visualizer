@@ -7,27 +7,41 @@ import {
   AtSign,
   Bell,
   Box,
+  Boxes,
   Brain,
+  Briefcase,
+  Building2,
   Cable,
   Cloud,
+  CloudCog,
   Container,
   Cpu,
   Database,
+  ExternalLink,
+  FileText,
   Film,
   Fingerprint,
   Folder,
+  FolderTree,
   Gamepad2,
   GitBranch,
+  GitFork,
   Globe,
   HardDrive,
+  Hexagon,
   Home,
+  Inbox,
   KeyRound,
   Layers,
   Lightbulb,
+  ListChecks,
   Lock,
   Mail,
   Monitor,
   Network,
+  Package,
+  Plug,
+  Puzzle,
   Router,
   Server,
   ServerCog,
@@ -36,7 +50,10 @@ import {
   Shield,
   ShieldAlert,
   ShieldCheck,
+  Split,
+  SquareDashed,
   Terminal,
+  UserRound,
   Users,
   Wifi,
   Workflow,
@@ -52,27 +69,41 @@ const ICONS: Record<string, LucideIcon> = {
   'at-sign': AtSign,
   bell: Bell,
   box: Box,
+  boxes: Boxes,
   brain: Brain,
+  briefcase: Briefcase,
+  'building-2': Building2,
   cable: Cable,
   cloud: Cloud,
+  'cloud-cog': CloudCog,
   container: Container,
   cpu: Cpu,
   database: Database,
+  'external-link': ExternalLink,
+  'file-text': FileText,
   film: Film,
   fingerprint: Fingerprint,
   folder: Folder,
+  'folder-tree': FolderTree,
   'gamepad-2': Gamepad2,
   'git-branch': GitBranch,
+  'git-fork': GitFork,
   globe: Globe,
   'hard-drive': HardDrive,
+  hexagon: Hexagon,
   home: Home,
+  inbox: Inbox,
   'key-round': KeyRound,
   layers: Layers,
   lightbulb: Lightbulb,
+  'list-checks': ListChecks,
   lock: Lock,
   mail: Mail,
   monitor: Monitor,
   network: Network,
+  package: Package,
+  plug: Plug,
+  puzzle: Puzzle,
   router: Router,
   server: Server,
   'server-cog': ServerCog,
@@ -81,7 +112,10 @@ const ICONS: Record<string, LucideIcon> = {
   shield: Shield,
   'shield-alert': ShieldAlert,
   'shield-check': ShieldCheck,
+  split: Split,
+  'square-dashed': SquareDashed,
   terminal: Terminal,
+  'user-round': UserRound,
   users: Users,
   wifi: Wifi,
   workflow: Workflow,
@@ -120,6 +154,16 @@ export function kindOf(catalog: Catalog | null, id: string): EdgeKind {
 export function iconOf(name: string): LucideIcon {
   return ICONS[name] ?? Shapes;
 }
+
+/**
+ * Icon-Namen, die `iconOf` auflösen kann.
+ *
+ * Der Fallback in `iconOf` ist für EIGENE Kategorien der Nutzer gedacht, nicht
+ * als Netz für Tippfehler im mitgelieferten Katalog — ein Icon-Name aus
+ * backend/src/catalog/ würde sonst stillschweigend als graues Standard-Symbol
+ * enden. `catalog.test.ts` gleicht beide Seiten deshalb ab.
+ */
+export const ICON_NAMES = Object.keys(ICONS);
 
 /** Gruppiert Einträge nach `group`; die Reihenfolge des Katalogs bleibt erhalten. */
 function groupBy<T extends { group: string }>(items: T[]): [string, T[]][] {
@@ -162,6 +206,25 @@ export function nodeBadges(catalog: Catalog | null, entity: ApiNode): { key: str
     .filter((f) => f.showOnNode)
     .map((f) => ({ key: f.key, value: entity.fields[f.key] ?? '' }))
     .filter((b) => b.value !== '');
+}
+
+/**
+ * Feldwerte eines Nodes, für die der AKTIVE Katalog keine Definition hat —
+ * typischerweise Werte aus einem Pack, das dieses Projekt abgewählt hat, oder
+ * aus dem Import eines fremden Projekts.
+ *
+ * Sie werden im Panel trotzdem angezeigt (als einfache Textfelder), damit ein
+ * Pack-Wechsel keine Daten unsichtbar macht. Die Typprüfung übernimmt weiterhin
+ * das Backend, das gegen ALLE Packs validiert (backend/src/validation.js).
+ */
+export function orphanFields(
+  catalog: Catalog | null,
+  fields: Record<string, string>
+): FieldDef[] {
+  const known = new Set((catalog?.fields ?? []).map((f) => f.key));
+  return Object.keys(fields)
+    .filter((key) => !known.has(key) && fields[key] !== '')
+    .map((key) => ({ key, label: key, type: 'text' as const, group: 'Weitere Felder', wide: true }));
 }
 
 /**

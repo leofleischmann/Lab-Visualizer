@@ -72,7 +72,7 @@ function InfraNodeComponent({ id, data, selected }: NodeProps<FlowNode>) {
         />
       </div>
       {/* Welche Felder hier erscheinen, entscheidet der Katalog über `showOnNode`
-          (backend/src/catalog.js FIELDS) — nicht dieser Component. */}
+          (backend/src/catalog/, Feld `showOnNode`) — nicht dieser Component. */}
       {badges.length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-x-2 border-t border-slate-800 pt-1.5 font-mono text-[10px] text-slate-400">
           {badges.map((badge, i) => (

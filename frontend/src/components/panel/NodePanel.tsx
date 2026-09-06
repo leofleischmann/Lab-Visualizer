@@ -2,7 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Copy, Layers, Plus, Save, Trash2, X } from 'lucide-react';
 import clsx from 'clsx';
 import type { ApiNode, FieldDef, NodePatch } from '../../api/types';
-import { categoryOf, groupedCategories, groupedFields, iconOf } from '../../lib/catalog';
+import {
+  categoryOf,
+  groupedCategories,
+  groupedFields,
+  iconOf,
+  orphanFields,
+} from '../../lib/catalog';
 import { absolutePosition, useGraphStore } from '../../store/graph';
 import { CustomFieldsEditor, toRecord, toRows, type FieldRow } from './CustomFieldsEditor';
 import { MarkdownEditor } from './MarkdownEditor';
@@ -49,16 +55,20 @@ const compactFields = (fields: Record<string, string>): Record<string, string> =
  * Formularwand wird — für ein Setup ohne Netzwerkbezug bleibt „Netzwerk"
  * einfach zu.
  */
+const ORPHAN_GROUP = 'Weitere Felder';
+
 function FieldGroup({
   name,
   defs,
   values,
   onChange,
+  hint,
 }: {
   name: string;
   defs: FieldDef[];
   values: Record<string, string>;
   onChange: (key: string, value: string) => void;
+  hint?: string;
 }) {
   const filled = defs.filter((d) => (values[d.key] ?? '') !== '').length;
   const [open, setOpen] = useState(filled > 0);
@@ -81,6 +91,7 @@ function FieldGroup({
       </button>
       {open && (
         <div className="grid grid-cols-2 gap-3 border-t border-slate-800 px-2.5 py-3">
+          {hint && <p className="col-span-2 text-[10px] leading-relaxed text-slate-600">{hint}</p>}
           {defs.map((def) => (
             <div key={def.key} className={clsx(def.wide && 'col-span-2')}>
               <Field label={def.label}>
@@ -127,6 +138,20 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
       ),
     [nodes, entity.id]
   );
+
+  // Katalog-Gruppen plus die Werte, für die der aktive Katalog keine Definition
+  // hat — damit ein abgewähltes Pack keine Daten unsichtbar macht.
+  const orphanKeys = Object.keys(draft.fields).join(',');
+  const fieldGroups = useMemo(() => {
+    const orphans = orphanFields(catalog, draft.fields);
+    return [
+      ...groupedFields(catalog),
+      ...(orphans.length ? ([[ORPHAN_GROUP, orphans]] as [string, FieldDef[]][]) : []),
+    ];
+    // Hängt bewusst nur an den SCHLÜSSELN, nicht an den Werten: sonst würde die
+    // Liste bei jedem Tastendruck neu gebaut.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalog, orphanKeys]);
 
   const dirty = useMemo(() => {
     const normalize = (d: Draft) => ({
@@ -266,11 +291,12 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
           </select>
         </Field>
 
-        {/* Typisierte Felder — Struktur kommt komplett aus dem Backend-Katalog
-            (/api/meta/catalog → fields). Hier steht bewusst kein Feldname:
-            ein neues Feld = ein Eintrag in backend/src/catalog.js. */}
+        {/* Typisierte Felder — Struktur kommt komplett aus dem Katalog des
+            PROJEKTS (/api/projects/:id/catalog -> fields), hängt also an dessen
+            Domain-Packs. Hier steht bewusst kein Feldname: ein neues Feld = ein
+            Eintrag in backend/src/catalog/. */}
         <div className="space-y-2">
-          {groupedFields(catalog).map(([groupName, defs]) => (
+          {fieldGroups.map(([groupName, defs]) => (
             <FieldGroup
               key={`${entity.id}:${groupName}`}
               name={groupName}
@@ -278,6 +304,11 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
               values={draft.fields}
               onChange={(key, value) =>
                 setDraft((d) => ({ ...d, fields: { ...d.fields, [key]: value } }))
+              }
+              hint={
+                groupName === ORPHAN_GROUP
+                  ? 'Werte aus Bausteinen, die dieses Projekt nicht aktiviert hat. Sie bleiben erhalten.'
+                  : undefined
               }
             />
           ))}

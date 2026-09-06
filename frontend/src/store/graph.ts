@@ -176,7 +176,9 @@ type GraphStore = {
   setHoverNode: (id: string | null) => void;
 
   setActiveProject: (id: string) => Promise<void>;
-  createProject: (data: ProjectPatch & { name: string }) => Promise<Project | null>;
+  createProject: (
+    data: ProjectPatch & { name: string; template?: string }
+  ) => Promise<Project | null>;
   saveProject: (id: string, patch: ProjectPatch) => Promise<boolean>;
   removeProject: (id: string) => Promise<boolean>;
 
@@ -220,6 +222,20 @@ type GraphStore = {
 
 const errorMessage = (err: unknown) =>
   err instanceof Error ? err.message : 'Unbekannter Fehler';
+
+/**
+ * Fehlt ein Baustein in der Palette oder ein Feld im Panel, liegt es fast immer
+ * an den Domain-Packs des Projekts — dieser Log zeigt sofort, womit die UI
+ * gerade arbeitet. Quelle: backend/src/catalog/index.js.
+ */
+function logCatalog(catalog: Catalog | null, projectId: string | null) {
+  console.debug('[Debug graph]: Katalog für Projekt', projectId, {
+    packs: catalog?.packs ?? [],
+    categories: catalog?.categories.length ?? 0,
+    edgeKinds: catalog?.edgeKinds.length ?? 0,
+    fields: (catalog?.fields ?? []).map((f) => `${f.key}:${f.type}`),
+  });
+}
 
 // ── Zuletzt aktives Projekt/Ebene pro Konto merken (localStorage) ──
 const storageKey = (kind: 'project' | 'view') => {
@@ -283,16 +299,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   load: async () => {
     set({ loading: true, error: null });
     try {
-      const [catalog, projects] = await Promise.all([api.catalog(), api.listProjects()]);
-      // Der Katalog bestimmt Palette, Status-Auswahl UND welche typisierten Felder
-      // das Deep-Dive-Panel zeigt. Fehlt hier etwas, liegt es am Backend-Katalog
-      // (backend/src/catalog.js), nicht an der UI.
-      console.debug('[Debug graph]: Katalog geladen', {
-        categories: catalog.categories.length,
-        statuses: catalog.statuses.map((s) => s.id),
-        edgeKinds: catalog.edgeKinds.length,
-        fields: catalog.fields.map((f) => `${f.key}:${f.type}`),
-      });
+      const projects = await api.listProjects();
       // Priorität: aktuelles Projekt im State → zuletzt genutztes (localStorage) → erstes.
       const remembered = readLast('project');
       const activeProjectId =
@@ -301,6 +308,11 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           : remembered && projects.some((p) => p.id === remembered)
             ? remembered
             : projects[0]?.id) ?? null;
+      // Der Katalog hängt am PROJEKT (dessen Domain-Packs) und muss daher nach
+      // der Projektwahl geladen werden — er bestimmt Palette, Kantenarten und
+      // die typisierten Felder im Deep-Dive-Panel.
+      const catalog = activeProjectId ? await api.projectCatalog(activeProjectId) : null;
+      logCatalog(catalog, activeProjectId);
       const views = activeProjectId ? await api.listViews(activeProjectId) : [];
       const rememberedView = readLast('view');
       const wanted =
@@ -378,13 +390,17 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   setActiveProject: async (id) => {
     if (id === get().activeProjectId) return;
     try {
-      const views = await api.listViews(id);
+      // Jedes Projekt hat seinen eigenen Katalog (Domain-Packs) — beim Wechsel
+      // muss er mit, sonst zeigt die Palette die Bausteine des Vorprojekts.
+      const [views, catalog] = await Promise.all([api.listViews(id), api.projectCatalog(id)]);
+      logCatalog(catalog, id);
       const rootId = pickRootView(views);
       const graph = await api.graph(rootId ?? undefined);
       writeLast('project', id);
       writeLast('view', graph.viewId ?? rootId);
       set({
         activeProjectId: id,
+        catalog,
         views,
         activeViewId: graph.viewId ?? rootId,
         nodes: orderForFlow(graph.nodes.map(toFlowNode)),
@@ -404,6 +420,10 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   createProject: async (data) => {
     try {
       const created = await api.createProject(data);
+      console.debug('[Debug graph]: Projekt angelegt', created.id, {
+        template: data.template ?? '(keins)',
+        packs: created.packs,
+      });
       set((state) => ({ projects: [...state.projects, created] }));
       await get().setActiveProject(created.id);
       return created;
@@ -417,6 +437,13 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     try {
       const updated = await api.updateProject(id, patch);
       set((state) => ({ projects: state.projects.map((p) => (p.id === id ? updated : p)) }));
+      // Geänderte Packs ändern den Katalog des Projekts — Palette, Kantenarten
+      // und Panel-Felder müssen sofort folgen.
+      if (patch.packs && id === get().activeProjectId) {
+        const catalog = await api.projectCatalog(id);
+        logCatalog(catalog, id);
+        set({ catalog });
+      }
       return true;
     } catch (err) {
       fail(err);

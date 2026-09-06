@@ -8,6 +8,8 @@ import { createApp } from '../src/app.js';
 import { createSession } from '../src/auth.js';
 import * as store from '../src/store.js';
 import { seedExampleForUser, SEED_FOOTPRINT } from '../src/seed.js';
+import { TEMPLATES } from '../src/templates/index.js';
+import { PACK_IDS, DEFAULT_PACKS, buildCatalog } from '../src/catalog/index.js';
 
 let server;
 let base;
@@ -63,6 +65,154 @@ test('health check', async () => {
   const res = await api('GET', '/api/health');
   assert.equal(res.status, 200);
   assert.equal(res.body.status, 'ok');
+});
+
+// ── Domain-Packs & Templates ────────────────────────────────────
+
+test('packs: Projekt sieht nur die Kategorien/Felder seiner Packs', async () => {
+  const { call, close } = await freshApp();
+  try {
+    const pid = (await call('GET', '/api/projects')).body[0].id;
+
+    // Standardauswahl: Server-Zuschnitt inkl. Netzwerk
+    const def = (await call('GET', `/api/projects/${pid}/catalog`)).body;
+    assert.deepEqual(def.packs, DEFAULT_PACKS);
+    assert.ok(def.fields.some((f) => f.key === 'ip'));
+    assert.ok(def.categories.some((c) => c.id === 'hypervisor'));
+
+    // Auf Prozesse umstellen -> kein einziges Netzwerkfeld mehr sichtbar
+    const patched = await call('PATCH', `/api/projects/${pid}`, { packs: ['business'] });
+    assert.equal(patched.status, 200);
+    assert.deepEqual(patched.body.packs, ['business']);
+    const biz = (await call('GET', `/api/projects/${pid}/catalog`)).body;
+    for (const key of ['ip', 'hostname', 'vlan', 'mac', 'os']) {
+      assert.ok(!biz.fields.some((f) => f.key === key), `Feld ${key} darf hier nicht sichtbar sein`);
+    }
+    assert.ok(!biz.categories.some((c) => c.id === 'hypervisor'));
+    assert.ok(biz.categories.some((c) => c.id === 'process-step'));
+    // Der Kern bleibt immer da.
+    assert.ok(biz.categories.some((c) => c.id === 'generic'));
+    assert.ok(biz.fields.some((f) => f.key === 'owner'));
+
+    // Unbekannte Pack-IDs werden abgelehnt (geschlossenes Enum)
+    assert.equal((await call('PATCH', `/api/projects/${pid}`, { packs: ['gibtsnicht'] })).status, 400);
+
+    // Leere Auswahl ist erlaubt: nur der Kern
+    const none = await call('PATCH', `/api/projects/${pid}`, { packs: [] });
+    assert.equal(none.status, 200);
+    assert.deepEqual(none.body.packs, []);
+  } finally {
+    close();
+  }
+});
+
+test('packs: Feldwerte überleben das Abwählen ihres Packs', async () => {
+  const { call, close } = await freshApp();
+  try {
+    const pid = (await call('GET', '/api/projects')).body[0].id;
+    await call('POST', '/api/nodes', { id: 'p-node', name: 'Host', fields: { ip: '10.0.0.5' } });
+    // Netzwerk-Pack abwählen: das Feld verschwindet aus dem Katalog …
+    await call('PATCH', `/api/projects/${pid}`, { packs: ['business'] });
+    const cat = (await call('GET', `/api/projects/${pid}/catalog`)).body;
+    assert.ok(!cat.fields.some((f) => f.key === 'ip'));
+    // … der WERT am Node bleibt aber erhalten (kein stiller Datenverlust).
+    assert.equal((await call('GET', '/api/nodes/p-node')).body.fields.ip, '10.0.0.5');
+    // Und er lässt sich weiterhin speichern (Validierung prüft alle Packs).
+    const patched = await call('PATCH', '/api/nodes/p-node', { fields: { ip: '10.0.0.6' } });
+    assert.equal(patched.status, 200);
+    assert.equal(patched.body.fields.ip, '10.0.0.6');
+  } finally {
+    close();
+  }
+});
+
+test('meta: /meta/catalog liefert ALLE Packs, /packs und /templates die Auswahl', async () => {
+  const { call, close } = await freshApp();
+  try {
+    const full = (await call('GET', '/api/meta/catalog')).body;
+    assert.deepEqual(full.packs, PACK_IDS);
+    // Vollständige Referenz für Skripte: enthält Felder aus jedem Pack
+    for (const key of ['ip', 'namespace', 'region', 'costCenter', 'repository']) {
+      assert.ok(full.fields.some((f) => f.key === key), `Feld ${key} fehlt in der Gesamtreferenz`);
+    }
+    const packs = (await call('GET', '/api/meta/packs')).body.packs;
+    assert.deepEqual(packs.map((p) => p.id), PACK_IDS);
+    const templates = (await call('GET', '/api/meta/templates')).body.templates;
+    assert.deepEqual(templates.map((t) => t.id), TEMPLATES.map((t) => t.id));
+    // Die Auswahlliste darf die Baufunktion nicht mitschicken.
+    assert.ok(templates.every((t) => t.build === undefined));
+  } finally {
+    close();
+  }
+});
+
+test('templates: jede Vorlage baut auf und nutzt nur ihre eigenen Packs', async () => {
+  const { call, db, close } = await freshApp();
+  try {
+    for (const template of TEMPLATES) {
+      const created = await call('POST', '/api/projects', {
+        name: template.label,
+        template: template.id,
+      });
+      assert.equal(created.status, 201, `${template.id}: ${JSON.stringify(created.body)}`);
+      const pid = created.body.id;
+      // Ohne explizite packs übernimmt das Projekt die des Templates.
+      assert.deepEqual(created.body.packs, template.packs, `${template.id}: Packs`);
+
+      const views = (await call('GET', `/api/views?projectId=${pid}`)).body;
+      const nodes = (await call('GET', `/api/nodes?projectId=${pid}`)).body;
+      // Footprint muss stimmen — limits.js prüft damit vorab gegen Instanz-Limits.
+      assert.equal(views.length, template.footprint.views, `${template.id}: Ebenenzahl`);
+      assert.equal(nodes.length, template.footprint.nodes, `${template.id}: Nodezahl`);
+
+      // Ein Template darf nichts verwenden, was sein Projekt gar nicht sieht.
+      const catalog = buildCatalog(template.packs);
+      const categories = new Set(catalog.categories.map((c) => c.id));
+      const fieldKeys = new Set(catalog.fields.map((f) => f.key));
+      for (const n of nodes) {
+        assert.ok(categories.has(n.category), `${template.id}: Kategorie "${n.category}" nicht im Pack`);
+        for (const key of Object.keys(n.fields)) {
+          assert.ok(fieldKeys.has(key), `${template.id}: Feld "${key}" nicht im Pack`);
+        }
+      }
+      const kinds = new Set(catalog.edgeKinds.map((k) => k.id));
+      const edges = db
+        .prepare('SELECT e.kind FROM edges e JOIN views v ON e.view_id = v.id WHERE v.project_id = ?')
+        .all(pid);
+      for (const e of edges) {
+        assert.ok(kinds.has(e.kind), `${template.id}: Kantenart "${e.kind}" nicht im Pack`);
+      }
+    }
+  } finally {
+    close();
+  }
+});
+
+test('templates: unbekannte Vorlage wird abgelehnt, ohne ein Projekt zu hinterlassen', async () => {
+  const { call, close } = await freshApp();
+  try {
+    const before = (await call('GET', '/api/projects')).body.length;
+    const res = await call('POST', '/api/projects', { name: 'Kaputt', template: 'gibtsnicht' });
+    assert.equal(res.status, 400);
+    assert.equal((await call('GET', '/api/projects')).body.length, before);
+  } finally {
+    close();
+  }
+});
+
+test('templates: PATCH kann kein Template nachträglich anwenden', async () => {
+  const { call, close } = await freshApp();
+  try {
+    const pid = (await call('GET', '/api/projects')).body[0].id;
+    const before = (await call('GET', `/api/nodes?projectId=${pid}`)).body.length;
+    // `template` ist eine Anlege-Option — ein PATCH darf den Inhalt eines
+    // bestehenden Projekts nicht überschreiben.
+    const res = await call('PATCH', `/api/projects/${pid}`, { template: 'homelab' });
+    assert.equal(res.status, 200);
+    assert.equal((await call('GET', `/api/nodes?projectId=${pid}`)).body.length, before);
+  } finally {
+    close();
+  }
 });
 
 test('catalog liefert Kategorien, Status, Edge-Arten und Felddefinitionen', async () => {

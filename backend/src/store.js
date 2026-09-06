@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { ApiError } from './validation.js';
 import { ensureRootView } from './db.js';
 import { computeLayout } from './layout.js';
+import { normalizePacks, DEFAULT_PACKS } from './catalog/index.js';
 import {
   assertCanCreateProject,
   assertCanCreateView,
@@ -19,6 +20,9 @@ function rowToProject(row) {
     name: row.name,
     color: row.color,
     icon: row.icon,
+    // normalizePacks verwirft IDs, die der Katalog nicht (mehr) kennt — ein
+    // entferntes Pack macht das Projekt dadurch nicht unlesbar.
+    packs: normalizePacks(JSON.parse(row.packs || '[]')),
     sortOrder: row.sort_order,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -179,14 +183,15 @@ export function createProject(db, userId, data) {
     db.prepare('SELECT max(sort_order) AS m FROM projects WHERE user_id = ?').get(userId)?.m ?? -1;
   const ts = now();
   db.prepare(
-    `INSERT INTO projects (id, user_id, name, color, icon, sort_order, created_at, updated_at)
-     VALUES (@id, @user_id, @name, @color, @icon, @sort_order, @created_at, @updated_at)`
+    `INSERT INTO projects (id, user_id, name, color, icon, packs, sort_order, created_at, updated_at)
+     VALUES (@id, @user_id, @name, @color, @icon, @packs, @sort_order, @created_at, @updated_at)`
   ).run({
     id,
     user_id: userId,
     name: data.name,
     color: data.color ?? null,
     icon: data.icon ?? null,
+    packs: JSON.stringify(data.packs ? normalizePacks(data.packs) : DEFAULT_PACKS),
     sort_order: data.sortOrder ?? maxOrder + 1,
     created_at: ts,
     updated_at: ts,
@@ -200,14 +205,18 @@ export function updateProject(db, userId, id, patch) {
   const existing = getProject(db, userId, id);
   const merged = { ...existing, ...patch };
   db.prepare(
-    `UPDATE projects SET name = @name, color = @color, icon = @icon, sort_order = @sort_order,
-       updated_at = @updated_at WHERE id = @id AND user_id = @user_id`
+    `UPDATE projects SET name = @name, color = @color, icon = @icon, packs = @packs,
+       sort_order = @sort_order, updated_at = @updated_at
+     WHERE id = @id AND user_id = @user_id`
   ).run({
     id,
     user_id: userId,
     name: merged.name,
     color: merged.color ?? null,
     icon: merged.icon ?? null,
+    // Packs abwählen löscht KEINE Daten: Werte zu Feldern eines inaktiven Packs
+    // bleiben im Node erhalten (NodePanel zeigt sie unter „Weitere Felder").
+    packs: JSON.stringify(normalizePacks(merged.packs)),
     sort_order: merged.sortOrder ?? existing.sortOrder,
     updated_at: now(),
   });
@@ -884,8 +893,8 @@ export function importGraph(db, userId, { mode = 'replace', projects = [], views
     db.prepare('DELETE FROM projects WHERE user_id = ?').run(userId);
 
     const insertProject = db.prepare(
-      `INSERT INTO projects (id, user_id, name, color, icon, sort_order, created_at, updated_at)
-       VALUES (@id, @user_id, @name, @color, @icon, @sort_order, @created_at, @updated_at)`
+      `INSERT INTO projects (id, user_id, name, color, icon, packs, sort_order, created_at, updated_at)
+       VALUES (@id, @user_id, @name, @color, @icon, @packs, @sort_order, @created_at, @updated_at)`
     );
     projects.forEach((p, i) => {
       insertProject.run({
@@ -894,6 +903,10 @@ export function importGraph(db, userId, { mode = 'replace', projects = [], views
         name: p.name,
         color: p.color ?? null,
         icon: p.icon ?? null,
+        // Packs reisen mit dem Export mit. Ein Payload ohne `packs` (älterer
+        // Export oder handgeschriebenes JSON) bekommt die Standardauswahl —
+        // ein leeres Array bliebe sonst als „nur Kern" hängen.
+        packs: JSON.stringify(p.packs ? normalizePacks(p.packs) : DEFAULT_PACKS),
         sort_order: p.sortOrder ?? i,
         created_at: p.createdAt ?? ts,
         updated_at: ts,
@@ -909,6 +922,7 @@ export function importGraph(db, userId, { mode = 'replace', projects = [], views
         name: 'Mein Projekt',
         color: '#38bdf8',
         icon: 'boxes',
+        packs: JSON.stringify(DEFAULT_PACKS),
         sort_order: 0,
         created_at: ts,
         updated_at: ts,
@@ -1029,8 +1043,8 @@ function mergeGraph(db, userId, { projects, views, nodes, edges }) {
       db.prepare('SELECT max(sort_order) AS m FROM projects WHERE user_id = ?').get(userId)?.m ??
       -1;
     const insertProject = db.prepare(
-      `INSERT INTO projects (id, user_id, name, color, icon, sort_order, created_at, updated_at)
-       VALUES (@id, @user_id, @name, @color, @icon, @sort_order, @created_at, @updated_at)`
+      `INSERT INTO projects (id, user_id, name, color, icon, packs, sort_order, created_at, updated_at)
+       VALUES (@id, @user_id, @name, @color, @icon, @packs, @sort_order, @created_at, @updated_at)`
     );
     const newProjectIds = [];
     newProjects.forEach((p, i) => {
@@ -1043,6 +1057,7 @@ function mergeGraph(db, userId, { projects, views, nodes, edges }) {
         name: p.name ?? 'Importiertes Projekt',
         color: p.color ?? null,
         icon: p.icon ?? null,
+        packs: JSON.stringify(p.packs ? normalizePacks(p.packs) : DEFAULT_PACKS),
         sort_order: maxOrder + 1 + i,
         created_at: ts,
         updated_at: ts,

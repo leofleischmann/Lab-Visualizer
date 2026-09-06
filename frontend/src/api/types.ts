@@ -34,12 +34,39 @@ export type Project = {
   name: string;
   color: string | null;
   icon: string | null;
+  /**
+   * Aktive Domain-Packs. Bestimmt, welche Kategorien, Felder und
+   * Verbindungsarten dieses Projekt sieht — der Katalog kommt daher pro Projekt
+   * über GET /projects/:id/catalog, nicht global.
+   */
+  packs: string[];
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
 };
 
 export type ProjectPatch = Partial<Omit<Project, 'id' | 'createdAt' | 'updatedAt'>>;
+
+/** Domain-Pack: thematisches Bündel aus Kategorien, Feldern und Kantenarten. */
+export type Pack = {
+  id: string;
+  label: string;
+  description: string;
+  icon: string;
+  categories: number;
+  fields: number;
+};
+
+/** Startvorlage für ein neues Projekt (Packs + fertiger Inhalt). */
+export type Template = {
+  id: string;
+  label: string;
+  description: string;
+  icon: string;
+  color: string;
+  packs: string[];
+  footprint: { views: number; nodes: number };
+};
 
 /** Ebene (View): benannter Canvas in einer Drill-down-Hierarchie eines Projekts. */
 export type View = {
@@ -139,7 +166,7 @@ export type EdgeKind = { id: string; label: string; group: string; color: string
 export type FieldType = 'text' | 'url' | 'number' | 'select' | 'date';
 
 /**
- * Definition eines typisierten Node-Feldes. Kommt aus backend/src/catalog.js
+ * Definition eines typisierten Node-Feldes. Kommt aus backend/src/catalog/
  * (FIELDS); das Deep-Dive-Panel und die Node-Darstellung werden vollständig
  * daraus gebaut. Ein neues Feld = ein Eintrag im Backend-Katalog, keine
  * Frontend-Änderung.
@@ -168,6 +195,8 @@ export type Catalog = {
   edgeKinds: EdgeKind[];
   lineStyles: LineStyle[];
   fields: FieldDef[];
+  /** Packs, aus denen dieser Katalog zusammengesetzt wurde. */
+  packs: string[];
 };
 
 export type GraphPayload = {

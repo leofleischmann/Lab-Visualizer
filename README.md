@@ -37,9 +37,15 @@ Live-Vorschau.
 - **Kostenlos & quelloffen** — keine Bezahlfunktionen, kein Abo, kein Konto-Upgrade.
   Beim Self-Hosting gibt es **keine Obergrenzen**. Wer die App öffentlich für Fremde
   betreibt, kann pro Instanz Grenzen setzen — siehe [Instanz-Limits](#instanz-limits).
-- **Projekte** — komplett getrennte Arbeitsbereiche (z. B. „Homelab”, „Arbeit”). Jedes Projekt
-  hat eigene Ebenen, Nodes und Verbindungen; der Umschalter in der Kopfzeile wechselt zwischen
-  ihnen. Anlegen, umbenennen, löschen (kaskadiert).
+- **Projekte mit Startvorlage** — komplett getrennte Arbeitsbereiche (z. B. „Homelab”,
+  „Arbeit”). Beim Anlegen wählst du eine **Vorlage**: Homelab, Netzwerkplan, Cloud-Umgebung,
+  Kubernetes-Cluster, Software-Architektur, Prozess & Organisation — oder leer. Die Vorlage
+  bringt einen fertigen Beispielinhalt mit und setzt die passenden Bausteine.
+- **Bausteine (Domain-Packs)** — jedes Projekt sieht nur die Kategorien, Felder und
+  Verbindungsarten seiner Domäne. Ein Prozess-Projekt bekommt Prozessschritt, Rolle und
+  Kostenstelle statt Hypervisor, VLAN und IP-Adresse; ein Cluster-Projekt Namespace, Image
+  und Replicas. Jederzeit umschaltbar, ohne Datenverlust: Werte zu abgewählten Bausteinen
+  bleiben am Node erhalten.
 - **Globale Suche** — durchsucht alle Ebenen des aktiven Projekts; ein Klick auf einen Treffer
   springt in die richtige Ebene und selektiert den Node.
 - **Undo / Redo** — für alle Canvas-Änderungen (Node/Verbindung anlegen, löschen, verschieben,
@@ -93,9 +99,9 @@ registrierte Nutzer** erhält automatisch ein Best-Practice-Beispielprojekt
 **„Homelab (Beispiel)"**: eine dreistufige Drill-down-Infrastruktur (Übersicht
 *Internet → Cloudflare → Router → Proxmox → NAS*, Detailebene *Proxmox intern* mit
 Reverse-Proxy/SSO/DB, Detailebene *nginx Routing*) — so ist sofort ein sinnvolles
-Beispiel zum Erkunden da statt einer leeren Canvas. Das Beispiel ist ein Homelab,
-das Werkzeug ist es nicht: Katalog und Felder sind domänenneutral (siehe
-[Architektur](#architektur)).
+Beispiel zum Erkunden da statt einer leeren Canvas. Für alles andere gibt es beim
+Anlegen eines Projekts weitere Vorlagen (Netzwerk, Cloud, Kubernetes, Software,
+Prozesse) — siehe [Architektur](#architektur).
 
 > ⚠️ **HTTPS in Produktion:** Läuft die Instanz öffentlich (z. B. hinter einem
 > Cloudflare-Tunnel), unbedingt über **HTTPS** ausliefern und `COOKIE_SECURE=true`
@@ -135,10 +141,18 @@ cd backend && npm test
 - **Backend:** Node.js 22 + Express, better-sqlite3 (synchron, schnell, eine Datei),
   Zod-Validierung. Kein ORM — das Schema ist bewusst klein.
 - **Datenmodell:** Kern-Felder + `fields` (typisiert) + `customFields` (frei) pro Node.
-  Kategorien, Status, Verbindungsarten **und Felddefinitionen** kommen aus einem zentralen
-  Katalog (`backend/src/catalog.js`) und sind über `/api/meta/catalog` abfragbar. Ein neues
-  Feld ist ein Eintrag dort — keine DB-Migration, keine UI-Änderung: Panel, Canvas-Anzeige
-  und Validierung bauen sich daraus.
+  Kategorien, Status, Verbindungsarten **und Felddefinitionen** kommen aus einem Katalog
+  (`backend/src/catalog/`). Ein neues Feld ist ein Eintrag dort — keine DB-Migration, keine
+  UI-Änderung: Panel, Canvas-Anzeige, Suche und Validierung bauen sich daraus.
+- **Domain-Packs:** Der Katalog ist in thematische Pakete geteilt (`backend/src/catalog/packs/`):
+  Infrastruktur, Netzwerk, Security, Betrieb, Cloud, Kubernetes, Software-Architektur,
+  Prozesse & Organisation, Homelab-Extras. Ein Kern-Pack (Anwendung, Datenbank, Gruppe,
+  Nutzer, Abhängigkeit, Datenfluss …) ist immer aktiv. Jedes Projekt wählt seine Packs;
+  `/api/projects/:id/catalog` liefert genau deren Bausteine, `/api/meta/catalog` alles.
+  Ein neues Pack = eine Datei + ein Registry-Eintrag.
+- **Vorlagen:** `backend/src/templates/` — jede Vorlage nennt ihre Packs und baut ihren
+  Startinhalt über die normale Store-API auf. Ein Test prüft, dass keine Vorlage etwas
+  verwendet, das ihr Projekt gar nicht sieht.
 - **Produktneutral:** Der Katalog beschreibt Bausteine (Hypervisor, Container, Datenbank,
   Reverse Proxy), keine Hersteller. „Proxmox VE“, „AWS“ oder „Kubernetes“ sind **Werte** im
   Feld `platform` — derselbe Node-Typ trägt damit auch ESXi, Hyper-V oder XCP-ng. Die
@@ -215,6 +229,15 @@ curl -b cookies.txt -X POST http://localhost:8080/api/edges \
 # Backup per API (nur die eigenen Daten)
 curl -s -b cookies.txt http://localhost:8080/api/graph/export > backup.json
 ```
+
+**Katalog & Vorlagen:** `GET /meta/catalog` liefert den **vollständigen** Katalog über alle
+Packs (Referenz für Skripte), `GET /projects/:id/catalog` den eines Projekts.
+`GET /meta/packs` und `GET /meta/templates` listen die Auswahl. Ein Projekt anlegen mit
+Vorlage: `POST /projects { "name": "…", "template": "kubernetes" }` — die Packs kommen
+dann von der Vorlage, `packs` überschreibt sie.
+
+**Projekt-Felder:** `name` (Pflicht), `color`, `icon`, `packs` (Domain-Packs),
+`sortOrder`. Beim Anlegen zusätzlich `template`.
 
 **Node-Felder:** `name` (Pflicht), `category`, `status`
 (`active|inactive|planned|maintenance|error|unknown`), `parentId` (Zone/Gruppe),

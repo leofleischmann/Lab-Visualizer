@@ -114,12 +114,44 @@ gehört zu genau einem Projekt; beim Arbeiten sieht man nur die Ebenen/Nodes des
 Projekts. Hierarchie: **Projekt → Ebenen (Baum) → Nodes/Edges**.
 
 ```json
-{ "id": "homelab", "name": "Mein Homelab", "color": "#38bdf8", "icon": "boxes", "sortOrder": 0 }
+{
+  "id": "homelab",
+  "name": "Mein Homelab",
+  "color": "#38bdf8",
+  "icon": "boxes",
+  "packs": ["infrastructure", "network", "operations"],
+  "sortOrder": 0
+}
 ```
 
 - Jedes Projekt gehört **genau einem Nutzer**; du siehst/änderst nur deine eigenen Projekte.
   Bei der Registrierung wird automatisch ein Beispielprojekt „Homelab (Beispiel)" angelegt.
   Ein neues Projekt startet mit einer eigenen Root-Ebene.
+- **`packs`** bestimmt, welche Kategorien, Felder und Verbindungsarten dieses Projekt sieht
+  (siehe [Domain-Packs](#domain-packs)). Beim Anlegen kann stattdessen `template` gesetzt
+  werden — dann kommen die Packs von der Vorlage und ihr Startinhalt wird mit aufgebaut.
+  `template` ist eine reine Anlege-Option: ein PATCH ignoriert sie.
+
+#### Domain-Packs
+
+Der Katalog ist in thematische Pakete geteilt. Ein **Kern-Pack** (Anwendung, Datenbank,
+Gruppe, Nutzer, Abhängigkeit, Datenfluss, `url`, `owner`, `platform` …) ist immer aktiv;
+alles Weitere kommt aus den gewählten Packs:
+
+| id | Inhalt |
+|---|---|
+| `infrastructure` | Hypervisor, VM, Container, physische Geräte · `os`, `cpu`, `ram`, `disk` |
+| `network` | Router, Proxy, VPN, DNS · Protokolle · `ip`, `hostname`, `vlan`, `mac` |
+| `security` | Firewall, IDS, SSO, Secrets, Zertifikate · `expiresAt` |
+| `operations` | Monitoring, Backup, CI/CD, Cronjobs · `sla` |
+| `cloud` | Region, VPC, Managed Service, Bucket, Serverless · `region`, `accountId`, `cost` |
+| `kubernetes` | Cluster, Namespace, Workload, Service, Volume · `namespace`, `image`, `replicas` |
+| `software` | System, Komponente, API, Queue, Akteur · `repository`, `language` |
+| `business` | Prozess, Schritt, Entscheidung, Rolle, Abteilung · `costCenter`, `frequency` |
+| `homelab` | Medien, Game-Server, Smart Home, IoT |
+
+Ein Pack abzuwählen **löscht nichts**: Werte zu dessen Feldern bleiben am Node erhalten und
+werden weiterhin akzeptiert (die Validierung prüft gegen alle Packs, nicht nur die aktiven).
 - Ein Projekt löschen **kaskadiert** auf alle Ebenen/Nodes/Edges; das **letzte** Projekt
   bleibt erhalten.
 
@@ -333,8 +365,21 @@ Export enthält **alle** Projekte, Ebenen, Nodes und Edges:
 | `GET` | `/projects` | Alle Projekte |
 | `POST` | `/projects` | Projekt (inkl. leerer Root-Ebene) anlegen → `201` |
 | `GET` | `/projects/:id` | Einzelnes Projekt |
+| `GET` | `/projects/:id/catalog` | Katalog **dieses Projekts** (nur seine Packs) |
 | `PATCH`/`PUT` | `/projects/:id` | Partielles Update |
 | `DELETE` | `/projects/:id` | Kaskadiert auf Ebenen/Nodes/Edges (letztes Projekt: `400`) |
+
+**Projekt mit Vorlage anlegen:**
+
+```http
+POST /api/projects
+{ "name": "Prod-Cluster", "template": "kubernetes" }
+```
+
+Baut Ebenen, Nodes und Kanten der Vorlage auf und übernimmt deren Packs. Ein
+mitgesendetes `packs` gewinnt gegenüber der Vorlage. Projekt und Inhalt entstehen in
+**einer Transaktion** — läuft der Aufbau in ein Instanz-Limit, bleibt kein halbes Projekt
+zurück. Verfügbare Vorlagen: `GET /meta/templates`.
 
 ### Ebenen (Views)
 
@@ -368,8 +413,16 @@ GET /health   (öffentlich, kein Login nötig)
 
 ```
 GET /meta/catalog
-→ 200 { "categories": [...], "statuses": [...], "edgeKinds": [...], "lineStyles": [...], "fields": [...] }
+→ 200 { "categories": [...], "statuses": [...], "edgeKinds": [...], "lineStyles": [...],
+        "fields": [...], "packs": [...] }
+
+GET /meta/packs      → 200 { "packs": [ { "id": "network", "label": "Netzwerk", … } ] }
+GET /meta/templates  → 200 { "templates": [ { "id": "kubernetes", "packs": [...], … } ] }
 ```
+
+`/meta/catalog` liefert den **vollständigen** Katalog über alle Packs — die Referenz, wenn
+du kein konkretes Projekt im Blick hast. Für ein Projekt nimm `GET /projects/:id/catalog`;
+nur dessen Kategorien und Felder erscheinen dort auch in der UI.
 
 `fields` beschreibt die typisierten Node-Felder. Ein Eintrag sieht so aus:
 
@@ -574,37 +627,54 @@ Empfohlen direkt nach Bulk-Import oder wenn viele Nodes bei (0,0) liegen.
 
 ## Katalog-Referenz (häufige Werte)
 
-Vollständige Liste: `GET /meta/catalog`.
+Vollständige Liste: `GET /meta/catalog` (alle Packs) bzw. `GET /projects/:id/catalog`
+(nur die eines Projekts). Nach Pack gruppiert — welche davon sichtbar sind, entscheidet
+`project.packs`, siehe [Domain-Packs](#domain-packs).
 
 ### Node-Kategorien (Auszug)
 
-| id | Gruppe |
+| Pack | ids |
 |---|---|
-| `hypervisor`, `vm`, `system-container`, `physical-device`, `router`, `vps` | Infrastruktur |
-| `docker-stack`, `docker-container`, `database`, `web-app`, `monitoring` | Dienste |
-| `reverse-proxy`, `tunnel`, `vpn`, `dns` | Netzwerk |
-| `firewall`, `auth`, `secrets` | Security |
-| `ci-runner`, `git-repo`, `automation` | CI/CD |
-| `storage`, `backup` | Storage |
-| `cloud-service`, `domain`, `internet` | Extern |
-| `group` | Zone/Gruppierung |
+| *Kern* (immer aktiv) | `generic`, `group`, `web-app`, `native-service`, `database`, `storage`, `client`, `internet`, `cloud-service`, `domain`, `email` |
+| `infrastructure` | `hypervisor`, `vm`, `system-container`, `physical-device`, `vps`, `docker-stack`, `docker-container` |
+| `network` | `router`, `wifi-ap`, `reverse-proxy`, `tunnel`, `vpn`, `dns` |
+| `security` | `firewall`, `ids`, `auth`, `secrets`, `certificate` |
+| `operations` | `monitoring`, `backup`, `file-share`, `ci-runner`, `git-repo`, `automation` |
+| `cloud` | `cloud-region`, `cloud-network`, `managed-service`, `object-storage`, `serverless`, `load-balancer` |
+| `kubernetes` | `k8s-cluster`, `k8s-namespace`, `k8s-workload`, `k8s-service`, `k8s-ingress`, `k8s-volume` |
+| `software` | `software-system`, `component`, `api-endpoint`, `message-queue`, `external-system`, `actor`, `ai-service` |
+| `business` | `process`, `process-step`, `decision`, `document`, `role`, `department`, `business-system` |
+| `homelab` | `media`, `game-server`, `smart-home`, `iot-device` |
 
-### Edge-Kinds (Auszug)
+### Edge-Kinds
 
-| Gruppe | ids |
+| Pack | ids |
 |---|---|
-| Allgemein | `generic`, `dependency`, `data-flow`, `control`, `api` |
-| Netzwerk | `http`, `https`, `tcp`, `udp`, `ssh`, `tunnel`, `vpn`, `dns`, `mail` |
-| Betrieb | `monitoring`, `backup`, `ci` |
+| *Kern* | `generic`, `dependency`, `data-flow`, `control`, `api` |
+| `network` | `http`, `https`, `tcp`, `udp`, `dns`, `tunnel`, `vpn`, `mail` |
+| `infrastructure` | `ssh` |
+| `operations` | `monitoring`, `backup`, `ci` |
+| `software` | `event` |
+| `business` | `process-flow`, `responsibility` |
 
-### Node-Felder (Auszug)
+### Node-Felder
 
-| Gruppe | keys |
+| Pack | keys |
 |---|---|
-| Allgemein | `url`, `owner`, `environment`, `criticality` |
-| Netzwerk | `ip`, `hostname`, `vlan`, `mac` |
-| System | `platform`, `os`, `version`, `cpu`, `ram`, `disk` |
-| Betrieb | `location`, `reviewedAt` |
+| *Kern* | `url`, `owner`, `environment`, `criticality`, `platform`, `version`, `location`, `reviewedAt` |
+| `infrastructure` | `os`, `cpu`, `ram`, `disk` |
+| `network` | `ip`, `hostname`, `vlan`, `mac` |
+| `security` | `expiresAt` |
+| `operations` | `sla` |
+| `cloud` | `region`, `accountId`, `resourceId`, `cost` |
+| `kubernetes` | `namespace`, `image`, `replicas` |
+| `software` | `repository`, `language` |
+| `business` | `costCenter`, `frequency` |
+
+### Vorlagen
+
+`empty` · `homelab` · `network` · `cloud` · `kubernetes` · `software` · `business`
+(`GET /meta/templates` liefert Beschreibung, Packs und Grösse jeder Vorlage.)
 
 ---
 
@@ -619,7 +689,9 @@ Vollständige Liste: `GET /meta/catalog`.
 | Migration / Sync | `GET /graph/export` + `POST /graph/import` |
 | Nur Positionen (Layout) | `POST /nodes/positions` |
 | Auto-Align (gesamter Graph) | `POST /graph/layout` |
-| Verfügbare Kategorien, Status, Edge-Kinds & Felder | `GET /meta/catalog` |
+| Alle Kategorien, Status, Edge-Kinds & Felder | `GET /meta/catalog` |
+| Was ein bestimmtes Projekt sieht | `GET /projects/:id/catalog` |
+| Verfügbare Packs / Vorlagen | `GET /meta/packs` · `GET /meta/templates` |
 | API erreichbar? | `GET /health` |
 
 ---
@@ -633,7 +705,8 @@ Vollständige Liste: `GET /meta/catalog`.
 | `backend/src/validation.js` | Zod-Schemas, Limits (inkl. `register`/`login`) |
 | `backend/src/layout.js` | Auto-Layout-Algorithmus |
 | `backend/src/store.js` | CRUD, Import, Parent-Logik, Row-Level-Autorisierung |
-| `backend/src/catalog.js` | Kategorien, Status, Edge-Kinds, Felddefinitionen |
+| `backend/src/catalog/` | Kern + Domain-Packs (Kategorien, Edge-Kinds, Felddefinitionen) |
+| `backend/src/templates/` | Startvorlagen für neue Projekte |
 | `backend/src/routes/*.js` | Route-Definitionen (inkl. `auth.js`) |
 | `frontend/src/api/types.ts` | TypeScript-Typen (Frontend) |
 

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { STATUS_IDS, LINE_STYLES, FIELDS_BY_KEY } from './catalog.js';
+import { STATUS_IDS, LINE_STYLES, FIELDS_BY_KEY, PACK_IDS } from './catalog/index.js';
 
 /** Fehler mit HTTP-Status, wird vom zentralen Error-Handler in JSON übersetzt. */
 export class ApiError extends Error {
@@ -30,8 +30,12 @@ const customFieldsSchema = z
  * nicht kennt. Sie werden gespeichert und bleiben erhalten, das Panel zeigt sie
  * erst, wenn der Katalog sie kennt.
  *
- * Beeinflusst: catalog.js (FIELDS ist die Quelle der Wahrheit), store.js
- * (Serialisierung nach JSON), frontend/src/components/panel/NodePanel.tsx.
+ * Geprüft wird gegen die VEREINIGUNG aller Packs (catalog/index.js ALL_FIELDS),
+ * nicht gegen die Packs des Projekts — sonst würde ein Wert ungültig, sobald
+ * jemand ein Pack abwählt.
+ *
+ * Beeinflusst: catalog/index.js (Quelle der Wahrheit), store.js (Serialisierung
+ * nach JSON), frontend/src/components/panel/NodePanel.tsx.
  */
 const fieldValueChecks = {
   number: (value) =>
@@ -100,9 +104,20 @@ export const projectCreateSchema = z.object({
   color: z.string().max(32).nullable().optional(),
   icon: z.string().max(50).nullable().optional(),
   sortOrder: z.number().int().optional(),
+  /** Aktive Domain-Packs; bestimmt Palette, Panel-Felder und Verbindungsarten. */
+  packs: z.array(z.enum(PACK_IDS)).max(PACK_IDS.length).optional(),
+  /**
+   * Nur beim Anlegen: Startinhalt aus backend/src/templates/. Das Template
+   * setzt auch die Packs, sofern `packs` nicht ausdrücklich mitgesendet wird.
+   */
+  template: z.string().min(1).max(50).optional(),
 });
 
-export const projectUpdateSchema = projectCreateSchema.omit({ id: true }).partial();
+// `template` ist eine Anlege-Option, kein Feld des Projekts — ein PATCH darf
+// den Inhalt eines bestehenden Projekts nicht nachträglich überschreiben.
+export const projectUpdateSchema = projectCreateSchema
+  .omit({ id: true, template: true })
+  .partial();
 
 export const viewCreateSchema = z.object({
   id: idSchema.optional(),

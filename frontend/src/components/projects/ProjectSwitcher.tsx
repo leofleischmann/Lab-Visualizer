@@ -1,34 +1,29 @@
 import { useState } from 'react';
 import clsx from 'clsx';
-import { Boxes, Check, ChevronDown, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Boxes, Check, ChevronDown, Settings2, Plus, Trash2 } from 'lucide-react';
+import type { Project } from '../../api/types';
 import { useGraphStore } from '../../store/graph';
+import { NewProjectDialog } from './NewProjectDialog';
+import { ProjectSettingsDialog } from './ProjectSettingsDialog';
 
 /**
  * Projekt-Umschalter in der TopBar: wechselt zwischen komplett getrennten
- * Arbeitsbereichen (z. B. „Homelab", „Arbeit"), legt an, benennt um, löscht.
+ * Arbeitsbereichen (z. B. „Homelab", „Arbeit"), legt an, bearbeitet, löscht.
+ *
+ * Anlegen und Bearbeiten laufen über Dialoge statt window.prompt, weil beides
+ * mehr als einen Namen braucht: eine Vorlage bzw. die Domain-Packs des Projekts.
  */
 export function ProjectSwitcher() {
   const projects = useGraphStore((s) => s.projects);
   const activeProjectId = useGraphStore((s) => s.activeProjectId);
   const setActiveProject = useGraphStore((s) => s.setActiveProject);
-  const createProject = useGraphStore((s) => s.createProject);
-  const saveProject = useGraphStore((s) => s.saveProject);
   const removeProject = useGraphStore((s) => s.removeProject);
 
   const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<Project | null>(null);
   const active = projects.find((p) => p.id === activeProjectId) ?? null;
 
-  const add = async () => {
-    const name = window.prompt('Name des neuen Projekts:', 'Neues Projekt');
-    if (name?.trim()) {
-      await createProject({ name: name.trim() });
-      setOpen(false);
-    }
-  };
-  const rename = async (id: string, current: string) => {
-    const name = window.prompt('Projekt umbenennen:', current);
-    if (name?.trim()) await saveProject(id, { name: name.trim() });
-  };
   const del = async (id: string, name: string) => {
     if (projects.length <= 1) return;
     if (window.confirm(`Projekt „${name}" mit ALLEN Ebenen, Nodes und Verbindungen löschen?`)) {
@@ -92,11 +87,14 @@ export function ProjectSwitcher() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => void rename(p.id, p.name)}
-                    title="Umbenennen"
+                    onClick={() => {
+                      setEditing(p);
+                      setOpen(false);
+                    }}
+                    title="Name & Bausteine"
                     className="rounded p-1 text-slate-500 opacity-0 transition-opacity hover:bg-slate-700 hover:text-slate-200 group-hover:opacity-100"
                   >
-                    <Pencil size={12} />
+                    <Settings2 size={12} />
                   </button>
                   {projects.length > 1 && (
                     <button
@@ -113,13 +111,21 @@ export function ProjectSwitcher() {
             </div>
             <button
               type="button"
-              onClick={() => void add()}
+              onClick={() => {
+                setCreating(true);
+                setOpen(false);
+              }}
               className="mt-1 flex w-full items-center gap-1.5 rounded-md border-t border-slate-800 px-2 py-1.5 text-[11px] font-medium text-slate-400 hover:text-sky-300"
             >
               <Plus size={12} /> Neues Projekt
             </button>
           </div>
         </>
+      )}
+
+      {creating && <NewProjectDialog onClose={() => setCreating(false)} />}
+      {editing && (
+        <ProjectSettingsDialog project={editing} onClose={() => setEditing(null)} />
       )}
     </div>
   );
