@@ -74,24 +74,24 @@ describe('Fehlerbehandlung des Graph-Stores', () => {
 
   test('ein erreichtes Instanz-Limit öffnet den Limit-Hinweis statt des Toasts', async () => {
     createProject.mockRejectedValue(
-      new ApiRequestError('Diese Instanz erlaubt maximal 1 Projekt pro Konto.', 403, 'limit_reached')
+      new ApiRequestError('This instance allows at most 1 project per account.', 403, 'limit_reached')
     );
 
     await useGraphStore.getState().createProject({ name: 'x' });
 
     expect(useGraphStore.getState().limitNotice).toBe(
-      'Diese Instanz erlaubt maximal 1 Projekt pro Konto.'
+      'This instance allows at most 1 project per account.'
     );
     // Der Toast bleibt leer — sonst stünde dieselbe Meldung doppelt auf dem Schirm.
     expect(useGraphStore.getState().error).toBeNull();
   });
 
   test('403 ohne Limit-Code ist ein normaler Fehler (z. B. CSRF-Schutz)', async () => {
-    createProject.mockRejectedValue(new ApiRequestError('Ungültiger Origin', 403));
+    createProject.mockRejectedValue(new ApiRequestError('Invalid origin', 403));
 
     await useGraphStore.getState().createProject({ name: 'x' });
 
-    expect(useGraphStore.getState().error).toBe('Ungültiger Origin');
+    expect(useGraphStore.getState().error).toBe('Invalid origin');
     expect(useGraphStore.getState().limitNotice).toBeNull();
   });
 

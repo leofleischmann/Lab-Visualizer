@@ -50,7 +50,7 @@ function InfraNodeComponent({ id, data, selected }: NodeProps<FlowNode>) {
         match === false || filteredOut ? 'opacity-25' : dimmed && 'opacity-30'
       )}
       style={{ borderLeftWidth: 4, borderLeftColor: color }}
-      title={isPortal ? 'Doppelklick öffnet die Detailebene' : undefined}
+      title={isPortal ? 'Double-click opens the detail level' : undefined}
       // Hier statt ueber ReactFlows onNodeDoubleClick: das feuert nicht, wenn
       // Nodes nicht ziehbar sind (Leseansicht eines Freigabelinks).
       onDoubleClick={isPortal ? () => void drillInto(id) : undefined}
@@ -60,7 +60,7 @@ function InfraNodeComponent({ id, data, selected }: NodeProps<FlowNode>) {
       {isPortal && (
         <span
           className="pointer-events-none absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-indigo-300 bg-indigo-500 text-white shadow-md shadow-black/40"
-          title="Detailebene verknüpft (Doppelklick öffnet sie)"
+          title="Detail level linked (double-click to open)"
         >
           <Layers size={11} />
         </span>

@@ -22,7 +22,7 @@ export default function App() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 bg-slate-950 text-slate-500">
         <RotateCw size={22} className="animate-spin" />
-        <p className="text-sm">Lade …</p>
+        <p className="text-sm">Loading …</p>
       </div>
     );
   }
@@ -80,7 +80,7 @@ function Workspace() {
           {loading ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-slate-500">
               <RotateCw size={22} className="animate-spin" />
-              <p className="text-sm">Lade Projekt …</p>
+              <p className="text-sm">Loading project …</p>
             </div>
           ) : (
             <FlowCanvas />
@@ -97,7 +97,7 @@ function Workspace() {
               type="button"
               onClick={() => setError(null)}
               className="rounded p-0.5 text-red-400 transition-colors hover:bg-red-900 hover:text-red-200"
-              title="Meldung schließen"
+              title="Dismiss message"
             >
               <X size={13} />
             </button>

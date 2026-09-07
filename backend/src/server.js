@@ -7,7 +7,7 @@ const HOST = process.env.HOST || '0.0.0.0';
 const { app, db } = createApp();
 
 const server = app.listen(PORT, HOST, () => {
-  console.log(`Lab Visualizer API läuft auf http://${HOST}:${PORT}`);
+  console.log(`Lab Visualizer API listening on http://${HOST}:${PORT}`);
 });
 
 // Abgelaufene Sessions regelmäßig aufräumen (stündlich). unref → hält den Prozess

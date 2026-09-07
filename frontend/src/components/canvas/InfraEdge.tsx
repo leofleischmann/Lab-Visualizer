@@ -431,7 +431,7 @@ function InfraEdgeComponent({
                   cursor: SEGMENT_CURSOR[axis],
                   zIndex: 11,
                 }}
-                title="Segment verschieben"
+                title="Move segment"
                 onPointerDown={handleSegmentPointerDown(index)}
               />
             );
@@ -447,7 +447,7 @@ function InfraEdgeComponent({
                   cursor: 'move',
                   zIndex: 12,
                 }}
-                title="Eckpunkt verschieben (Doppelklick: entfernen)"
+                title="Move waypoint (double-click to remove)"
                 onPointerDown={handleBendpointPointerDown(index)}
               />
             );
@@ -467,7 +467,7 @@ function InfraEdgeComponent({
               transform: `translate(-50%, -50%) translate(${labelPos.x}px, ${labelPos.y}px)`,
               zIndex: 10,
             }}
-            title="Label entlang der Linie verschieben"
+            title="Drag the label along the line"
             onPointerDown={handleLabelPointerDown}
           >
             {entity.label}

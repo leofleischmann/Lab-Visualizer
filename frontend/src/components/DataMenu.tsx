@@ -30,7 +30,7 @@ function fileNameOf(name: string | undefined): string {
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
-  return slug || 'diagramm';
+  return slug || 'diagram';
 }
 
 /**
@@ -85,7 +85,7 @@ export function DataMenu() {
       link.click();
       setOpen(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Bild konnte nicht erzeugt werden');
+      setError(err instanceof Error ? err.message : 'Could not render the image');
     } finally {
       setRendering(null);
     }
@@ -96,7 +96,7 @@ export function DataMenu() {
       const data = await api.exportGraph();
       download(data, `lab-visualizer-backup-${new Date().toISOString().slice(0, 10)}.json`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Export fehlgeschlagen');
+      setError(err instanceof Error ? err.message : 'Export failed');
     }
     setOpen(false);
   };
@@ -105,13 +105,13 @@ export function DataMenu() {
     if (!activeProjectId) return;
     try {
       const data = await api.exportGraph(activeProjectId);
-      const safeName = (activeProject?.name ?? 'projekt')
+      const safeName = (activeProject?.name ?? 'project')
         .toLowerCase()
         .replace(/[^a-z0-9äöüß-]+/gi, '-')
         .slice(0, 40);
       download(data, `lab-visualizer-${safeName}-${new Date().toISOString().slice(0, 10)}.json`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Export fehlgeschlagen');
+      setError(err instanceof Error ? err.message : 'Export failed');
     }
     setOpen(false);
   };
@@ -126,17 +126,17 @@ export function DataMenu() {
     try {
       const parsed = JSON.parse(await file.text());
       if (!Array.isArray(parsed?.nodes)) {
-        throw new Error('Ungültiges Format: "nodes"-Array fehlt');
+        throw new Error('Invalid format: "nodes" array is missing');
       }
       const mode = importMode.current;
       const summary =
-        `${parsed.nodes.length} Nodes / ${parsed.edges?.length ?? 0} Verbindungen` +
-        `${parsed.views?.length ? ` / ${parsed.views.length} Ebenen` : ''}` +
-        `${parsed.projects?.length ? ` / ${parsed.projects.length} Projekt(e)` : ''}`;
+        `${parsed.nodes.length} nodes / ${parsed.edges?.length ?? 0} connections` +
+        `${parsed.views?.length ? ` / ${parsed.views.length} levels` : ''}` +
+        `${parsed.projects?.length ? ` / ${parsed.projects.length} project(s)` : ''}`;
       const ok = window.confirm(
         mode === 'replace'
-          ? `ACHTUNG: Der Import ersetzt ALLE Daten deines Kontos (sämtliche Projekte und Ebenen) durch ${summary}. Fortfahren?`
-          : `Import fügt ${summary} als NEUES Projekt hinzu — bestehende Daten bleiben unverändert. Fortfahren?`
+          ? `WARNING: this import replaces ALL data in your account (every project and level) with ${summary}. Continue?`
+          : `The import adds ${summary} as a NEW project — existing data stays untouched. Continue?`
       );
       if (!ok) return;
       await importGraph(
@@ -149,14 +149,14 @@ export function DataMenu() {
         mode
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Import fehlgeschlagen');
+      setError(err instanceof Error ? err.message : 'Import failed');
     }
   };
 
   const handleReset = async () => {
     const ok = window.confirm(
-      'ACHTUNG: Setzt dein KOMPLETTES Konto zurück — alle Projekte, Ebenen, Nodes und ' +
-        'Verbindungen werden gelöscht.\n\nTipp: Vorher „Backup exportieren", falls du die Daten brauchst.'
+      'WARNING: this resets your ENTIRE account — every project, level, node and ' +
+        'connection is deleted.\n\nTip: export a backup first if you still need the data.'
     );
     if (ok) await clearGraph();
     setOpen(false);
@@ -171,9 +171,9 @@ export function DataMenu() {
         type="button"
         onClick={() => setOpen((o) => !o)}
         className="flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:border-sky-500 hover:text-sky-300"
-        title="Export, Import & Zurücksetzen"
+        title="Export, import & reset"
       >
-        <Database size={13} /> Daten <ChevronDown size={12} className="text-slate-500" />
+        <Database size={13} /> Data <ChevronDown size={12} className="text-slate-500" />
       </button>
 
       {open && (
@@ -184,7 +184,7 @@ export function DataMenu() {
               Export
             </div>
             <button type="button" onClick={() => void handleExportAll()} className={item}>
-              <Download size={13} className="text-slate-500" /> Backup exportieren (alle Projekte)
+              <Download size={13} className="text-slate-500" /> Export backup (all projects)
             </button>
             <button
               type="button"
@@ -194,17 +194,17 @@ export function DataMenu() {
             >
               <FolderDown size={13} className="text-slate-500" />
               <span className="min-w-0 truncate">
-                Nur „{activeProject?.name ?? 'Projekt'}" exportieren
+                Export only “{activeProject?.name ?? 'project'}”
               </span>
             </button>
 
             <div className="mt-1 border-t border-slate-800 px-2 py-1 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-              Diagramm als Bild
+              Diagram as image
             </div>
             {(
               [
-                ['png', 'PNG (2-fache Auflösung)'],
-                ['svg', 'SVG (skalierbar, für Web & Wiki)'],
+                ['png', 'PNG (2x resolution)'],
+                ['svg', 'SVG (scalable, for web & wiki)'],
               ] as const
             ).map(([format, label]) => (
               <button
@@ -214,8 +214,8 @@ export function DataMenu() {
                 disabled={!nodes.length || rendering !== null}
                 title={
                   nodes.length
-                    ? `Aktuelle Ebene „${activeView?.name ?? ''}" als ${format.toUpperCase()} speichern`
-                    : 'Diese Ebene enthält keine Nodes'
+                    ? `Save the current level “${activeView?.name ?? ''}” as ${format.toUpperCase()}`
+                    : 'This level has no nodes'
                 }
                 className={item}
               >
@@ -232,10 +232,10 @@ export function DataMenu() {
               Import
             </div>
             <button type="button" onClick={() => startImport('merge')} className={item}>
-              <FilePlus2 size={13} className="text-slate-500" /> Als neues Projekt hinzufügen
+              <FilePlus2 size={13} className="text-slate-500" /> Add as a new project
             </button>
             <button type="button" onClick={() => startImport('replace')} className={item}>
-              <Upload size={13} className="text-slate-500" /> Alles ersetzen (Restore)
+              <Upload size={13} className="text-slate-500" /> Replace everything (restore)
             </button>
 
             <div className="mt-1 border-t border-slate-800 pt-1">
@@ -244,7 +244,7 @@ export function DataMenu() {
                 onClick={() => void handleReset()}
                 className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-xs text-red-400 transition-colors hover:bg-red-500/10"
               >
-                <Trash2 size={13} /> Konto zurücksetzen …
+                <Trash2 size={13} /> Reset account …
               </button>
             </div>
           </div>

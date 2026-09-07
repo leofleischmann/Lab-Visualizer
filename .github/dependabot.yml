@@ -6,7 +6,7 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
     groups:
-      # Patch-/Minor-Updates gebuendelt, damit nicht jede Woche 10 PRs aufgehen.
+      # Patch/minor updates bundled so we do not get 10 PRs every week.
       backend-minor:
         update-types: [minor, patch]
 

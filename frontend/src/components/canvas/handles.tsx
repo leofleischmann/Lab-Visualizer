@@ -16,8 +16,13 @@ const SIDES: { id: string; position: Position }[] = [
 export function ConnectionHandles({ visible }: { visible: boolean }) {
   // In der Leseansicht eines Freigabelinks lassen sich keine Verbindungen
   // ziehen — dann sind die Punkte nur irreführend.
+  //
+  // WICHTIG: die Handles duerfen dafuer NICHT entfernt werden. React Flow loest
+  // die Endpunkte einer Kante ueber die `handleBounds` der Endknoten auf; ohne
+  // ein einziges Handle findet es keinen Ankerpunkt und zeichnet die Kante gar
+  // nicht — in der Leseansicht fehlten dadurch saemtliche Verbindungen. Sie
+  // werden deshalb unsichtbar und nicht bedienbar gerendert statt weggelassen.
   const readOnly = useGraphStore((s) => s.readOnly);
-  if (readOnly) return null;
   return (
     <>
       {SIDES.map(({ id, position }) => (
@@ -26,9 +31,14 @@ export function ConnectionHandles({ visible }: { visible: boolean }) {
           id={id}
           type="source"
           position={position}
+          isConnectable={!readOnly}
           className={
             '!h-2.5 !w-2.5 !rounded-full !border-2 !border-sky-300 !bg-slate-900 transition-opacity duration-100 ' +
-            (visible ? '!opacity-100' : '!opacity-0 group-hover:!opacity-100')
+            (readOnly
+              ? '!pointer-events-none !opacity-0'
+              : visible
+                ? '!opacity-100'
+                : '!opacity-0 group-hover:!opacity-100')
           }
         />
       ))}

@@ -14,4 +14,4 @@ const data = JSON.parse(fs.readFileSync(FILE, 'utf8'));
 data.nodes = computeLayout(data.nodes, data.edges ?? []);
 data.exportedAt = new Date().toISOString();
 fs.writeFileSync(FILE, JSON.stringify(data, null, 2) + '\n');
-console.log('[Debug layout-lab]: Layout aktualisiert');
+console.log('[Debug layout-lab]: layout updated');

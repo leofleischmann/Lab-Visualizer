@@ -169,7 +169,7 @@ export function ensureRootView(db, projectId) {
   const ts = new Date().toISOString();
   db.prepare(
     `INSERT INTO views (id, project_id, name, parent_id, description, color, icon, sort_order, created_at, updated_at)
-     VALUES (?, ?, 'Übersicht', NULL, '', '#38bdf8', 'layers', 0, ?, ?)`
+     VALUES (?, ?, 'Overview', NULL, '', '#38bdf8', 'layers', 0, ?, ?)`
   ).run(id, projectId, ts, ts);
   return id;
 }

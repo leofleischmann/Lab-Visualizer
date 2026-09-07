@@ -30,7 +30,7 @@ describe('Filter bauen sich aus dem Katalog des Projekts', () => {
     // … `ip` ist Text und taugt nicht als Auswahlliste (dafür gibt es die Suche).
     expect(keys).not.toContain('ip');
     expect(defs.find((d) => d.key === 'environment')?.options.map((o) => o.value)).toEqual([
-      'Produktion', 'Staging', 'Test', 'Entwicklung',
+      'Production', 'Staging', 'Test', 'Development',
     ]);
   });
 
@@ -53,20 +53,20 @@ describe('Filter bauen sich aus dem Katalog des Projekts', () => {
 });
 
 describe('Filter greifen als UND', () => {
-  const kritisch = node({ fields: { environment: 'Produktion', criticality: 'Kritisch' } });
+  const kritisch = node({ fields: { environment: 'Production', criticality: 'Critical' } });
 
   test('leerer Filter lässt alles durch', () => {
     expect(matchesFilters(kritisch, {})).toBe(true);
   });
 
   test('ein Feldwert muss exakt passen', () => {
-    expect(matchesFilters(kritisch, { criticality: 'Kritisch' })).toBe(true);
+    expect(matchesFilters(kritisch, { criticality: 'Critical' })).toBe(true);
     expect(matchesFilters(kritisch, { criticality: 'Niedrig' })).toBe(false);
   });
 
   test('mehrere Filter müssen ALLE passen', () => {
-    expect(matchesFilters(kritisch, { environment: 'Produktion', criticality: 'Kritisch' })).toBe(true);
-    expect(matchesFilters(kritisch, { environment: 'Test', criticality: 'Kritisch' })).toBe(false);
+    expect(matchesFilters(kritisch, { environment: 'Production', criticality: 'Critical' })).toBe(true);
+    expect(matchesFilters(kritisch, { environment: 'Test', criticality: 'Critical' })).toBe(false);
   });
 
   test('Status und Kategorie liegen am Node, nicht in fields', () => {
@@ -77,13 +77,13 @@ describe('Filter greifen als UND', () => {
   });
 
   test('ein Node ohne den gefilterten Wert fällt heraus', () => {
-    expect(matchesFilters(node(), { criticality: 'Kritisch' })).toBe(false);
+    expect(matchesFilters(node(), { criticality: 'Critical' })).toBe(false);
   });
 
   test('Zonen bleiben immer sichtbar', () => {
     // Sonst verschwände der Rahmen, während seine Kinder noch da sind.
     const zone = node({ category: 'group' });
-    expect(matchesFilters(zone, { criticality: 'Kritisch' })).toBe(true);
+    expect(matchesFilters(zone, { criticality: 'Critical' })).toBe(true);
     expect(matchesFilters(zone, { status: 'error' })).toBe(true);
   });
 

@@ -49,7 +49,7 @@ export function FilterBar() {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        title="Nach Feldwerten filtern"
+        title="Filter by field values"
         className={clsx(
           'flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-xs font-medium transition-colors',
           active.length
@@ -80,7 +80,7 @@ export function FilterBar() {
                   onClick={clearFilters}
                   className="text-[11px] text-slate-400 hover:text-sky-300"
                 >
-                  Alle zurücksetzen
+                  Reset all
                 </button>
               )}
             </div>
@@ -96,7 +96,7 @@ export function FilterBar() {
                     onChange={(e) => setFilter(def.key, e.target.value || null)}
                     className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-2 py-1.5 text-xs text-slate-200 focus:border-sky-500 focus:outline-none"
                   >
-                    <option value="">— alle —</option>
+                    <option value="">— all —</option>
                     {def.options.map((o) => (
                       <option key={o.value} value={o.value}>
                         {o.label}
@@ -108,8 +108,8 @@ export function FilterBar() {
             </div>
 
             <p className="mt-2.5 border-t border-slate-800 pt-2 text-[10px] leading-relaxed text-slate-600">
-              Nicht passende Nodes werden gedimmt, nicht ausgeblendet — so bleibt
-              sichtbar, woran sie hängen. Mehrere Filter gelten gleichzeitig.
+              Non-matching nodes are dimmed, not hidden — so you can still see
+              what they connect to. Multiple filters apply at once.
             </p>
           </div>
         </>
@@ -122,7 +122,7 @@ export function FilterBar() {
           key={key}
           type="button"
           onClick={() => setFilter(key, null)}
-          title="Filter entfernen"
+          title="Remove filter"
           className="hidden items-center gap-1 rounded-md border border-sky-500/40 bg-sky-500/10 px-1.5 py-1 text-[11px] text-sky-200 transition-colors hover:border-sky-400 lg:flex"
         >
           <span className="max-w-[120px] truncate">{labelOf(key, value)}</span>

@@ -54,7 +54,7 @@ export function LegalLinks({ className = '' }: { className?: string }) {
       {open && (
         <Modal title={open.title} onClose={() => setOpen(null)} maxWidth="max-w-3xl">
           <div className="prose prose-invert prose-sm max-h-[70vh] max-w-none overflow-y-auto pr-2 prose-headings:mt-4 prose-headings:mb-1.5 prose-p:my-2">
-            <Suspense fallback={<p className="italic text-slate-500">Wird geladen …</p>}>
+            <Suspense fallback={<p className="italic text-slate-500">Loading …</p>}>
               <MarkdownPreview value={open.markdown} />
             </Suspense>
           </div>

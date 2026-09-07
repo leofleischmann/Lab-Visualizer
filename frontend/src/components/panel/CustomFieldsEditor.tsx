@@ -40,7 +40,7 @@ export function CustomFieldsEditor({ rows, onChange }: Props) {
             value={row.key}
             onChange={(e) => update(index, { key: e.target.value })}
             readOnly={readOnly}
-            placeholder="Schlüssel"
+            placeholder="Key"
             className={`w-2/5 rounded-md border bg-slate-900 px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:border-sky-500 focus:outline-none ${
               duplicates.has(row.key.trim()) ? 'border-red-500' : 'border-slate-700'
             }`}
@@ -49,13 +49,13 @@ export function CustomFieldsEditor({ rows, onChange }: Props) {
             value={row.value}
             onChange={(e) => update(index, { value: e.target.value })}
             readOnly={readOnly}
-            placeholder="Wert"
+            placeholder="Value"
             className="flex-1 rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:border-sky-500 focus:outline-none"
           />
           {!readOnly && (
           <button
             type="button"
-            title="Feld entfernen"
+            title="Remove field"
             onClick={() => onChange(rows.filter((_, i) => i !== index))}
             className="rounded-md p-1.5 text-slate-500 transition-colors hover:bg-red-500/10 hover:text-red-400"
           >
@@ -66,7 +66,7 @@ export function CustomFieldsEditor({ rows, onChange }: Props) {
       ))}
       {duplicates.size > 0 && (
         <p className="text-[11px] text-red-400">
-          Doppelte Schlüssel werden beim Speichern zusammengefasst.
+          Duplicate keys are merged when saving.
         </p>
       )}
       {!readOnly && (
@@ -75,7 +75,7 @@ export function CustomFieldsEditor({ rows, onChange }: Props) {
         onClick={() => onChange([...rows, { key: '', value: '' }])}
         className="flex items-center gap-1.5 rounded-md border border-dashed border-slate-600 px-2.5 py-1.5 text-xs text-slate-400 transition-colors hover:border-sky-500 hover:text-sky-300"
       >
-        <Plus size={13} /> Feld hinzufügen
+        <Plus size={13} /> Add field
       </button>
       )}
     </div>

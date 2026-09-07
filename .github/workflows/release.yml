@@ -1,0 +1,220 @@
+# Veroeffentlicht Backend- bzw. Frontend-Image auf GHCR, sobald sich
+# backend/VERSION bzw. frontend/VERSION AUF MAIN aendert. Auf dev passiert
+# nichts — dort laeuft nur die CI.
+#
+# Pro Komponente: VERSION + package.json + CHANGELOG.md Abschnitt ## [X.Y.Z]
+# Git-Tag: backend-vX.Y.Z bzw. frontend-vX.Y.Z
+# Beeinflusst: Image-Tags, GitHub Releases, docker-compose (BACKEND_VERSION /
+# FRONTEND_VERSION), .github/workflows/deploy.yml (gleicher Ausloeser).
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - backend/VERSION
+      - frontend/VERSION
+  workflow_dispatch:
+    inputs:
+      component:
+        description: Which image to release?
+        type: choice
+        options:
+          - backend
+          - frontend
+          - both
+        default: both
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  plan:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      # JSON-Array der zu veroeffentlichenden Komponenten, z. B. ["backend"].
+      components: ${{ steps.detect.outputs.components }}
+      owner: ${{ steps.detect.outputs.owner }}
+    steps:
+      # Ein Dispatch von einem anderen Branch wuerde ein Image aus ungepruftem
+      # Code als `latest` veroeffentlichen. Nur main darf releasen.
+      - name: "Guard: releases only from main"
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "Release runs only on main (got ${{ github.ref }})." >&2
+          exit 1
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Detect
+        id: detect
+        run: |
+          set -euo pipefail
+          OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
+          echo "owner=$OWNER" >> "$GITHUB_OUTPUT"
+
+          BACKEND=false
+          FRONTEND=false
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            case "${{ inputs.component }}" in
+              backend) BACKEND=true ;;
+              frontend) FRONTEND=true ;;
+              both) BACKEND=true; FRONTEND=true ;;
+            esac
+          else
+            BEFORE="${{ github.event.before }}"
+            if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+              # Erster Push oder Force-Push: kein verlaesslicher Vergleichspunkt.
+              BACKEND=true
+              FRONTEND=true
+            else
+              mapfile -t CHANGED < <(git diff --name-only "$BEFORE" "${{ github.sha }}")
+              for f in "${CHANGED[@]}"; do
+                [[ "$f" == "backend/VERSION" ]] && BACKEND=true
+                [[ "$f" == "frontend/VERSION" ]] && FRONTEND=true
+              done
+            fi
+          fi
+
+          COMPONENTS='[]'
+          if [[ "$BACKEND" == true && "$FRONTEND" == true ]]; then
+            COMPONENTS='["backend","frontend"]'
+          elif [[ "$BACKEND" == true ]]; then
+            COMPONENTS='["backend"]'
+          elif [[ "$FRONTEND" == true ]]; then
+            COMPONENTS='["frontend"]'
+          fi
+
+          echo "components=$COMPONENTS" >> "$GITHUB_OUTPUT"
+          echo "[Debug release]: components=$COMPONENTS owner=$OWNER"
+
+  publish:
+    name: Release ${{ matrix.component }}
+    needs: plan
+    if: needs.plan.outputs.components != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      # Backend und Frontend sind unabhaengig: ein Fehlschlag des einen darf den
+      # anderen nicht abbrechen.
+      fail-fast: false
+      matrix:
+        component: ${{ fromJSON(needs.plan.outputs.components) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Version and changelog
+        id: meta
+        env:
+          OWNER: ${{ needs.plan.outputs.owner }}
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          set -euo pipefail
+          VERSION=$(tr -d '[:space:]' < "$COMPONENT/VERSION")
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid $COMPONENT/VERSION: '$VERSION'" >&2
+            exit 1
+          fi
+          PV=$(node -p "require('./$COMPONENT/package.json').version")
+          if [[ "$PV" != "$VERSION" ]]; then
+            echo "$COMPONENT/package.json ($PV) does not match VERSION ($VERSION)." >&2
+            exit 1
+          fi
+          TAG="${COMPONENT}-v${VERSION}"
+          # Bereits veroeffentlicht: nicht erneut bauen und `latest` nicht auf
+          # eine alte Version zurueckdrehen (Re-Run, Dispatch ohne Bump).
+          if git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "[Debug release]: tag $TAG already exists — skipping"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Abschnitt der Version aus dem CHANGELOG schneiden. Bewusst mit
+          # index() statt einer Regex: "## [1.0.0]" enthaelt Zeichen, die als
+          # Regex eine Zeichenklasse bilden, und die noetigen Backslashes
+          # ueberleben den Weg YAML -> Shell -> awk je nach awk-Variante nicht.
+          awk -v ver="$VERSION" '
+            index($0, "## [" ver "]") == 1 { found = 1; print; next }
+            found && index($0, "## [") == 1 { exit }
+            found { print }
+          ' "$COMPONENT/CHANGELOG.md" > /tmp/release-notes.md
+          if [[ ! -s /tmp/release-notes.md ]]; then
+            echo "$COMPONENT/CHANGELOG.md has no section ## [${VERSION}]." >&2
+            exit 1
+          fi
+          {
+            echo ""
+            echo "---"
+            echo ""
+            echo "### Docker image"
+            echo ""
+            echo "- \`ghcr.io/${OWNER}/lab-visualizer-${COMPONENT}:${VERSION}\`"
+            echo ""
+            echo "\`\`\`bash"
+            echo "export $(echo "$COMPONENT" | tr '[:lower:]' '[:upper:]')_VERSION=${VERSION}"
+            echo "docker compose pull ${COMPONENT}"
+            echo "docker compose up -d ${COMPONENT}"
+            echo "\`\`\`"
+          } >> /tmp/release-notes.md
+
+          {
+            echo "skip=false"
+            echo "version=$VERSION"
+            echo "tag=$TAG"
+            echo "image=lab-visualizer-${COMPONENT}"
+            echo "title=${COMPONENT^}"
+          } >> "$GITHUB_OUTPUT"
+          echo "[Debug release]: $COMPONENT $VERSION -> $TAG"
+
+      - uses: docker/login-action@v3
+        if: steps.meta.outputs.skip == 'false'
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+        if: steps.meta.outputs.skip == 'false'
+
+      - uses: docker/build-push-action@v6
+        if: steps.meta.outputs.skip == 'false'
+        with:
+          context: ./${{ matrix.component }}
+          push: true
+          build-args: VERSION=${{ steps.meta.outputs.version }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ needs.plan.outputs.owner }}/${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
+            ${{ env.REGISTRY }}/${{ needs.plan.outputs.owner }}/${{ steps.meta.outputs.image }}:latest
+          labels: |
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.title=Lab Visualizer ${{ steps.meta.outputs.title }}
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+
+      - name: Git tag and GitHub release
+        if: steps.meta.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          TITLE: ${{ steps.meta.outputs.title }} ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "$TITLE"
+          git push origin "$TAG"
+          gh release create "$TAG" --title "$TITLE" --notes-file /tmp/release-notes.md

@@ -178,7 +178,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
   const handleSave = async () => {
     setSaving(true);
     const fields = compactFields(draft.fields);
-    console.debug('[Debug NodePanel]: speichere Node', entity.id, {
+    console.debug('[Debug NodePanel]: saving node', entity.id, {
       fields,
       customFields: Object.keys(toRecord(draft.customRows)).length,
     });
@@ -205,13 +205,13 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
   };
 
   const handleDelete = () => {
-    if (window.confirm(`"${entity.name}" inkl. aller verbundenen Kanten löschen?`)) {
+    if (window.confirm(`Delete "${entity.name}" including all connected edges?`)) {
       void removeNode(entity.id);
     }
   };
 
   const handleCreateDetail = () => {
-    const name = window.prompt('Name der Detailebene:', `${entity.name} – intern`);
+    const name = window.prompt('Name of the detail level:', `${entity.name} – internal`);
     if (name?.trim()) void createDetailView(entity.id, name.trim());
   };
 
@@ -236,14 +236,14 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Kategorie">
+          <Field label="Category">
             <select
               value={draft.category}
               disabled={readOnly}
               onChange={(e) => {
                 if (e.target.value === '__custom__') {
                   const input = window.prompt(
-                    'ID der eigenen Kategorie (z. B. "k8s-cluster"):',
+                    'ID of your own category (e.g. "k8s-cluster"):',
                     ''
                   );
                   const slug = input
@@ -265,8 +265,8 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
               {!catalog?.categories.some((c) => c.id === draft.category) && (
                 <option value={draft.category}>
                   {isInactiveCategory(catalog, draft.category)
-                    ? `${category.label} (Baustein nicht aktiv)`
-                    : `${draft.category} (eigene)`}
+                    ? `${category.label} (pack not active)`
+                    : `${draft.category} (custom)`}
                 </option>
               )}
               {groupedCategories(catalog).map(([groupName, categories]) => (
@@ -278,7 +278,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
                   ))}
                 </optgroup>
               ))}
-              <option value="__custom__">Eigene Kategorie …</option>
+              <option value="__custom__">Custom category …</option>
             </select>
           </Field>
           <Field label="Status">
@@ -311,7 +311,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
               <EntityIcon icon={draft.icon ?? category.icon} size={14} />
             </span>
             <span className="flex-1 truncate">
-              {draft.icon ? 'Eigenes Icon' : `Standard (${category.label})`}
+              {draft.icon ? 'Custom icon' : `Default (${category.label})`}
             </span>
             <ImagePlus size={13} className="shrink-0 text-slate-500" />
           </button>
@@ -319,22 +319,22 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
 
         {/* Erst eine eigene Farbe macht Zonen unterscheidbar: über die
             Kategorie hätten alle Zonen dieselbe. */}
-        <Field label="Farbe">
+        <Field label="Color">
           <ColorPicker
             value={draft.color}
             onChange={(color) => set('color', color)}
-            defaultLabel={`Standard (${category.label})`}
+            defaultLabel={`Default (${category.label})`}
           />
         </Field>
 
-        <Field label="Zone / Gruppe">
+        <Field label="Zone / group">
           <select
             value={draft.parentId}
             disabled={readOnly}
             onChange={(e) => set('parentId', e.target.value)}
             className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 focus:border-sky-500 focus:outline-none"
           >
-            <option value="">— keine —</option>
+            <option value="">— none —</option>
             {zoneOptions.map((z) => (
               <option key={z.id} value={z.id}>
                 {z.data.entity.name}
@@ -359,21 +359,21 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
               }
               hint={
                 groupName === ORPHAN_GROUP
-                  ? 'Werte aus Bausteinen, die dieses Projekt nicht aktiviert hat. Sie bleiben erhalten.'
+                  ? 'Values from building blocks this project has not enabled. They are kept.'
                   : undefined
               }
             />
           ))}
         </div>
 
-        <Field label="Detailebene (Drill-down)">
+        <Field label="Detail level (drill-down)">
           {linkedView ? (
             <div className="space-y-2 rounded-md border border-indigo-500/40 bg-indigo-500/5 px-3 py-2">
               <p className="flex items-center gap-1.5 text-[11px] text-slate-400">
                 <Layers size={12} className="text-indigo-300" />
-                Verknüpft mit{' '}
-                <span className="font-medium text-indigo-300">{linkedView.name}</span>. Doppelklick
-                auf den Node öffnet sie.
+                Linked to{' '}
+                <span className="font-medium text-indigo-300">{linkedView.name}</span>.
+                Double-click the node to open it.
               </p>
               <div className="flex gap-2">
                 <button
@@ -381,7 +381,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
                   onClick={() => void setActiveView(linkedView.id)}
                   className="flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1 text-[11px] font-medium text-white transition-colors hover:bg-indigo-500"
                 >
-                  <Layers size={12} /> Ebene öffnen
+                  <Layers size={12} /> Open level
                 </button>
                 {!readOnly && (
                 <button
@@ -389,13 +389,13 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
                   onClick={() => void saveNode(entity.id, { linkedViewId: null })}
                   className="flex items-center gap-1 rounded-md border border-slate-700 px-2.5 py-1 text-[11px] font-medium text-slate-400 transition-colors hover:border-slate-500 hover:text-slate-200"
                 >
-                  <X size={12} /> Verknüpfung entfernen
+                  <X size={12} /> Remove link
                 </button>
                 )}
               </div>
             </div>
           ) : readOnly ? (
-            <p className="text-[11px] text-slate-600">Keine Detailebene verknüpft.</p>
+            <p className="text-[11px] text-slate-600">No detail level linked.</p>
           ) : (
             <div className="space-y-2">
               <button
@@ -403,7 +403,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
                 onClick={handleCreateDetail}
                 className="flex w-full items-center justify-center gap-1.5 rounded-md border border-indigo-500/50 bg-indigo-500/10 px-3 py-1.5 text-[11px] font-medium text-indigo-300 transition-colors hover:bg-indigo-500/20"
               >
-                <Plus size={13} /> Detailebene erstellen
+                <Plus size={13} /> Create detail level
               </button>
               {views.some((v) => v.id !== entity.viewId) && (
                 <select
@@ -413,7 +413,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
                   }}
                   className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-300 focus:border-sky-500 focus:outline-none"
                 >
-                  <option value="">… oder bestehende Ebene verknüpfen</option>
+                  <option value="">… or link an existing level</option>
                   {views
                     .filter((v) => v.id !== entity.viewId)
                     .map((v) => (
@@ -427,11 +427,11 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
           )}
         </Field>
 
-        <Field label="Notizen (Markdown)">
+        <Field label="Notes (Markdown)">
           <MarkdownEditor value={draft.notes} onChange={(v) => set('notes', v)} />
         </Field>
 
-        <Field label="Custom Fields">
+        <Field label="Custom fields">
           <CustomFieldsEditor
             rows={draft.customRows}
             onChange={(rows) => set('customRows', rows)}
@@ -439,8 +439,8 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
         </Field>
 
         <p className="text-[10px] text-slate-600">
-          Erstellt: {new Date(entity.createdAt).toLocaleString('de-DE')} · Geändert:{' '}
-          {new Date(entity.updatedAt).toLocaleString('de-DE')}
+          Created: {new Date(entity.createdAt).toLocaleString()} · Updated:{' '}
+          {new Date(entity.updatedAt).toLocaleString()}
         </p>
       </div>
 
@@ -461,12 +461,12 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
           disabled={!dirty || saving}
           className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-sky-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500"
         >
-          <Save size={14} /> {saving ? 'Speichert …' : 'Speichern'}
+          <Save size={14} /> {saving ? 'Saving …' : 'Save'}
         </button>
         <button
           type="button"
           onClick={() => void duplicateNode(entity.id)}
-          title="Node duplizieren (Strg+D)"
+          title="Duplicate node (Ctrl+D)"
           className="flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-2 text-xs font-medium text-slate-300 transition-colors hover:border-sky-500 hover:text-sky-300"
         >
           <Copy size={14} />
@@ -474,10 +474,10 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
         <button
           type="button"
           onClick={handleDelete}
-          title="Node löschen"
+          title="Delete node"
           className="flex items-center gap-1.5 rounded-md border border-red-900/60 px-3 py-2 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/10"
         >
-          <Trash2 size={14} /> Löschen
+          <Trash2 size={14} /> Delete
         </button>
       </footer>
       )}

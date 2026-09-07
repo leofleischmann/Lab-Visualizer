@@ -92,7 +92,7 @@ export function FieldInput({
         disabled={readOnly}
         className={inputClass}
       >
-        <option value="">— keine Angabe —</option>
+        <option value="">— not set —</option>
         {/* Ein Wert, den der Katalog nicht (mehr) kennt, bleibt sichtbar statt
             beim nächsten Speichern still verloren zu gehen. */}
         {value && !def.options?.includes(value) && <option value={value}>{value}</option>}
@@ -126,7 +126,7 @@ export function FieldInput({
           href={value}
           target="_blank"
           rel="noreferrer"
-          title="URL öffnen"
+          title="Open URL"
           className="flex items-center rounded-md border border-slate-700 px-2 text-slate-400 transition-colors hover:border-sky-500 hover:text-sky-300"
         >
           <ExternalLink size={14} />

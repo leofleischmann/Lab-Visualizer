@@ -36,10 +36,10 @@ export function authRouter(db) {
   // POST /api/auth/register — neuen Account anlegen, Beispielprojekt seeden, einloggen
   router.post('/register', limiter, async (req, res, next) => {
     try {
-      if (!ALLOW_REGISTRATION) throw new ApiError(403, 'Registrierung ist deaktiviert');
+      if (!ALLOW_REGISTRATION) throw new ApiError(403, 'Registration is disabled');
       const { email, password } = parseOrThrow(registerSchema, req.body);
       if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) {
-        throw new ApiError(409, 'Diese E-Mail ist bereits registriert');
+        throw new ApiError(409, 'This email is already registered');
       }
       const id = crypto.randomUUID();
       const ts = new Date().toISOString();
@@ -65,7 +65,7 @@ export function authRouter(db) {
       const user = db.prepare('SELECT id, email, password_hash FROM users WHERE email = ?').get(email);
       // Auch bei unbekannter E-Mail einen (Dummy-)Hash verifizieren → gleiche Antwortzeit.
       const ok = await verifyPassword(password, user ? user.password_hash : DUMMY_HASH);
-      if (!user || !ok) throw new ApiError(401, 'Ungültige Zugangsdaten');
+      if (!user || !ok) throw new ApiError(401, 'Invalid credentials');
       const { token } = createSession(db, user.id);
       setSessionCookie(req, res, token);
       res.json({ user: { id: user.id, email: user.email }, limits: getInstanceLimits() });
@@ -86,7 +86,7 @@ export function authRouter(db) {
     const session = resolveSession(db, parseCookies(req)[sessionCookieName]);
     if (!session) {
       clearSessionCookie(req, res);
-      return res.status(401).json({ error: 'Nicht angemeldet' });
+      return res.status(401).json({ error: 'Not signed in' });
     }
     if (session.renewed) setSessionCookie(req, res, parseCookies(req)[sessionCookieName]);
     res.json({
@@ -100,13 +100,13 @@ export function authRouter(db) {
     try {
       const token = parseCookies(req)[sessionCookieName];
       const session = resolveSession(db, token);
-      if (!session) throw new ApiError(401, 'Nicht angemeldet');
+      if (!session) throw new ApiError(401, 'Not signed in');
       const { currentPassword, newPassword } = parseOrThrow(passwordChangeSchema, req.body);
       const user = db
         .prepare('SELECT password_hash FROM users WHERE id = ?')
         .get(session.userId);
       if (!user || !(await verifyPassword(currentPassword, user.password_hash))) {
-        throw new ApiError(401, 'Aktuelles Passwort ist falsch');
+        throw new ApiError(401, 'Current password is incorrect');
       }
       const passwordHash = await hashPassword(newPassword);
       db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').run(
@@ -130,13 +130,13 @@ export function authRouter(db) {
     try {
       const token = parseCookies(req)[sessionCookieName];
       const session = resolveSession(db, token);
-      if (!session) throw new ApiError(401, 'Nicht angemeldet');
+      if (!session) throw new ApiError(401, 'Not signed in');
       const { password } = parseOrThrow(accountDeleteSchema, req.body);
       const user = db
         .prepare('SELECT password_hash FROM users WHERE id = ?')
         .get(session.userId);
       if (!user || !(await verifyPassword(password, user.password_hash))) {
-        throw new ApiError(401, 'Passwort ist falsch');
+        throw new ApiError(401, 'Password is incorrect');
       }
       // ON DELETE CASCADE räumt Sessions, Projekte, Ebenen, Nodes und Kanten ab.
       db.prepare('DELETE FROM users WHERE id = ?').run(session.userId);

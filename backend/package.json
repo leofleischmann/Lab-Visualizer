@@ -6,7 +6,7 @@
     "type": "git",
     "url": "git+https://github.com/leofleischmann/Lab-Visualizer.git"
   },
-  "description": "REST-API für den Lab Visualizer (Network Infrastructure Documentation Tool)",
+  "description": "REST API for Lab Visualizer (infrastructure documentation tool)",
   "type": "module",
   "main": "src/server.js",
   "scripts": {

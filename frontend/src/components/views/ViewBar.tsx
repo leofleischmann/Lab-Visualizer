@@ -45,14 +45,14 @@ export function ViewBar() {
   const active = views.find((v) => v.id === activeViewId) ?? null;
 
   const addRoot = async () => {
-    const name = window.prompt('Name der neuen Ebene:', 'Neue Ebene');
+    const name = window.prompt('Name of the new level:', 'New level');
     if (!name?.trim()) return;
     const created = await createView({ name: name.trim(), parentId: null });
     if (created) await setActiveView(created.id);
   };
 
   const addChild = async (parentId: string) => {
-    const name = window.prompt('Name der Unterebene:', 'Detailebene');
+    const name = window.prompt('Name of the sub-level:', 'Detail level');
     if (!name?.trim()) return;
     const created = await createView({ name: name.trim(), parentId });
     if (created) await setActiveView(created.id);
@@ -63,7 +63,7 @@ export function ViewBar() {
     if (views.length <= 1) return;
     if (
       window.confirm(
-        `Ebene „${view.name}" inkl. aller Unterebenen und deren Nodes/Kanten löschen?`
+        `Delete level “${view.name}” including all sub-levels and their nodes/edges?`
       )
     ) {
       await removeView(view.id);
@@ -107,10 +107,10 @@ export function ViewBar() {
           <button
             type="button"
             onClick={() => void addChild(active.id)}
-            title="Detailebene unter der aktuellen Ebene anlegen"
+            title="Create a detail level below the current one"
             className="flex items-center gap-1 rounded-md border border-slate-700 px-2 py-1 text-[11px] font-medium text-slate-300 transition-colors hover:border-sky-500 hover:text-sky-300"
           >
-            <Plus size={12} /> Unterebene
+            <Plus size={12} /> Sub-level
           </button>
         )}
         <button
@@ -118,7 +118,7 @@ export function ViewBar() {
           onClick={() => setOpen((o) => !o)}
           className="flex items-center gap-1 rounded-md border border-slate-700 px-2 py-1 text-[11px] font-medium text-slate-300 transition-colors hover:border-sky-500 hover:text-sky-300"
         >
-          Alle Ebenen ({views.length})
+          All levels ({views.length})
         </button>
       </div>
 
@@ -160,7 +160,7 @@ export function ViewBar() {
                   <button
                     type="button"
                     onClick={() => void addChild(view.id)}
-                    title="Unterebene hinzufügen"
+                    title="Add sub-level"
                     className="rounded p-1 text-slate-500 opacity-0 transition-opacity hover:bg-slate-700 hover:text-sky-300 group-hover:opacity-100"
                   >
                     <Plus size={12} />
@@ -173,7 +173,7 @@ export function ViewBar() {
                       setEditing(view);
                       setOpen(false);
                     }}
-                    title="Name, Symbol & Farbe"
+                    title="Name, icon & color"
                     className="rounded p-1 text-slate-500 opacity-0 transition-opacity hover:bg-slate-700 hover:text-slate-200 group-hover:opacity-100"
                   >
                     <Settings2 size={12} />
@@ -183,7 +183,7 @@ export function ViewBar() {
                     <button
                       type="button"
                       onClick={() => void del(view)}
-                      title="Ebene löschen"
+                      title="Delete level"
                       className="rounded p-1 text-slate-500 opacity-0 transition-opacity hover:bg-red-500/20 hover:text-red-300 group-hover:opacity-100"
                     >
                       <Trash2 size={12} />
@@ -198,7 +198,7 @@ export function ViewBar() {
                 onClick={() => void addRoot()}
                 className="mt-1 flex w-full items-center gap-1.5 rounded-md border-t border-slate-800 px-2 py-1.5 text-[11px] font-medium text-slate-400 hover:text-sky-300"
               >
-                <Plus size={12} /> Neue Hauptebene
+                <Plus size={12} /> New top-level
               </button>
             )}
           </div>

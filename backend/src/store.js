@@ -219,7 +219,7 @@ export function listAssets(db, userId) {
 /** Metadaten UND Bytes — nur fuer das Ausliefern und den Export. */
 export function getAssetWithBytes(db, userId, id) {
   const row = db.prepare('SELECT * FROM assets WHERE id = ? AND user_id = ?').get(id, userId);
-  if (!row) throw new ApiError(404, `Bild "${id}" nicht gefunden`);
+  if (!row) throw new ApiError(404, `Image "${id}" not found`);
   return { ...rowToAsset(row), bytes: row.bytes };
 }
 
@@ -227,7 +227,7 @@ export function createAsset(db, userId, { id, name, mime, bytes, createdAt }) {
   assertCanCreateAsset(db, userId);
   const assetId = id || crypto.randomUUID();
   if (db.prepare('SELECT 1 FROM assets WHERE id = ?').get(assetId)) {
-    throw new ApiError(409, `Bild "${assetId}" existiert bereits`);
+    throw new ApiError(409, `Image "${assetId}" already exists`);
   }
   db.prepare(
     `INSERT INTO assets (id, user_id, name, mime, byte_size, bytes, created_at)
@@ -317,7 +317,7 @@ export function deleteShareLink(db, userId, id) {
        WHERE s.id = ? AND p.user_id = ?`
     )
     .get(id, userId);
-  if (!row) throw new ApiError(404, 'Freigabelink nicht gefunden');
+  if (!row) throw new ApiError(404, 'Share link not found');
   db.prepare('DELETE FROM share_links WHERE id = ?').run(id);
   return { revoked: 1 };
 }
@@ -330,7 +330,7 @@ export function deleteShareLink(db, userId, id) {
 function resolveShareLink(db, token) {
   const row = db.prepare('SELECT * FROM share_links WHERE id = ?').get(hashShareToken(token));
   const link = row ? rowToShareLink(row) : null;
-  if (!link || isExpired(link)) throw new ApiError(404, 'Dieser Freigabelink ist ungültig oder abgelaufen');
+  if (!link || isExpired(link)) throw new ApiError(404, 'This share link is invalid or has expired');
   return link;
 }
 
@@ -344,7 +344,7 @@ function resolveShareLink(db, token) {
 export function getSharedProject(db, token) {
   const link = resolveShareLink(db, token);
   const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(link.projectId);
-  if (!project) throw new ApiError(404, 'Dieser Freigabelink ist ungültig oder abgelaufen');
+  if (!project) throw new ApiError(404, 'This share link is invalid or has expired');
   const userId = project.user_id;
 
   db.prepare('UPDATE share_links SET last_seen_at = ? WHERE id = ?').run(now(), link.id);
@@ -368,9 +368,9 @@ export function getSharedProject(db, token) {
 export function getSharedAsset(db, token, assetId) {
   const link = resolveShareLink(db, token);
   const project = db.prepare('SELECT user_id FROM projects WHERE id = ?').get(link.projectId);
-  if (!project) throw new ApiError(404, 'Bild nicht gefunden');
+  if (!project) throw new ApiError(404, 'Image not found');
   const used = collectAssetIds(listNodes(db, project.user_id, { projectId: link.projectId }));
-  if (!used.has(assetId)) throw new ApiError(404, 'Bild nicht gefunden');
+  if (!used.has(assetId)) throw new ApiError(404, 'Image not found');
   return getAssetWithBytes(db, project.user_id, assetId);
 }
 
@@ -394,7 +394,7 @@ export function listProjects(db, userId) {
 
 export function getProject(db, userId, id) {
   const row = db.prepare('SELECT * FROM projects WHERE id = ? AND user_id = ?').get(id, userId);
-  if (!row) throw new ApiError(404, `Projekt "${id}" nicht gefunden`);
+  if (!row) throw new ApiError(404, `Project "${id}" not found`);
   return rowToProject(row);
 }
 
@@ -403,7 +403,7 @@ export function createProject(db, userId, data) {
   const id = data.id || crypto.randomUUID();
   // Projekt-IDs sind global eindeutig (Primärschlüssel).
   if (db.prepare('SELECT 1 FROM projects WHERE id = ?').get(id)) {
-    throw new ApiError(409, `Projekt "${id}" existiert bereits`);
+    throw new ApiError(409, `Project "${id}" already exists`);
   }
   const maxOrder =
     db.prepare('SELECT max(sort_order) AS m FROM projects WHERE user_id = ?').get(userId)?.m ?? -1;
@@ -453,7 +453,7 @@ export function updateProject(db, userId, id, patch) {
 export function deleteProject(db, userId, id) {
   getProject(db, userId, id);
   const total = db.prepare('SELECT count(*) AS c FROM projects WHERE user_id = ?').get(userId).c;
-  if (total <= 1) throw new ApiError(400, 'Das letzte Projekt kann nicht gelöscht werden');
+  if (total <= 1) throw new ApiError(400, 'The last project cannot be deleted');
   const viewIds = db.prepare('SELECT id FROM views WHERE project_id = ?').all(id).map((r) => r.id);
   const nodeCount = viewIds.length
     ? db
@@ -527,23 +527,23 @@ export function listViews(db, userId, { projectId } = {}) {
 
 export function getView(db, userId, id) {
   const row = getViewRow(db, userId, id);
-  if (!row) throw new ApiError(404, `Ebene "${id}" nicht gefunden`);
+  if (!row) throw new ApiError(404, `Level "${id}" not found`);
   return rowToView(row);
 }
 
 export function createView(db, userId, data) {
   const id = data.id || crypto.randomUUID();
   if (db.prepare('SELECT 1 FROM views WHERE id = ?').get(id)) {
-    throw new ApiError(409, `Ebene "${id}" existiert bereits`);
+    throw new ApiError(409, `Level "${id}" already exists`);
   }
   const parent = data.parentId ? getViewRow(db, userId, data.parentId) : null;
   if (data.parentId && !parent) {
-    throw new ApiError(400, `Parent-Ebene "${data.parentId}" existiert nicht`);
+    throw new ApiError(400, `Parent level "${data.parentId}" does not exist`);
   }
   // Projekt: von der Parent-Ebene erben, sonst explizit oder Default-Projekt.
   const projectId = parent ? parent.project_id : data.projectId ?? defaultProjectId(db, userId);
   if (!projectId || !projectOwnedExists(db, userId, projectId)) {
-    throw new ApiError(400, `Projekt "${projectId}" existiert nicht`);
+    throw new ApiError(400, `Project "${projectId}" does not exist`);
   }
   assertCanCreateView(db, projectId);
   const maxOrder =
@@ -570,16 +570,16 @@ export function createView(db, userId, data) {
 export function updateView(db, userId, id, patch) {
   const existing = getView(db, userId, id);
   if (patch.parentId !== undefined && patch.parentId !== null) {
-    if (patch.parentId === id) throw new ApiError(400, 'Eine Ebene kann nicht ihr eigener Parent sein');
+    if (patch.parentId === id) throw new ApiError(400, 'A level cannot be its own parent');
     const parent = getViewRow(db, userId, patch.parentId);
     if (!parent) {
-      throw new ApiError(400, `Parent-Ebene "${patch.parentId}" existiert nicht`);
+      throw new ApiError(400, `Parent level "${patch.parentId}" does not exist`);
     }
     if (parent.project_id !== existing.projectId) {
-      throw new ApiError(400, 'Parent-Ebene muss im selben Projekt liegen');
+      throw new ApiError(400, 'The parent level must be in the same project');
     }
     if (wouldViewCreateCycle(db, id, patch.parentId)) {
-      throw new ApiError(400, 'Parent-Zuordnung würde einen Zyklus erzeugen');
+      throw new ApiError(400, 'That parent assignment would create a cycle');
     }
   }
   const merged = { ...existing, ...patch };
@@ -609,7 +609,7 @@ export function deleteView(db, userId, id) {
   const total = db
     .prepare('SELECT count(*) AS c FROM views WHERE project_id = ?')
     .get(view.projectId).c;
-  if (total <= 1) throw new ApiError(400, 'Die letzte Ebene eines Projekts kann nicht gelöscht werden');
+  if (total <= 1) throw new ApiError(400, 'The last level of a project cannot be deleted');
 
   // Betroffene Ebenen (inkl. Nachfahren) für die Rückgabe-Statistik sammeln.
   const affected = new Set([id]);
@@ -629,7 +629,7 @@ export function deleteView(db, userId, id) {
   if (affected.size >= total) {
     throw new ApiError(
       400,
-      'Diese Ebene kann nicht gelöscht werden: ihre Unterebenen umfassen alle Ebenen des Projekts'
+      'This level cannot be deleted: its sub-levels cover every level of the project'
     );
   }
 
@@ -692,7 +692,7 @@ export function getNode(db, userId, id) {
        WHERE n.id = ? AND p.user_id = ?`
     )
     .get(id, userId);
-  if (!row) throw new ApiError(404, `Node "${id}" nicht gefunden`);
+  if (!row) throw new ApiError(404, `Node "${id}" not found`);
   return rowToNode(row);
 }
 
@@ -730,24 +730,24 @@ export function createNode(db, userId, data) {
   const id = data.id || crypto.randomUUID();
   // Node-IDs sind global eindeutig (Primärschlüssel).
   if (db.prepare('SELECT 1 FROM nodes WHERE id = ?').get(id)) {
-    throw new ApiError(409, `Node "${id}" existiert bereits`);
+    throw new ApiError(409, `Node "${id}" already exists`);
   }
   if (data.parentId && !nodeOwnedExists(db, userId, data.parentId)) {
-    throw new ApiError(400, `Parent-Node "${data.parentId}" existiert nicht`);
+    throw new ApiError(400, `Parent node "${data.parentId}" does not exist`);
   }
   // Ohne explizite Ebene erbt der Node die Ebene seines Parents (statt Root).
   const viewId =
     data.viewId ?? (data.parentId ? nodeViewId(db, data.parentId) : null) ?? defaultViewId(db, userId);
   if (!viewId || !viewOwnedExists(db, userId, viewId)) {
-    throw new ApiError(400, `Ebene "${data.viewId ?? viewId}" existiert nicht`);
+    throw new ApiError(400, `Level "${data.viewId ?? viewId}" does not exist`);
   }
   // Parent und Kind müssen in derselben Ebene liegen (Positionen sind relativ).
   if (data.parentId && nodeViewId(db, data.parentId) !== viewId) {
-    throw new ApiError(400, 'Parent-Node muss in derselben Ebene liegen');
+    throw new ApiError(400, 'The parent node must be on the same level');
   }
   assertCanCreateNode(db, viewId);
   if (data.linkedViewId && !viewOwnedExists(db, userId, data.linkedViewId)) {
-    throw new ApiError(400, `Verlinkte Ebene "${data.linkedViewId}" existiert nicht`);
+    throw new ApiError(400, `Linked level "${data.linkedViewId}" does not exist`);
   }
   const ts = now();
   db.prepare(INSERT_NODE).run(
@@ -804,28 +804,28 @@ export function updateNode(db, userId, id, patch) {
   const targetViewId =
     patch.viewId !== undefined && patch.viewId !== null ? patch.viewId : existing.viewId;
   if (patch.parentId !== undefined && patch.parentId !== null) {
-    if (patch.parentId === id) throw new ApiError(400, 'Ein Node kann nicht sein eigener Parent sein');
+    if (patch.parentId === id) throw new ApiError(400, 'A node cannot be its own parent');
     if (!nodeOwnedExists(db, userId, patch.parentId)) {
-      throw new ApiError(400, `Parent-Node "${patch.parentId}" existiert nicht`);
+      throw new ApiError(400, `Parent node "${patch.parentId}" does not exist`);
     }
     if (wouldCreateCycle(db, id, patch.parentId)) {
-      throw new ApiError(400, 'Parent-Zuordnung würde einen Zyklus erzeugen');
+      throw new ApiError(400, 'That parent assignment would create a cycle');
     }
     // Positionen von Kindern sind relativ zum Parent → Parent muss in der
     // (Ziel-)Ebene des Nodes liegen.
     if (nodeViewId(db, patch.parentId) !== targetViewId) {
-      throw new ApiError(400, 'Parent-Node muss in derselben Ebene liegen');
+      throw new ApiError(400, 'The parent node must be on the same level');
     }
   }
   if (patch.viewId !== undefined && patch.viewId !== null && !viewOwnedExists(db, userId, patch.viewId)) {
-    throw new ApiError(400, `Ebene "${patch.viewId}" existiert nicht`);
+    throw new ApiError(400, `Level "${patch.viewId}" does not exist`);
   }
   if (
     patch.linkedViewId !== undefined &&
     patch.linkedViewId !== null &&
     !viewOwnedExists(db, userId, patch.linkedViewId)
   ) {
-    throw new ApiError(400, `Verlinkte Ebene "${patch.linkedViewId}" existiert nicht`);
+    throw new ApiError(400, `Linked level "${patch.linkedViewId}" does not exist`);
   }
   const merged = {
     ...existing,
@@ -964,7 +964,7 @@ export function getEdge(db, userId, id) {
        WHERE e.id = ? AND p.user_id = ?`
     )
     .get(id, userId);
-  if (!row) throw new ApiError(404, `Edge "${id}" nicht gefunden`);
+  if (!row) throw new ApiError(404, `Edge "${id}" not found`);
   return rowToEdge(row);
 }
 
@@ -994,16 +994,16 @@ function edgeToRow(data, timestamps) {
 export function createEdge(db, userId, data) {
   const id = data.id || crypto.randomUUID();
   if (db.prepare('SELECT 1 FROM edges WHERE id = ?').get(id)) {
-    throw new ApiError(409, `Edge "${id}" existiert bereits`);
+    throw new ApiError(409, `Edge "${id}" already exists`);
   }
   for (const [field, ref] of [['sourceId', data.sourceId], ['targetId', data.targetId]]) {
-    if (!nodeOwnedExists(db, userId, ref)) throw new ApiError(400, `${field}: Node "${ref}" existiert nicht`);
+    if (!nodeOwnedExists(db, userId, ref)) throw new ApiError(400, `${field}: node "${ref}" does not exist`);
   }
   // Kanten sind intra-view: Quelle und Ziel müssen in derselben Ebene liegen.
   const sourceView = nodeViewId(db, data.sourceId);
   const targetView = nodeViewId(db, data.targetId);
   if (sourceView !== targetView) {
-    throw new ApiError(400, 'Quelle und Ziel einer Verbindung müssen in derselben Ebene liegen');
+    throw new ApiError(400, 'Source and target of a connection must be on the same level');
   }
   // view_id ergibt sich aus den (bereits als eigen geprüften) Endknoten.
   const viewId = sourceView ?? defaultViewId(db, userId);
@@ -1018,7 +1018,7 @@ export function updateEdge(db, userId, id, patch) {
   const existing = getEdge(db, userId, id);
   for (const field of ['sourceId', 'targetId']) {
     if (patch[field] !== undefined && !nodeOwnedExists(db, userId, patch[field])) {
-      throw new ApiError(400, `${field}: Node "${patch[field]}" existiert nicht`);
+      throw new ApiError(400, `${field}: node "${patch[field]}" does not exist`);
     }
   }
   const merged = {
@@ -1033,7 +1033,7 @@ export function updateEdge(db, userId, id, patch) {
   const sourceView = nodeViewId(db, merged.sourceId);
   const targetView = nodeViewId(db, merged.targetId);
   if (sourceView !== targetView) {
-    throw new ApiError(400, 'Quelle und Ziel einer Verbindung müssen in derselben Ebene liegen');
+    throw new ApiError(400, 'Source and target of a connection must be on the same level');
   }
   merged.viewId = sourceView;
   db.prepare(`
@@ -1057,7 +1057,7 @@ export function deleteEdge(db, userId, id) {
 export function getGraph(db, userId, viewId) {
   let view = viewId;
   if (view) {
-    if (!viewOwnedExists(db, userId, view)) throw new ApiError(404, `Ebene "${view}" nicht gefunden`);
+    if (!viewOwnedExists(db, userId, view)) throw new ApiError(404, `Level "${view}" not found`);
   } else {
     view = defaultViewId(db, userId);
   }
@@ -1122,15 +1122,15 @@ export function exportGraph(db, userId, projectId) {
  */
 export function importGraph(db, userId, { mode = 'replace', projects = [], views = [], nodes, edges, assets = [] }) {
   const ids = new Set(nodes.map((n) => n.id));
-  if (ids.size !== nodes.length) throw new ApiError(400, 'Doppelte Node-IDs im Import');
+  if (ids.size !== nodes.length) throw new ApiError(400, 'Duplicate node IDs in the import');
   for (const n of nodes) {
     if (n.parentId && !ids.has(n.parentId)) {
-      throw new ApiError(400, `Node "${n.id}": Parent "${n.parentId}" ist nicht im Import enthalten`);
+      throw new ApiError(400, `Node "${n.id}": parent "${n.parentId}" is not part of the import`);
     }
   }
   for (const e of edges) {
     if (!ids.has(e.sourceId) || !ids.has(e.targetId)) {
-      throw new ApiError(400, `Edge "${e.id ?? '(neu)'}": Quelle oder Ziel nicht im Import enthalten`);
+      throw new ApiError(400, `Edge "${e.id ?? '(new)'}": source or target is not part of the import`);
     }
   }
   if (mode === 'merge') return mergeGraph(db, userId, { projects, views, nodes, edges, assets });
@@ -1176,7 +1176,7 @@ export function importGraph(db, userId, { mode = 'replace', projects = [], views
       insertProject.run({
         id: defaultProject,
         user_id: userId,
-        name: 'Mein Projekt',
+        name: 'My project',
         color: '#38bdf8',
         icon: 'boxes',
         packs: JSON.stringify(DEFAULT_PACKS),
@@ -1240,7 +1240,7 @@ export function importGraph(db, userId, { mode = 'replace', projects = [], views
       if (n.parentId && nodeView.get(n.parentId) !== nodeView.get(n.id)) {
         throw new ApiError(
           400,
-          `Node "${n.id}": Parent "${n.parentId}" liegt in einer anderen Ebene`
+          `Node "${n.id}": parent "${n.parentId}" is on a different level`
         );
       }
     }
@@ -1251,7 +1251,7 @@ export function importGraph(db, userId, { mode = 'replace', projects = [], views
       if (sourceView !== nodeView.get(e.targetId)) {
         throw new ApiError(
           400,
-          `Edge "${e.id ?? '(neu)'}": Quelle und Ziel liegen in unterschiedlichen Ebenen`
+          `Edge "${e.id ?? '(new)'}": source and target are on different levels`
         );
       }
       insertEdge.run(
@@ -1286,7 +1286,7 @@ export function importGraph(db, userId, { mode = 'replace', projects = [], views
 function mergeGraph(db, userId, { projects, views, nodes, edges, assets = [] }) {
   const ts = now();
   // Instanz-Limits: Merge legt neue Projekte an (mindestens eines).
-  const newProjects = projects.length ? projects : [{ name: 'Importiertes Projekt' }];
+  const newProjects = projects.length ? projects : [{ name: 'Imported project' }];
   assertCanCreateProject(db, userId, newProjects.length);
   // Neue Projekte starten leer; Ebenen und Nodes des Payloads sind ihr gesamter
   // Bestand — die Projektzahl ist oben bereits geprüft.
@@ -1321,7 +1321,7 @@ function mergeGraph(db, userId, { projects, views, nodes, edges, assets = [] }) 
       insertProject.run({
         id: newId,
         user_id: userId,
-        name: p.name ?? 'Importiertes Projekt',
+        name: p.name ?? 'Imported project',
         color: p.color ?? null,
         icon: p.icon ?? null,
         packs: JSON.stringify(p.packs ? normalizePacks(p.packs) : DEFAULT_PACKS),
@@ -1363,7 +1363,7 @@ function mergeGraph(db, userId, { projects, views, nodes, edges, assets = [] }) 
       const viewId = (n.viewId && viewMap.get(n.viewId)) ?? fallbackView;
       nodeView.set(n.id, viewId);
       if (n.parentId && nodeView.get(n.parentId) !== viewId) {
-        throw new ApiError(400, `Node "${n.id}": Parent "${n.parentId}" liegt in einer anderen Ebene`);
+        throw new ApiError(400, `Node "${n.id}": parent "${n.parentId}" is on a different level`);
       }
       insertNode.run(
         nodeToRow(
@@ -1386,7 +1386,7 @@ function mergeGraph(db, userId, { projects, views, nodes, edges, assets = [] }) 
       if (sourceView !== nodeView.get(e.targetId)) {
         throw new ApiError(
           400,
-          `Edge "${e.id ?? '(neu)'}": Quelle und Ziel liegen in unterschiedlichen Ebenen`
+          `Edge "${e.id ?? '(new)'}": source and target are on different levels`
         );
       }
       insertEdge.run(
@@ -1419,7 +1419,7 @@ function mergeGraph(db, userId, { projects, views, nodes, edges, assets = [] }) 
 export function applyLayout(db, userId, options = {}) {
   const viewId = options.viewId ?? defaultViewId(db, userId);
   if (!viewId || !viewOwnedExists(db, userId, viewId)) {
-    throw new ApiError(404, `Ebene "${options.viewId ?? viewId}" nicht gefunden`);
+    throw new ApiError(404, `Level "${options.viewId ?? viewId}" not found`);
   }
   const nodes = listNodes(db, userId, { viewId });
   const edges = listEdges(db, userId, { viewId });

@@ -1,21 +1,21 @@
-name: Idee oder Wunsch
-description: Vorschlag für eine neue Funktion oder Verbesserung
+name: Idea or request
+description: Suggest a new feature or an improvement
 labels: [enhancement]
 body:
   - type: textarea
     id: problem
     attributes:
-      label: Welches Problem loest das?
-      description: Beschreibe die Situation, nicht nur die gewuenschte Loesung.
+      label: What problem does this solve?
+      description: Describe the situation, not only the solution you have in mind.
     validations:
       required: true
   - type: textarea
-    id: idee
+    id: idea
     attributes:
-      label: Wie koennte es aussehen?
+      label: What could it look like?
     validations:
       required: true
   - type: textarea
-    id: alternativen
+    id: alternatives
     attributes:
-      label: Alternativen, die du erwogen hast
+      label: Alternatives you considered

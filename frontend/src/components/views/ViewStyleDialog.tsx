@@ -30,7 +30,7 @@ export function ViewStyleDialog({ view, onClose }: { view: View; onClose: () => 
   };
 
   return (
-    <Modal title={`Ebene „${view.name}"`} onClose={onClose}>
+    <Modal title={`Level “${view.name}”`} onClose={onClose}>
       <div className="space-y-4">
         <div>
           <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500">
@@ -61,7 +61,7 @@ export function ViewStyleDialog({ view, onClose }: { view: View; onClose: () => 
             onClick={onClose}
             className="rounded-md border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:border-slate-500"
           >
-            Abbrechen
+            Cancel
           </button>
           <button
             type="button"
@@ -70,7 +70,7 @@ export function ViewStyleDialog({ view, onClose }: { view: View; onClose: () => 
             className="flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-500 disabled:bg-slate-800 disabled:text-slate-500"
           >
             {busy && <Loader2 size={13} className="animate-spin" />}
-            Speichern
+            Save
           </button>
         </div>
       </div>

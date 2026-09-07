@@ -1,30 +1,25 @@
-# Mitmachen
+# Contributing
 
-Danke fürs Interesse. Issues und Pull Requests sind willkommen — egal ob Bugfix,
-neue Node-Kategorie oder Dokumentation.
+Issues and pull requests are welcome — bug fix, new node category or docs.
 
-## Entwicklungsumgebung
+## Development setup
 
-Voraussetzung ist **Node ≥ 20**. Backend und Frontend sind getrennte npm-Projekte:
+Requires **Node ≥ 20**. Backend and frontend are separate npm projects:
 
 ```bash
-# Terminal 1 — API auf Port 3000
-cd backend && npm install && npm run dev
+cd backend && npm install && npm run dev     # API on :3000
 ```
 
 ```bash
-# Terminal 2 — Vite-Dev-Server auf Port 5173 (proxyt /api ans Backend)
-cd frontend && npm install && npm run dev
+cd frontend && npm install && npm run dev    # Vite on :5173, proxies /api
 ```
 
-Die SQLite-Datei landet bei dieser Variante in `backend/data/labviz.db` (der
-Pfad ist relativ zum Arbeitsverzeichnis; `docker compose` legt sie dagegen in
-`./data`). Zum Zurücksetzen einfach löschen — beim nächsten Start wird sie neu
-angelegt und jeder neu registrierte Account bekommt wieder das Beispielprojekt.
+The SQLite file lands in `backend/data/labviz.db` here (`docker compose` puts it
+in `./data`). Delete it to reset; it is recreated on the next start.
 
-## Vor einem Pull Request
+## Before a pull request
 
-Genau das prüft auch die CI:
+Exactly what CI runs:
 
 ```bash
 cd backend && npm test
@@ -34,35 +29,56 @@ cd backend && npm test
 cd frontend && npm test && npm run build
 ```
 
-`npm run build` im Frontend führt `tsc --noEmit` mit aus, deckt also den
-Typecheck gleich mit ab.
+`npm run build` runs `tsc --noEmit`, so the typecheck is covered.
 
-## Worauf ich beim Review achte
+## What I look for in review
 
-- **Tests für neues Verhalten.** Die API-Tests in `backend/test/api.test.js` sind
-  die Sicherheitsleine des Projekts — besonders bei allem, was Besitzverhältnisse,
-  Ebenen-Invarianten oder Limits berührt. Ein Test, der ohne deinen Fix fehlschlägt,
-  ist mehr wert als drei, die immer grün sind.
-- **Datenisolation.** Jeder Zugriff läuft über die `userId`. Kommt eine neue Query
-  dazu, muss sie den Besitz mitprüfen — fremde IDs liefern `404`, nicht `403`.
-- **Kommentare erklären das Warum**, nicht das Was. Der Bestand ist auf Deutsch
-  kommentiert; halte dich bitte daran, damit die Codebasis einheitlich bleibt.
-- **Keine neuen Abhängigkeiten ohne Grund.** Das Backend kommt mit vier Paketen aus
-  und hasht Passwörter mit `node:crypto`. Das ist Absicht.
-- **Offline-Fähigkeit.** Keine externen CDNs, Fonts oder Tracker — die App muss in
-  einem abgeschotteten Netz laufen.
+- **Tests for new behavior.** The API tests in `backend/test/api.test.js` are the
+  project's safety net, especially around ownership, level invariants and limits.
+  A test that fails without your fix is worth more than three that always pass.
+- **Data isolation.** Every access goes through `userId`. A new query must check
+  ownership — other people's IDs return `404`, not `403`.
+- **Comments explain the why**, not the what. The existing code is commented in
+  German; please keep it that way so the codebase stays consistent. Everything
+  user-facing (UI strings, docs) is English.
+- **No new dependencies without a reason.** The backend gets by with four
+  packages and hashes passwords with `node:crypto`. That is deliberate.
+- **Offline-capable.** No external CDNs, fonts or trackers — the app must run in
+  an air-gapped network.
 
-## Architektur in drei Sätzen
+## Architecture in three sentences
 
-Das Backend ist eine Express-App über SQLite (`better-sqlite3`, synchron). Die
-gesamte Geschäftslogik liegt in `backend/src/store.js`; die Dateien unter
-`routes/` validieren nur mit Zod und reichen durch. Das Frontend hält seinen
-Zustand in einem Zustand-Store (`frontend/src/store/graph.ts`) und spricht
-ausschließlich über `frontend/src/api/client.ts` mit der API.
+The backend is an Express app over SQLite (`better-sqlite3`, synchronous). All
+business logic lives in `backend/src/store.js`; the files under `routes/` only
+validate with Zod and pass through. The frontend keeps its state in a Zustand
+store (`frontend/src/store/graph.ts`) and talks to the API exclusively through
+`frontend/src/api/client.ts`.
 
-Eine vollständige API-Referenz steht in [AGENTS.md](AGENTS.md).
+Full API reference: [AGENTS.md](AGENTS.md).
 
-## Lizenz
+## Releasing (version bump)
 
-Mit dem Einreichen eines Pull Requests stimmst du zu, dass dein Beitrag unter der
-[MIT-Lizenz](LICENSE) des Projekts veröffentlicht wird.
+Backend and frontend are versioned independently:
+
+| Component | Version | Changelog | Image / git tag |
+|---|---|---|---|
+| Backend | `backend/VERSION` (+ `package.json`) | `backend/CHANGELOG.md` | `lab-visualizer-backend` / `backend-vX.Y.Z` |
+| Frontend | `frontend/VERSION` (+ `package.json`) | `frontend/CHANGELOG.md` | `lab-visualizer-frontend` / `frontend-vX.Y.Z` |
+
+To bump a component:
+
+1. Update `…/VERSION` and the matching `package.json`
+2. Add a `## [X.Y.Z] - YYYY-MM-DD` section at the **top** of its `CHANGELOG.md`
+3. Update the compose fallback (`BACKEND_VERSION` / `FRONTEND_VERSION`) and the
+   README badge
+4. Merge to `main` via pull request
+
+**Only a changed `VERSION` file on `main` publishes an image and deploys.** A
+push to `dev` or an ordinary commit on `main` runs CI and nothing else. Manual
+dispatch of the release workflow is possible from `main` and can target backend,
+frontend or both; a version that already has its git tag is skipped.
+
+## License
+
+By submitting a pull request you agree that your contribution is published under
+the project's [MIT license](LICENSE).

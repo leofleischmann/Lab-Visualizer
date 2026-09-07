@@ -10,55 +10,55 @@
  */
 export const core = {
   id: 'core',
-  label: 'Kern',
-  description: 'Grundbausteine, die in jedem Projekt verfügbar sind.',
+  label: 'Core',
+  description: 'Base building blocks available in every project.',
   icon: 'shapes',
 
   categories: [
     // Bausteine
-    { id: 'generic', label: 'Allgemein', group: 'Bausteine', color: '#9ca3af', icon: 'shapes' },
-    { id: 'group', label: 'Gruppe / Zone', group: 'Bausteine', color: '#64748b', icon: 'folder' },
-    { id: 'web-app', label: 'Anwendung / Website', group: 'Bausteine', color: '#a78bfa', icon: 'app-window' },
-    { id: 'native-service', label: 'Dienst / Prozess', group: 'Bausteine', color: '#4ade80', icon: 'terminal' },
-    { id: 'database', label: 'Datenbank', group: 'Bausteine', color: '#f472b6', icon: 'database' },
-    { id: 'storage', label: 'Speicher / Ablage', group: 'Bausteine', color: '#14b8a6', icon: 'hard-drive' },
+    { id: 'generic', label: 'Generic', group: 'Building blocks', color: '#9ca3af', icon: 'shapes' },
+    { id: 'group', label: 'Group / Zone', group: 'Building blocks', color: '#64748b', icon: 'folder' },
+    { id: 'web-app', label: 'Application / Website', group: 'Building blocks', color: '#a78bfa', icon: 'app-window' },
+    { id: 'native-service', label: 'Service / Process', group: 'Building blocks', color: '#4ade80', icon: 'terminal' },
+    { id: 'database', label: 'Database', group: 'Building blocks', color: '#f472b6', icon: 'database' },
+    { id: 'storage', label: 'Storage', group: 'Building blocks', color: '#14b8a6', icon: 'hard-drive' },
     // Aussenwelt
-    { id: 'client', label: 'Client / Benutzer', group: 'Aussenwelt', color: '#e2e8f0', icon: 'users' },
-    { id: 'internet', label: 'Internet / WAN', group: 'Aussenwelt', color: '#64748b', icon: 'globe' },
-    { id: 'cloud-service', label: 'Externer Dienst', group: 'Aussenwelt', color: '#fb923c', icon: 'cloud' },
-    { id: 'domain', label: 'Domain / DNS-Zone', group: 'Aussenwelt', color: '#93c5fd', icon: 'at-sign' },
-    { id: 'email', label: 'E-Mail-Dienst', group: 'Aussenwelt', color: '#e879f9', icon: 'mail' },
-    { id: 'notification', label: 'Benachrichtigungen', group: 'Aussenwelt', color: '#facc15', icon: 'bell' },
+    { id: 'client', label: 'Client / User', group: 'External world', color: '#e2e8f0', icon: 'users' },
+    { id: 'internet', label: 'Internet / WAN', group: 'External world', color: '#64748b', icon: 'globe' },
+    { id: 'cloud-service', label: 'External service', group: 'External world', color: '#fb923c', icon: 'cloud' },
+    { id: 'domain', label: 'Domain / DNS zone', group: 'External world', color: '#93c5fd', icon: 'at-sign' },
+    { id: 'email', label: 'Email service', group: 'External world', color: '#e879f9', icon: 'mail' },
+    { id: 'notification', label: 'Notifications', group: 'External world', color: '#facc15', icon: 'bell' },
   ],
 
   // Beziehungen ohne Technikbezug — tragen Architektur-, Prozess- und
   // Organisationsdiagramme genauso wie Serverlandschaften.
   edgeKinds: [
-    { id: 'generic', label: 'Allgemein', group: 'Allgemein', color: '#9ca3af' },
-    { id: 'dependency', label: 'Abhängigkeit', group: 'Allgemein', color: '#f472b6' },
-    { id: 'data-flow', label: 'Datenfluss', group: 'Allgemein', color: '#38bdf8' },
-    { id: 'control', label: 'Steuerung', group: 'Allgemein', color: '#fbbf24' },
-    { id: 'api', label: 'API-Aufruf', group: 'Allgemein', color: '#a78bfa' },
+    { id: 'generic', label: 'Generic', group: 'General', color: '#9ca3af' },
+    { id: 'dependency', label: 'Dependency', group: 'General', color: '#f472b6' },
+    { id: 'data-flow', label: 'Data flow', group: 'General', color: '#38bdf8' },
+    { id: 'control', label: 'Control', group: 'General', color: '#fbbf24' },
+    { id: 'api', label: 'API call', group: 'General', color: '#a78bfa' },
   ],
 
   fields: [
-    { key: 'url', label: 'URL', type: 'url', group: 'Allgemein', mono: true, wide: true, placeholder: 'https://…' },
-    { key: 'owner', label: 'Verantwortlich', type: 'text', group: 'Allgemein', placeholder: 'Team oder Person' },
+    { key: 'url', label: 'URL', type: 'url', group: 'General', mono: true, wide: true, placeholder: 'https://…' },
+    { key: 'owner', label: 'Owner', type: 'text', group: 'General', placeholder: 'Team or person' },
     {
-      key: 'environment', label: 'Umgebung', type: 'select', group: 'Allgemein',
-      options: ['Produktion', 'Staging', 'Test', 'Entwicklung'],
+      key: 'environment', label: 'Environment', type: 'select', group: 'General',
+      options: ['Production', 'Staging', 'Test', 'Development'],
     },
     {
-      key: 'criticality', label: 'Kritikalität', type: 'select', group: 'Allgemein',
-      options: ['Kritisch', 'Hoch', 'Mittel', 'Niedrig'],
+      key: 'criticality', label: 'Criticality', type: 'select', group: 'General',
+      options: ['Critical', 'High', 'Medium', 'Low'],
     },
     // Das Produkt gehört ins Feld, nicht in die Kategorie: „Proxmox VE", „AWS",
     // „Kubernetes", „SAP" — derselbe Node-Typ trägt damit jeden Hersteller.
     // Der Platzhalter bleibt bewusst gemischt: das Feld ist im Kern und taucht
     // damit auch in Prozess- und Architekturprojekten auf.
-    { key: 'platform', label: 'Plattform', type: 'text', group: 'Allgemein', wide: true, placeholder: 'z. B. Proxmox VE, AWS, Kubernetes, SAP' },
-    { key: 'version', label: 'Version', type: 'text', group: 'Allgemein' },
-    { key: 'location', label: 'Standort', type: 'text', group: 'Allgemein', placeholder: 'Rack 2, Büro Nord …' },
-    { key: 'reviewedAt', label: 'Zuletzt geprüft', type: 'date', group: 'Allgemein' },
+    { key: 'platform', label: 'Platform', type: 'text', group: 'General', wide: true, placeholder: 'e.g. Proxmox VE, AWS, Kubernetes, SAP' },
+    { key: 'version', label: 'Version', type: 'text', group: 'General' },
+    { key: 'location', label: 'Location', type: 'text', group: 'General', placeholder: 'Rack 2, north office …' },
+    { key: 'reviewedAt', label: 'Last reviewed', type: 'date', group: 'General' },
   ],
 };

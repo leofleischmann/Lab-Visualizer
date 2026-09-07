@@ -151,11 +151,11 @@ export function FlowCanvas() {
     async ({ nodes: toDeleteNodes, edges: toDeleteEdges }: { nodes: FlowNode[]; edges: FlowEdge[] }) => {
       if (toDeleteNodes.length) {
         return window.confirm(
-          `${toDeleteNodes.length} Node(s) inkl. aller verbundenen Kanten löschen?`
+          `Delete ${toDeleteNodes.length} node(s) including all connected edges?`
         );
       }
       if (toDeleteEdges.length) {
-        return window.confirm(`${toDeleteEdges.length} Verbindung(en) löschen?`);
+        return window.confirm(`Delete ${toDeleteEdges.length} connection(s)?`);
       }
       return true;
     },
@@ -191,7 +191,7 @@ export function FlowCanvas() {
       const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
       const category = categoryOf(catalog, categoryId);
       void createNode({
-        name: `Neu: ${category.label}`,
+        name: `New: ${category.label}`,
         category: categoryId,
         position,
         ...(categoryId === 'group' ? { width: 420, height: 260 } : {}),

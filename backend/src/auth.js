@@ -187,10 +187,10 @@ export function originGuard(req, res, next) {
   try {
     originHost = new URL(origin).host;
   } catch {
-    return res.status(403).json({ error: 'Ungültiger Origin-Header' });
+    return res.status(403).json({ error: 'Invalid Origin header' });
   }
   if (originHost !== req.get('host')) {
-    return res.status(403).json({ error: 'Origin nicht erlaubt (CSRF-Schutz)' });
+    return res.status(403).json({ error: 'Origin not allowed (CSRF protection)' });
   }
   next();
 }
@@ -221,7 +221,7 @@ export function rateLimit({ max, windowMs }) {
     }
     if (entry.count > max) {
       res.setHeader('Retry-After', String(Math.ceil((entry.resetAt - now) / 1000)));
-      return res.status(429).json({ error: 'Zu viele Versuche. Bitte später erneut versuchen.' });
+      return res.status(429).json({ error: 'Too many attempts. Please try again later.' });
     }
     next();
   };

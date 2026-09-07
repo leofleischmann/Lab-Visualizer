@@ -31,7 +31,7 @@ export function TopBar() {
       <div className="flex shrink-0 items-center gap-2.5">
         <ProjectSwitcher />
         <p className="hidden text-[10px] text-slate-500 lg:block">
-          {nodeCount} Nodes · {edgeCount} Verbindungen
+          {nodeCount} nodes · {edgeCount} connections
         </p>
       </div>
 
@@ -44,7 +44,7 @@ export function TopBar() {
             type="button"
             onClick={() => void undo()}
             disabled={!canUndo}
-            title="Rückgängig (Strg+Z)"
+            title="Undo (Ctrl+Z)"
             className="flex items-center rounded-md border border-slate-700 p-1.5 text-slate-300 transition-colors hover:border-sky-500 hover:text-sky-300 disabled:cursor-not-allowed disabled:border-slate-800 disabled:text-slate-600"
           >
             <Undo2 size={14} />
@@ -53,7 +53,7 @@ export function TopBar() {
             type="button"
             onClick={() => void redo()}
             disabled={!canRedo}
-            title="Wiederholen (Strg+Umschalt+Z / Strg+Y)"
+            title="Redo (Ctrl+Shift+Z / Ctrl+Y)"
             className="flex items-center rounded-md border border-slate-700 p-1.5 text-slate-300 transition-colors hover:border-sky-500 hover:text-sky-300 disabled:cursor-not-allowed disabled:border-slate-800 disabled:text-slate-600"
           >
             <Redo2 size={14} />
@@ -64,10 +64,10 @@ export function TopBar() {
           type="button"
           disabled={isEmpty}
           onClick={() => void handleAutoLayout()}
-          title="Ebene automatisch anordnen (deterministisch)"
+          title="Auto-arrange this level (deterministic)"
           className="flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:border-emerald-500 hover:text-emerald-300 disabled:cursor-not-allowed disabled:border-slate-800 disabled:text-slate-600 disabled:hover:border-slate-800 disabled:hover:text-slate-600"
         >
-          <LayoutGrid size={13} /> Auto-Align
+          <LayoutGrid size={13} /> Auto-align
         </button>
 
         <DataMenu />

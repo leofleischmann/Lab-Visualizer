@@ -189,7 +189,7 @@ export function iconOf(name: string): LucideIcon {
 export const ICON_NAMES = Object.keys(ICONS);
 
 /** Abschnitt im Panel für Werte, deren Pack das Projekt abgewählt hat. */
-export const ORPHAN_GROUP = 'Weitere Felder';
+export const ORPHAN_GROUP = 'Other fields';
 
 /** Gruppiert Einträge nach `group`; die Reihenfolge des Katalogs bleibt erhalten. */
 function groupBy<T extends { group: string }>(items: T[]): [string, T[]][] {

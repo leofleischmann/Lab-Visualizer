@@ -1,15 +1,15 @@
 /** Kubernetes-Cluster: Namespaces als Zonen, Workloads darin. */
 export const kubernetes = {
   id: 'kubernetes',
-  label: 'Kubernetes-Cluster',
-  description: 'Ingress, Namespaces, Deployments, Services und Volumes.',
+  label: 'Kubernetes cluster',
+  description: 'Ingress, namespaces, deployments, services and volumes.',
   icon: 'hexagon',
   color: '#326ce5',
   packs: ['kubernetes', 'network', 'operations', 'infrastructure'],
   footprint: { views: 1, nodes: 13 },
 
   build({ node, edge }) {
-    node({ id: 'users', name: 'Nutzer', category: 'client', status: 'active', position: { x: 460, y: 20 } });
+    node({ id: 'users', name: 'Users', category: 'client', status: 'active', position: { x: 460, y: 20 } });
     node({ id: 'ingress', name: 'Ingress Controller', category: 'k8s-ingress', status: 'active', position: { x: 460, y: 150 }, fields: { namespace: 'ingress-nginx', platform: 'ingress-nginx' } });
     edge('users', 'ingress', { kind: 'https', label: 'HTTPS :443' });
 
@@ -23,7 +23,7 @@ export const kubernetes = {
 
     node({ id: 'ns-data', name: 'Namespace: data', category: 'k8s-namespace', position: { x: 680, y: 300 }, width: 300, height: 330, fields: { namespace: 'data' } });
     const inData = (o) => node({ ...o, parentId: 'ns-data', status: 'active', fields: { namespace: 'data', ...o.fields } });
-    inData({ id: 'sts-db', name: 'postgres', category: 'k8s-workload', position: { x: 30, y: 60 }, fields: { image: 'postgres:16', replicas: '1', criticality: 'Kritisch' } });
+    inData({ id: 'sts-db', name: 'postgres', category: 'k8s-workload', position: { x: 30, y: 60 }, fields: { image: 'postgres:16', replicas: '1', criticality: 'Critical' } });
     inData({ id: 'pvc', name: 'postgres-data', category: 'k8s-volume', position: { x: 30, y: 190 }, fields: { disk: '100' } });
 
     node({ id: 'ns-obs', name: 'Namespace: observability', category: 'k8s-namespace', position: { x: 60, y: 690 }, width: 560, height: 170, fields: { namespace: 'observability' } });
@@ -34,10 +34,10 @@ export const kubernetes = {
     edge('ingress', 'svc-api', { kind: 'http', label: 'api.example.com' });
     edge('svc-web', 'dep-web', { kind: 'generic', label: 'selector' });
     edge('svc-api', 'dep-api', { kind: 'generic', label: 'selector' });
-    edge('dep-web', 'svc-api', { kind: 'api', label: 'interner Aufruf' });
+    edge('dep-web', 'svc-api', { kind: 'api', label: 'internal call' });
     edge('dep-api', 'sts-db', { kind: 'tcp', label: ':5432' });
     edge('sts-db', 'pvc', { kind: 'dependency', label: 'mount', lineStyle: 'dashed' });
     edge('prom', 'dep-api', { kind: 'monitoring', label: 'scrape', lineStyle: 'dashed' });
-    edge('graf', 'prom', { kind: 'data-flow', label: 'Datenquelle' });
+    edge('graf', 'prom', { kind: 'data-flow', label: 'Data source' });
   },
 };

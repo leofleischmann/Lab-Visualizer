@@ -22,7 +22,7 @@ export function DetailDrawer() {
       <button
         type="button"
         onClick={() => select(null)}
-        title="Schließen"
+        title="Close"
         className="absolute right-2 top-2.5 z-10 rounded-md p-1.5 text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-200"
       >
         <X size={16} />

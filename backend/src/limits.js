@@ -27,7 +27,7 @@ function envLimit(name) {
   if (raw === undefined || raw.trim() === '' || raw.trim() === 'unlimited') return null;
   const value = Number(raw);
   if (!Number.isInteger(value) || value < 0) {
-    throw new Error(`${name} muss eine nicht-negative ganze Zahl oder "unlimited" sein (ist: "${raw}")`);
+    throw new Error(`${name} must be a non-negative integer or "unlimited" (got: "${raw}")`);
   }
   return value === 0 ? null : value;
 }
@@ -58,7 +58,7 @@ export function getMaxAssetBytes() {
   if (raw === undefined || raw.trim() === '') return 1024 * 1024;
   const value = Number(raw);
   if (!Number.isInteger(value) || value <= 0) {
-    throw new Error(`MAX_ASSET_BYTES muss eine positive ganze Zahl sein (ist: "${raw}")`);
+    throw new Error(`MAX_ASSET_BYTES must be a positive integer (got: "${raw}")`);
   }
   return value;
 }
@@ -72,15 +72,15 @@ export function getMaxAssetBytes() {
 export function assertLimitsAllowRegistration(footprint) {
   const { maxProjectsPerUser, maxViewsPerProject, maxNodesPerProject } = getInstanceLimits();
   const checks = [
-    ['MAX_PROJECTS_PER_USER', maxProjectsPerUser, footprint.projects, 'Projekte'],
-    ['MAX_VIEWS_PER_PROJECT', maxViewsPerProject, footprint.viewsPerProject, 'Ebenen'],
-    ['MAX_NODES_PER_PROJECT', maxNodesPerProject, footprint.nodesPerProject, 'Nodes'],
+    ['MAX_PROJECTS_PER_USER', maxProjectsPerUser, footprint.projects, 'projects'],
+    ['MAX_VIEWS_PER_PROJECT', maxViewsPerProject, footprint.viewsPerProject, 'levels'],
+    ['MAX_NODES_PER_PROJECT', maxNodesPerProject, footprint.nodesPerProject, 'nodes'],
   ];
   for (const [name, limit, needed, what] of checks) {
     if (limit !== null && limit < needed) {
       throw new Error(
-        `${name}=${limit} ist zu klein: Das Beispielprojekt jedes neuen Kontos belegt ` +
-          `${needed} ${what}. Setze mindestens ${needed} — oder "unlimited" für kein Limit.`
+        `${name}=${limit} is too small: the example project every new account gets uses ` +
+          `${needed} ${what}. Set at least ${needed} — or "unlimited" for no limit.`
       );
     }
   }
@@ -104,7 +104,7 @@ export function assertCanCreateProject(db, userId, additional = 1) {
     .get(userId).c;
   if (current + additional > maxProjectsPerUser) {
     throw limitError(
-      `Diese Instanz erlaubt maximal ${plural(maxProjectsPerUser, 'Projekt', 'Projekte')} pro Konto.`
+      `This instance allows at most ${plural(maxProjectsPerUser, 'project', 'projects')} per account.`
     );
   }
 }
@@ -116,7 +116,7 @@ export function assertCanCreateAsset(db, userId) {
   const current = db.prepare('SELECT count(*) AS c FROM assets WHERE user_id = ?').get(userId).c;
   if (current + 1 > maxAssetsPerUser) {
     throw limitError(
-      `Diese Instanz erlaubt maximal ${plural(maxAssetsPerUser, 'Bild', 'Bilder')} pro Konto.`
+      `This instance allows at most ${plural(maxAssetsPerUser, 'image', 'images')} per account.`
     );
   }
 }
@@ -130,7 +130,7 @@ export function assertCanCreateView(db, projectId, additional = 1) {
     .get(projectId).c;
   if (current + additional > maxViewsPerProject) {
     throw limitError(
-      `Diese Instanz erlaubt maximal ${plural(maxViewsPerProject, 'Ebene', 'Ebenen')} pro Projekt.`
+      `This instance allows at most ${plural(maxViewsPerProject, 'level', 'levels')} per project.`
     );
   }
 }
@@ -149,7 +149,7 @@ export function assertCanCreateNode(db, viewId, additional = 1) {
     .get(projectId).c;
   if (current + additional > maxNodesPerProject) {
     throw limitError(
-      `Diese Instanz erlaubt maximal ${plural(maxNodesPerProject, 'Node', 'Nodes')} pro Projekt.`
+      `This instance allows at most ${plural(maxNodesPerProject, 'node', 'nodes')} per project.`
     );
   }
 }
@@ -163,14 +163,14 @@ export function assertCanCreateNode(db, viewId, additional = 1) {
 export function assertTemplateFitsLimits(template) {
   const { maxViewsPerProject, maxNodesPerProject } = getInstanceLimits();
   const checks = [
-    [maxViewsPerProject, template.footprint.views, 'Ebene', 'Ebenen'],
-    [maxNodesPerProject, template.footprint.nodes, 'Node', 'Nodes'],
+    [maxViewsPerProject, template.footprint.views, 'level', 'levels'],
+    [maxNodesPerProject, template.footprint.nodes, 'node', 'nodes'],
   ];
   for (const [limit, needed, one, many] of checks) {
     if (limit !== null && limit < needed) {
       throw limitError(
-        `Die Vorlage „${template.label}" braucht ${plural(needed, one, many)} — diese Instanz ` +
-          `erlaubt maximal ${plural(limit, one, many)} pro Projekt.`
+        `The “${template.label}” template needs ${plural(needed, one, many)} — this instance ` +
+          `allows at most ${plural(limit, one, many)} per project.`
       );
     }
   }
@@ -185,8 +185,8 @@ export function assertImportWithinLimits(db, userId, { projects = [], views = []
 
   if (maxProjectsPerUser !== null && projects.length > maxProjectsPerUser) {
     throw limitError(
-      `Der Import enthält ${projects.length} Projekte — diese Instanz erlaubt maximal ` +
-        `${plural(maxProjectsPerUser, 'Projekt', 'Projekte')} pro Konto.`
+      `The import contains ${projects.length} projects — this instance allows at most ` +
+        `${plural(maxProjectsPerUser, 'project', 'projects')} per account.`
     );
   }
 
@@ -200,8 +200,8 @@ export function assertImportWithinLimits(db, userId, { projects = [], views = []
     for (const [, count] of perProject) {
       if (count > maxViewsPerProject) {
         throw limitError(
-          `Der Import enthält ein Projekt mit ${count} Ebenen — diese Instanz erlaubt maximal ` +
-            `${plural(maxViewsPerProject, 'Ebene', 'Ebenen')} pro Projekt.`
+          `The import contains a project with ${count} levels — this instance allows at most ` +
+            `${plural(maxViewsPerProject, 'level', 'levels')} per project.`
         );
       }
     }
@@ -218,8 +218,8 @@ export function assertImportWithinLimits(db, userId, { projects = [], views = []
     for (const [, count] of perProject) {
       if (count > maxNodesPerProject) {
         throw limitError(
-          `Der Import enthält ein Projekt mit ${count} Nodes — diese Instanz erlaubt maximal ` +
-            `${plural(maxNodesPerProject, 'Node', 'Nodes')} pro Projekt.`
+          `The import contains a project with ${count} nodes — this instance allows at most ` +
+            `${plural(maxNodesPerProject, 'node', 'nodes')} per project.`
         );
       }
     }

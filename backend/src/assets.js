@@ -72,22 +72,22 @@ export function assetHeaders(asset) {
  */
 export function decodeDataUrl(dataUrl, maxBytes) {
   const match = /^data:([^;,]*)(;base64)?,/.exec(dataUrl);
-  if (!match) throw new ApiError(400, 'Kein gültiger Data-URL');
+  if (!match) throw new ApiError(400, 'Not a valid data URL');
   const payload = dataUrl.slice(match[0].length);
   const buf = match[2]
     ? Buffer.from(payload, 'base64')
     : Buffer.from(decodeURIComponent(payload), 'utf8');
 
-  if (!buf.length) throw new ApiError(400, 'Die Datei ist leer');
+  if (!buf.length) throw new ApiError(400, 'The file is empty');
   if (buf.length > maxBytes) {
     throw new ApiError(
       413,
-      `Die Datei ist ${Math.round(buf.length / 1024)} kB gross — erlaubt sind ${Math.round(maxBytes / 1024)} kB.`
+      `The file is ${Math.round(buf.length / 1024)} kB — the limit is ${Math.round(maxBytes / 1024)} kB.`
     );
   }
   const mime = sniffMime(buf);
   if (!mime) {
-    throw new ApiError(400, `Kein unterstütztes Bildformat. Erlaubt: ${ALLOWED_MIME.join(', ')}`);
+    throw new ApiError(400, `Unsupported image format. Allowed: ${ALLOWED_MIME.join(', ')}`);
   }
   return { bytes: buf, mime };
 }

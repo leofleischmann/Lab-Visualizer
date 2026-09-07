@@ -30,7 +30,7 @@ export function projectsRouter(db) {
       return;
     }
     const template = getTemplate(templateId);
-    if (!template) throw new ApiError(400, `Unbekannte Vorlage "${templateId}"`);
+    if (!template) throw new ApiError(400, `Unknown template "${templateId}"`);
     assertTemplateFitsLimits(template);
 
     // Projekt und Template-Inhalt in EINER Transaktion: läuft der Aufbau in ein

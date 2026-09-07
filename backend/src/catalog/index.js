@@ -55,12 +55,12 @@ export const DEFAULT_PACKS = ['infrastructure', 'network', 'operations'];
  * sonst wäre ein Node beim Abwählen eines Packs plötzlich ungültig.
  */
 export const STATUSES = [
-  { id: 'active', label: 'Aktiv', color: '#22c55e' },
-  { id: 'inactive', label: 'Inaktiv', color: '#64748b' },
-  { id: 'planned', label: 'Geplant', color: '#38bdf8' },
-  { id: 'maintenance', label: 'Wartung', color: '#a78bfa' },
-  { id: 'error', label: 'Fehler / Störung', color: '#ef4444' },
-  { id: 'unknown', label: 'Unbekannt', color: '#d97706' },
+  { id: 'active', label: 'Active', color: '#22c55e' },
+  { id: 'inactive', label: 'Inactive', color: '#64748b' },
+  { id: 'planned', label: 'Planned', color: '#38bdf8' },
+  { id: 'maintenance', label: 'Maintenance', color: '#a78bfa' },
+  { id: 'error', label: 'Error / outage', color: '#ef4444' },
+  { id: 'unknown', label: 'Unknown', color: '#d97706' },
 ];
 
 export const STATUS_IDS = STATUSES.map((s) => s.id);
