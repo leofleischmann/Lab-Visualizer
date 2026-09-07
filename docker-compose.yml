@@ -1,25 +1,27 @@
 # Lab Visualizer — Compose
-# VERSION: Single source of truth ist die Datei ./VERSION im Repo-Root.
-# Beim lokalen Build (oder Self-Host-Deploy) aus der Datei laden, z. B.:
-#   export VERSION=$(tr -d '[:space:]' < VERSION)
-# Oder in .env setzen. Default unten = aktuelle Release-Version.
+# Backend und Frontend sind getrennt versioniert:
+#   backend/VERSION  -> BACKEND_VERSION  -> lab-visualizer-backend:$tag
+#   frontend/VERSION -> FRONTEND_VERSION -> lab-visualizer-frontend:$tag
 #
-# Vorhandene Images auf GHCR (nach Versions-Bump auf main):
-#   ghcr.io/leofleischmann/lab-visualizer-backend:$VERSION
-#   ghcr.io/leofleischmann/lab-visualizer-frontend:$VERSION
-# Ohne --build: docker compose pull && docker compose up -d
-# Mit --build: lokal bauen und als diese Tags markieren (Release-Workflow macht dasselbe).
+# Lokal / Deploy:
+#   export BACKEND_VERSION=$(tr -d '[:space:]' < backend/VERSION)
+#   export FRONTEND_VERSION=$(tr -d '[:space:]' < frontend/VERSION)
+# Oder in .env setzen. Defaults unten = aktuelle Release-Stände.
 #
-# Beeinflusst: .github/workflows/release.yml, Backend/Frontend-Dockerfiles (ARG VERSION),
-# GET /api/health (APP_VERSION im Backend-Image).
+# GHCR (nach jeweiligem Versions-Bump auf main):
+#   ghcr.io/leofleischmann/lab-visualizer-backend:$BACKEND_VERSION
+#   ghcr.io/leofleischmann/lab-visualizer-frontend:$FRONTEND_VERSION
+#
+# Beeinflusst: .github/workflows/release.yml, Dockerfiles (ARG VERSION),
+# GET /api/health (APP_VERSION nur Backend).
 
 services:
   backend:
-    image: ghcr.io/leofleischmann/lab-visualizer-backend:${VERSION:-1.0.0}
+    image: ghcr.io/leofleischmann/lab-visualizer-backend:${BACKEND_VERSION:-1.0.0}
     build:
       context: ./backend
       args:
-        VERSION: ${VERSION:-1.0.0}
+        VERSION: ${BACKEND_VERSION:-1.0.0}
     container_name: labviz-backend
     restart: unless-stopped
     # NODE_ENV=production kommt aus dem Image → Secure-Cookies sind in Produktion Standard.
@@ -58,11 +60,11 @@ services:
     #   - "3000:3000"
 
   frontend:
-    image: ghcr.io/leofleischmann/lab-visualizer-frontend:${VERSION:-1.0.0}
+    image: ghcr.io/leofleischmann/lab-visualizer-frontend:${FRONTEND_VERSION:-1.0.0}
     build:
       context: ./frontend
       args:
-        VERSION: ${VERSION:-1.0.0}
+        VERSION: ${FRONTEND_VERSION:-1.0.0}
     container_name: labviz-frontend
     restart: unless-stopped
     depends_on:

@@ -6,7 +6,8 @@ Prozesslandschaften. Mit interaktiver Canvas (React Flow), Deep-Dive-Panel
 (typisierte Felder + Markdown-Notizen) und einer sauberen REST-API für Automatisierung.
 
 ![Stack](https://img.shields.io/badge/Stack-React%20%2B%20Express%20%2B%20SQLite-38bdf8)
-![Version](https://img.shields.io/badge/Version-1.0.0-38bdf8)
+![Backend](https://img.shields.io/badge/Backend-1.0.0-38bdf8)
+![Frontend](https://img.shields.io/badge/Frontend-1.0.0-38bdf8)
 ![Lizenz](https://img.shields.io/badge/Lizenz-MIT-38bdf8)
 
 ![Lab Visualizer — Übersichtsebene mit Drill-down-Hierarchie](docs/screenshot.png)
@@ -120,10 +121,11 @@ docker compose up -d --build
 
 → Web-UI: **http://localhost:8080** · API (über Frontend-Proxy): **http://localhost:8080/api**
 
-Versionierte Images (GHCR), sobald eine neue Version auf `main` landet:
+Versionierte Images (GHCR), unabhängig für Backend und Frontend:
 
 ```bash
-export VERSION=1.0.0   # oder Inhalt von ./VERSION
+export BACKEND_VERSION=1.0.0    # oder: $(tr -d '[:space:]' < backend/VERSION)
+export FRONTEND_VERSION=1.0.0   # oder: $(tr -d '[:space:]' < frontend/VERSION)
 docker compose pull
 docker compose up -d
 ```
@@ -408,10 +410,11 @@ es sie in der Regel nicht. Abrufbar sind sie auch über `GET /api/meta/legal`.
 ## Projektstruktur
 
 ```
-├── VERSION                   # App-Version (SemVer) → GHCR-Image-Tags
 ├── docker-compose.yml
 ├── docs/                     # Screenshots und Rechtstext-Vorlagen
 ├── backend/
+│   ├── VERSION               # Backend-SemVer → GHCR-Tag / backend-v*
+│   ├── CHANGELOG.md
 │   ├── src/
 │   │   ├── server.js         # Bootstrap
 │   │   ├── app.js            # Express-App, Auth-Middleware, Fehler-Handling
@@ -430,6 +433,8 @@ es sie in der Regel nicht. Abrufbar sind sie auch über `GET /api/meta/legal`.
 │   │   └── routes/           # auth, projects, views, nodes, edges, graph, meta, assets, share
 │   └── test/                 # API, Auth & Isolation, Layout, Paketgrenzen (node --test)
 └── frontend/
+    ├── VERSION               # Frontend-SemVer → GHCR-Tag / frontend-v*
+    ├── CHANGELOG.md
     └── src/
         ├── store/graph.ts    # Zustand-Store (Canvas ⇄ API), Filter, Leseansicht
         ├── store/auth.ts     # Auth-Zustand (Login/Registrierung/Session)

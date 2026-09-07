@@ -1,6 +1,6 @@
 # Lab Visualizer — Frontend (React + Vite, ausgeliefert über nginx)
-# VERSION aus Repo-Root (Build-Arg). Beeinflusst: Image-Tags (Release-Workflow), OCI-Label.
-# docker-compose reicht VERSION durch.
+# VERSION = frontend/VERSION (Build-Arg). Beeinflusst: Image-Tag (Release-Workflow),
+# OCI-Label. Compose: FRONTEND_VERSION.
 ARG VERSION=0.0.0
 
 FROM node:22-alpine AS build

@@ -1,19 +1,30 @@
-# Veröffentlicht Docker-Images auf GHCR, sobald sich VERSION auf main ändert.
-# Single source of truth: /VERSION
-# Release-Notes: Abschnitt ## [X.Y.Z] aus CHANGELOG.md (muss zur VERSION passen).
-# Beeinflusst: Image-Tags backend/frontend, Git-Tag vX.Y.Z, GitHub Release.
-# Lokal bauen: VERSION=$(cat VERSION) docker compose build
+# Veröffentlicht Backend- bzw. Frontend-Images auf GHCR unabhängig voneinander,
+# sobald sich backend/VERSION bzw. frontend/VERSION auf main ändert.
+#
+# Pro Komponente: VERSION + package.json + CHANGELOG.md Abschnitt ## [X.Y.Z]
+# Git-Tag: backend-vX.Y.Z bzw. frontend-vX.Y.Z
+# Beeinflusst: Image-Tags, GitHub Releases, docker-compose (BACKEND_VERSION / FRONTEND_VERSION)
 name: Release
 
 on:
   push:
     branches: [main]
     paths:
-      - VERSION
+      - backend/VERSION
+      - frontend/VERSION
   workflow_dispatch:
+    inputs:
+      component:
+        description: Welches Image releasen?
+        type: choice
+        options:
+          - backend
+          - frontend
+          - both
+        default: both
 
 concurrency:
-  group: release
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -24,134 +35,238 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
-  publish:
-    name: Images bauen und veroeffentlichen
+  plan:
+    name: Aenderungen erkennen
     runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.detect.outputs.backend }}
+      frontend: ${{ steps.detect.outputs.frontend }}
+      owner: ${{ steps.detect.outputs.owner }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Version lesen
-        id: version
+      - name: Erkennen
+        id: detect
         run: |
-          VERSION=$(tr -d '[:space:]' < VERSION)
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
-            echo "Ungueltige VERSION: '$VERSION'" >&2
-            exit 1
-          fi
           OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "owner=$OWNER" >> "$GITHUB_OUTPUT"
-          echo "[Debug release]: version=$VERSION owner=$OWNER"
 
-      - name: package.json Versionen pruefen
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          for pkg in backend/package.json frontend/package.json; do
-            PV=$(node -p "require('./$pkg').version")
-            if [[ "$PV" != "$VERSION" ]]; then
-              echo "Version in $pkg ($PV) weicht von VERSION ($VERSION) ab." >&2
-              exit 1
+          BACKEND=false
+          FRONTEND=false
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            case "${{ inputs.component }}" in
+              backend) BACKEND=true ;;
+              frontend) FRONTEND=true ;;
+              both) BACKEND=true; FRONTEND=true ;;
+            esac
+          else
+            BEFORE="${{ github.event.before }}"
+            if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]]; then
+              BACKEND=true
+              FRONTEND=true
+            else
+              mapfile -t CHANGED < <(git diff --name-only "$BEFORE" "${{ github.sha }}")
+              for f in "${CHANGED[@]}"; do
+                [[ "$f" == "backend/VERSION" ]] && BACKEND=true
+                [[ "$f" == "frontend/VERSION" ]] && FRONTEND=true
+              done
             fi
-          done
+          fi
 
-      - name: Changelog-Abschnitt extrahieren
-        id: changelog
+          echo "backend=$BACKEND" >> "$GITHUB_OUTPUT"
+          echo "frontend=$FRONTEND" >> "$GITHUB_OUTPUT"
+          echo "[Debug release]: backend=$BACKEND frontend=$FRONTEND owner=$OWNER"
+
+  publish-backend:
+    name: Backend releasen
+    needs: plan
+    if: needs.plan.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Version und Changelog
+        id: meta
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          OWNER: ${{ needs.plan.outputs.owner }}
         run: |
-          # Nimmt den Block ## [VERSION] … bis zur naechsten ## [-Ueberschrift].
-          # Beeinflusst: GitHub-Release-Body. CHANGELOG.md und VERSION muessen zusammen gepflegt werden.
-          if [[ ! -f CHANGELOG.md ]]; then
-            echo "CHANGELOG.md fehlt." >&2
+          set -euo pipefail
+          COMPONENT=backend
+          VERSION=$(tr -d '[:space:]' < "$COMPONENT/VERSION")
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Ungueltige $COMPONENT/VERSION: '$VERSION'" >&2
             exit 1
           fi
-          if ! grep -qE "^## \[${VERSION}\]" CHANGELOG.md; then
-            echo "CHANGELOG.md hat keinen Abschnitt ## [${VERSION}]." >&2
+          PV=$(node -p "require('./$COMPONENT/package.json').version")
+          if [[ "$PV" != "$VERSION" ]]; then
+            echo "$COMPONENT/package.json ($PV) weicht von VERSION ($VERSION) ab." >&2
+            exit 1
+          fi
+          if ! grep -qE "^## \[${VERSION}\]" "$COMPONENT/CHANGELOG.md"; then
+            echo "$COMPONENT/CHANGELOG.md hat keinen Abschnitt ## [${VERSION}]." >&2
             exit 1
           fi
           awk -v ver="$VERSION" '
             $0 ~ ("^## \\[" ver "\\]") { found=1; print; next }
             found && /^## \[/ { exit }
             found { print }
-          ' CHANGELOG.md > /tmp/release-notes.md
-          if [[ ! -s /tmp/release-notes.md ]]; then
-            echo "Changelog-Abschnitt fuer ${VERSION} ist leer." >&2
-            exit 1
-          fi
+          ' "$COMPONENT/CHANGELOG.md" > /tmp/release-notes.md
           {
             echo ""
             echo "---"
             echo ""
-            echo "### Docker-Images"
+            echo "### Docker-Image"
             echo ""
-            echo "- \`ghcr.io/${{ steps.version.outputs.owner }}/lab-visualizer-backend:${VERSION}\`"
-            echo "- \`ghcr.io/${{ steps.version.outputs.owner }}/lab-visualizer-frontend:${VERSION}\`"
+            echo "- \`ghcr.io/${OWNER}/lab-visualizer-backend:${VERSION}\`"
             echo ""
             echo "\`\`\`bash"
-            echo "export VERSION=${VERSION}"
-            echo "docker compose pull"
-            echo "docker compose up -d"
+            echo "export BACKEND_VERSION=${VERSION}"
+            echo "docker compose pull backend"
+            echo "docker compose up -d backend"
             echo "\`\`\`"
           } >> /tmp/release-notes.md
-          echo "[Debug release]: Changelog-Abschnitt extrahiert ($(wc -l < /tmp/release-notes.md) Zeilen)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=backend-v${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "image=lab-visualizer-backend" >> "$GITHUB_OUTPUT"
+          echo "[Debug release]: $COMPONENT $VERSION -> backend-v${VERSION}"
 
-      - name: Login bei GHCR
-        uses: docker/login-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Backend pushen
-        uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v6
         with:
           context: ./backend
           push: true
-          build-args: VERSION=${{ steps.version.outputs.version }}
+          build-args: VERSION=${{ steps.meta.outputs.version }}
           tags: |
-            ${{ env.REGISTRY }}/${{ steps.version.outputs.owner }}/lab-visualizer-backend:${{ steps.version.outputs.version }}
-            ${{ env.REGISTRY }}/${{ steps.version.outputs.owner }}/lab-visualizer-backend:latest
+            ${{ env.REGISTRY }}/${{ needs.plan.outputs.owner }}/lab-visualizer-backend:${{ steps.meta.outputs.version }}
+            ${{ env.REGISTRY }}/${{ needs.plan.outputs.owner }}/lab-visualizer-backend:latest
           labels: |
-            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.title=Lab Visualizer Backend
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
-
-      - name: Frontend pushen
-        uses: docker/build-push-action@v6
-        with:
-          context: ./frontend
-          push: true
-          build-args: VERSION=${{ steps.version.outputs.version }}
-          tags: |
-            ${{ env.REGISTRY }}/${{ steps.version.outputs.owner }}/lab-visualizer-frontend:${{ steps.version.outputs.version }}
-            ${{ env.REGISTRY }}/${{ steps.version.outputs.owner }}/lab-visualizer-frontend:latest
-          labels: |
-            org.opencontainers.image.version=${{ steps.version.outputs.version }}
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-          cache-from: type=gha,scope=frontend
-          cache-to: type=gha,mode=max,scope=frontend
 
       - name: Git-Tag und Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
-          TAG="v${VERSION}"
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "[Debug release]: Tag $TAG existiert bereits — kein neues Release"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" -m "Release $TAG"
+          git tag -a "$TAG" -m "Backend $VERSION"
           git push origin "$TAG"
           gh release create "$TAG" \
-            --title "$TAG" \
+            --title "Backend $VERSION" \
+            --notes-file /tmp/release-notes.md
+
+  publish-frontend:
+    name: Frontend releasen
+    needs: plan
+    if: needs.plan.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Version und Changelog
+        id: meta
+        env:
+          OWNER: ${{ needs.plan.outputs.owner }}
+        run: |
+          set -euo pipefail
+          COMPONENT=frontend
+          VERSION=$(tr -d '[:space:]' < "$COMPONENT/VERSION")
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Ungueltige $COMPONENT/VERSION: '$VERSION'" >&2
+            exit 1
+          fi
+          PV=$(node -p "require('./$COMPONENT/package.json').version")
+          if [[ "$PV" != "$VERSION" ]]; then
+            echo "$COMPONENT/package.json ($PV) weicht von VERSION ($VERSION) ab." >&2
+            exit 1
+          fi
+          if ! grep -qE "^## \[${VERSION}\]" "$COMPONENT/CHANGELOG.md"; then
+            echo "$COMPONENT/CHANGELOG.md hat keinen Abschnitt ## [${VERSION}]." >&2
+            exit 1
+          fi
+          awk -v ver="$VERSION" '
+            $0 ~ ("^## \\[" ver "\\]") { found=1; print; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' "$COMPONENT/CHANGELOG.md" > /tmp/release-notes.md
+          {
+            echo ""
+            echo "---"
+            echo ""
+            echo "### Docker-Image"
+            echo ""
+            echo "- \`ghcr.io/${OWNER}/lab-visualizer-frontend:${VERSION}\`"
+            echo ""
+            echo "\`\`\`bash"
+            echo "export FRONTEND_VERSION=${VERSION}"
+            echo "docker compose pull frontend"
+            echo "docker compose up -d frontend"
+            echo "\`\`\`"
+          } >> /tmp/release-notes.md
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=frontend-v${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "[Debug release]: $COMPONENT $VERSION -> frontend-v${VERSION}"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          build-args: VERSION=${{ steps.meta.outputs.version }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ needs.plan.outputs.owner }}/lab-visualizer-frontend:${{ steps.meta.outputs.version }}
+            ${{ env.REGISTRY }}/${{ needs.plan.outputs.owner }}/lab-visualizer-frontend:latest
+          labels: |
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.title=Lab Visualizer Frontend
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+      - name: Git-Tag und Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "[Debug release]: Tag $TAG existiert bereits — kein neues Release"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Frontend $VERSION"
+          git push origin "$TAG"
+          gh release create "$TAG" \
+            --title "Frontend $VERSION" \
             --notes-file /tmp/release-notes.md

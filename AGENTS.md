@@ -412,7 +412,8 @@ GET /health   (öffentlich, kein Login nötig)
 → 200 { "status": "ok", "version": "1.0.0", "time": "2026-07-02T18:00:00.000Z" }
 ```
 
-`version` kommt aus `/VERSION` (bzw. `APP_VERSION` im Docker-Image).
+`version` ist die **Backend**-Version aus `backend/VERSION` (bzw. `APP_VERSION` im Docker-Image).
+Das Frontend hat eine eigene Version in `frontend/VERSION`.
 ### Katalog
 
 ```

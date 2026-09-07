@@ -27,8 +27,9 @@ body:
   - type: input
     id: version
     attributes:
-      label: Version / Commit
-      placeholder: "z. B. main @ 4ccf911"
+      label: Versionen
+      description: Backend- und Frontend-Version (VERSION-Dateien oder Image-Tags).
+      placeholder: "Backend 1.0.0 / Frontend 1.0.0"
   - type: dropdown
     id: betrieb
     attributes:

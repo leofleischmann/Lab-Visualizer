@@ -1,6 +1,6 @@
 # Lab Visualizer — Backend (Express + SQLite)
-# VERSION kommt aus dem Repo-Root (Build-Arg). Beeinflusst: Image-Tags (Release-Workflow),
-# APP_VERSION -> GET /api/health, OCI-Label. docker-compose reicht VERSION durch.
+# VERSION = backend/VERSION (Build-Arg). Beeinflusst: Image-Tag (Release-Workflow),
+# APP_VERSION -> GET /api/health, OCI-Label. Compose: BACKEND_VERSION.
 ARG VERSION=0.0.0
 
 FROM node:22-slim

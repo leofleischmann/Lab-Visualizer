@@ -1,12 +1,13 @@
 /**
- * App-Version für Health-Check und Betrieb.
+ * Backend-Version für Health-Check und Betrieb.
  *
- * Single source of truth: Datei `/VERSION` im Repo-Root.
+ * Single source of truth: `backend/VERSION` (muss zu `backend/package.json` passen).
  * Im Docker-Image setzt das Dockerfile `APP_VERSION` (Build-Arg).
- * Lokal ohne Docker wird `/VERSION` gelesen, sonst `backend/package.json`.
+ * Lokal ohne Docker wird `backend/VERSION` gelesen, sonst `package.json`.
  *
- * Beeinflusst: GET /api/health, Backend-Dockerfile, Release-Workflow (.github/workflows/release.yml),
- * docker-compose Image-Tags, ggf. package.json-Versionen (beim Bump mitziehen).
+ * Frontend hat eine eigene Version (`frontend/VERSION`) und ein eigenes Image.
+ * Beeinflusst: GET /api/health, Backend-Dockerfile, Release-Workflow,
+ * docker-compose `BACKEND_VERSION`.
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -25,8 +26,8 @@ function readFileVersion(path) {
 export function getAppVersion() {
   if (process.env.APP_VERSION?.trim()) return process.env.APP_VERSION.trim();
 
-  const fromRoot = readFileVersion(join(HERE, '..', '..', 'VERSION'));
-  if (fromRoot) return fromRoot;
+  const fromFile = readFileVersion(join(HERE, '..', 'VERSION'));
+  if (fromFile) return fromFile;
 
   const pkgRaw = readFileVersion(join(HERE, '..', 'package.json'));
   if (pkgRaw) {

@@ -61,6 +61,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Compose-Build
         run: |
-          export VERSION=$(tr -d '[:space:]' < VERSION)
-          echo "[Debug ci]: VERSION=$VERSION"
+          export BACKEND_VERSION=$(tr -d '[:space:]' < backend/VERSION)
+          export FRONTEND_VERSION=$(tr -d '[:space:]' < frontend/VERSION)
+          echo "[Debug ci]: BACKEND_VERSION=$BACKEND_VERSION FRONTEND_VERSION=$FRONTEND_VERSION"
           docker compose build

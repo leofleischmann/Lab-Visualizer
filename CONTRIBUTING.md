@@ -39,18 +39,22 @@ Typecheck gleich mit ab.
 
 ## Version erhöhen (Release)
 
-Die App-Version steht in `/VERSION` (SemVer, aktuell `1.0.0`). Beim Bump:
+Backend und Frontend haben **eigene** SemVer-Stände:
 
-1. `VERSION` anpassen
-2. dieselbe Zahl in `backend/package.json` und `frontend/package.json`
-3. neuen Abschnitt `## [X.Y.Z] - YYYY-MM-DD` **oben** in `CHANGELOG.md` eintragen
-4. Fallback in `docker-compose.yml` (`${VERSION:-…}`) und README-Badge anpassen
-5. per PR nach `main` mergen
+| Komponente | Version | Changelog | Image / Git-Tag |
+|---|---|---|---|
+| Backend | `backend/VERSION` (+ `backend/package.json`) | `backend/CHANGELOG.md` | `lab-visualizer-backend` / `backend-vX.Y.Z` |
+| Frontend | `frontend/VERSION` (+ `frontend/package.json`) | `frontend/CHANGELOG.md` | `lab-visualizer-frontend` / `frontend-vX.Y.Z` |
 
-Der Workflow `.github/workflows/release.yml` baut dann Backend- und Frontend-Images
-auf GHCR (`…/lab-visualizer-backend:x.y.z` und `…-frontend:x.y.z` plus `:latest`),
-legt den Git-Tag `vX.Y.Z` an und übernimmt den passenden Changelog-Abschnitt als
-GitHub-Release-Notes.
+Beim Bump einer Komponente:
+
+1. `…/VERSION` und passende `package.json` anpassen
+2. neuen Abschnitt `## [X.Y.Z] - YYYY-MM-DD` **oben** in deren `CHANGELOG.md`
+3. Compose-Fallback (`BACKEND_VERSION` bzw. `FRONTEND_VERSION`) und README-Badge anpassen
+4. per PR nach `main` mergen
+
+Nur die geänderte `VERSION`-Datei triggert den Release-Workflow für genau
+dieses Image. Manual Dispatch erlaubt Backend, Frontend oder beides.
 
 ## Worauf ich beim Review achte
 
