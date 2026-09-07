@@ -1,5 +1,6 @@
 # Veröffentlicht Docker-Images auf GHCR, sobald sich VERSION auf main ändert.
 # Single source of truth: /VERSION
+# Release-Notes: Abschnitt ## [X.Y.Z] aus CHANGELOG.md (muss zur VERSION passen).
 # Beeinflusst: Image-Tags backend/frontend, Git-Tag vX.Y.Z, GitHub Release.
 # Lokal bauen: VERSION=$(cat VERSION) docker compose build
 name: Release
@@ -55,6 +56,47 @@ jobs:
               exit 1
             fi
           done
+
+      - name: Changelog-Abschnitt extrahieren
+        id: changelog
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Nimmt den Block ## [VERSION] … bis zur naechsten ## [-Ueberschrift].
+          # Beeinflusst: GitHub-Release-Body. CHANGELOG.md und VERSION muessen zusammen gepflegt werden.
+          if [[ ! -f CHANGELOG.md ]]; then
+            echo "CHANGELOG.md fehlt." >&2
+            exit 1
+          fi
+          if ! grep -qE "^## \[${VERSION}\]" CHANGELOG.md; then
+            echo "CHANGELOG.md hat keinen Abschnitt ## [${VERSION}]." >&2
+            exit 1
+          fi
+          awk -v ver="$VERSION" '
+            $0 ~ ("^## \\[" ver "\\]") { found=1; print; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > /tmp/release-notes.md
+          if [[ ! -s /tmp/release-notes.md ]]; then
+            echo "Changelog-Abschnitt fuer ${VERSION} ist leer." >&2
+            exit 1
+          fi
+          {
+            echo ""
+            echo "---"
+            echo ""
+            echo "### Docker-Images"
+            echo ""
+            echo "- \`ghcr.io/${{ steps.version.outputs.owner }}/lab-visualizer-backend:${VERSION}\`"
+            echo "- \`ghcr.io/${{ steps.version.outputs.owner }}/lab-visualizer-frontend:${VERSION}\`"
+            echo ""
+            echo "\`\`\`bash"
+            echo "export VERSION=${VERSION}"
+            echo "docker compose pull"
+            echo "docker compose up -d"
+            echo "\`\`\`"
+          } >> /tmp/release-notes.md
+          echo "[Debug release]: Changelog-Abschnitt extrahiert ($(wc -l < /tmp/release-notes.md) Zeilen)"
 
       - name: Login bei GHCR
         uses: docker/login-action@v3
@@ -112,13 +154,4 @@ jobs:
           git push origin "$TAG"
           gh release create "$TAG" \
             --title "$TAG" \
-            --notes "Docker-Images:
-          - \`ghcr.io/${{ steps.version.outputs.owner }}/lab-visualizer-backend:${VERSION}\`
-          - \`ghcr.io/${{ steps.version.outputs.owner }}/lab-visualizer-frontend:${VERSION}\`
-
-          Start mit vorgebauten Images:
-          \`\`\`bash
-          export VERSION=${VERSION}
-          docker compose pull
-          docker compose up -d
-          \`\`\`"
+            --notes-file /tmp/release-notes.md

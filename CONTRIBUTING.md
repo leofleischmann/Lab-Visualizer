@@ -43,12 +43,14 @@ Die App-Version steht in `/VERSION` (SemVer, aktuell `1.0.0`). Beim Bump:
 
 1. `VERSION` anpassen
 2. dieselbe Zahl in `backend/package.json` und `frontend/package.json`
-3. Fallback in `docker-compose.yml` (`${VERSION:-…}`) und README-Badge anpassen
-4. per PR nach `main` mergen
+3. neuen Abschnitt `## [X.Y.Z] - YYYY-MM-DD` **oben** in `CHANGELOG.md` eintragen
+4. Fallback in `docker-compose.yml` (`${VERSION:-…}`) und README-Badge anpassen
+5. per PR nach `main` mergen
 
 Der Workflow `.github/workflows/release.yml` baut dann Backend- und Frontend-Images
 auf GHCR (`…/lab-visualizer-backend:x.y.z` und `…-frontend:x.y.z` plus `:latest`),
-legt den Git-Tag `vX.Y.Z` an und erstellt ein GitHub Release.
+legt den Git-Tag `vX.Y.Z` an und übernimmt den passenden Changelog-Abschnitt als
+GitHub-Release-Notes.
 
 ## Worauf ich beim Review achte
 
