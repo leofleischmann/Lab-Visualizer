@@ -1,4 +1,5 @@
 import { Handle, Position, useConnection } from '@xyflow/react';
+import { useGraphStore } from '../../store/graph';
 
 const SIDES: { id: string; position: Position }[] = [
   { id: 'top', position: Position.Top },
@@ -13,6 +14,10 @@ const SIDES: { id: string; position: Position }[] = [
  * die Handles dienen nur zum Ziehen neuer Verbindungen.
  */
 export function ConnectionHandles({ visible }: { visible: boolean }) {
+  // In der Leseansicht eines Freigabelinks lassen sich keine Verbindungen
+  // ziehen — dann sind die Punkte nur irreführend.
+  const readOnly = useGraphStore((s) => s.readOnly);
+  if (readOnly) return null;
   return (
     <>
       {SIDES.map(({ id, position }) => (

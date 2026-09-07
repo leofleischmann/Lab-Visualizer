@@ -266,6 +266,68 @@ export function orphanFields(
 }
 
 /**
+ * Ein Filter, den die Leiste anbietet. Baut sich aus dem Katalog des Projekts:
+ * Status und Kategorie sind immer dabei, dazu jedes Feld vom Typ `select` —
+ * bei einem Prozess-Projekt also andere als bei einem Server-Projekt, ohne dass
+ * die UI davon etwas wissen muss.
+ */
+export type FilterDef = {
+  key: string;
+  label: string;
+  options: { value: string; label: string; color?: string }[];
+};
+
+/** Schlüssel, die nicht in `node.fields` liegen, sondern am Node selbst. */
+const NODE_FILTER_KEYS = new Set(['status', 'category']);
+
+export function filterDefs(catalog: Catalog | null): FilterDef[] {
+  if (!catalog) return [];
+  const defs: FilterDef[] = [
+    {
+      key: 'status',
+      label: 'Status',
+      options: catalog.statuses.map((s) => ({ value: s.id, label: s.label, color: s.color })),
+    },
+    {
+      key: 'category',
+      label: 'Kategorie',
+      options: catalog.categories
+        // Zonen sind Struktur, kein Inhalt — sie werden nicht gefiltert.
+        .filter((c) => c.id !== 'group')
+        .map((c) => ({ value: c.id, label: c.label, color: c.color })),
+    },
+  ];
+  for (const field of catalog.fields) {
+    if (field.type !== 'select' || !field.options?.length) continue;
+    defs.push({
+      key: field.key,
+      label: field.label,
+      options: field.options.map((o) => ({ value: o, label: o })),
+    });
+  }
+  return defs;
+}
+
+/**
+ * Erfüllt ein Node ALLE gesetzten Filter? Mehrere Filter wirken als UND —
+ * „Produktion" und „Kritisch" heisst beides, nicht eines von beiden.
+ *
+ * Zonen (`group`) bleiben aussen vor: sie umschliessen ihre Kinder und sollen
+ * nicht verschwinden, nur weil sie selbst keinen Status tragen.
+ */
+export function matchesFilters(entity: ApiNode, filters: Record<string, string>): boolean {
+  if (entity.category === 'group') return true;
+  for (const [key, value] of Object.entries(filters)) {
+    if (!value) continue;
+    const actual = NODE_FILTER_KEYS.has(key)
+      ? (entity[key as 'status' | 'category'] ?? '')
+      : (entity.fields[key] ?? '');
+    if (actual !== value) return false;
+  }
+  return true;
+}
+
+/**
  * Volltext-Suche über Name, Kategorie und alle Feldwerte.
  *
  * Muss deckungsgleich mit der serverseitigen Suche in backend/src/store.js

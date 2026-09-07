@@ -85,3 +85,82 @@ test('Hub-Kind in Zone wird zur Zeilenmitte gelegt', () => {
   const mid = (xs[0] + xs[xs.length - 1]) / 2;
   assert.ok(Math.abs(hub.position.x - mid) <= Math.abs(xs[0] - mid));
 });
+
+/**
+ * Regression: Die Grundflaeche eines freistehenden Nodes wurde dreifach
+ * gezaehlt — CELL_* (Rasterschritt, enthaelt schon eine Luecke) PLUS PAD_*
+ * (Innenabstand einer Zone) PLUS ENTITY_GAP_X/LAYER_GAP_Y. Ein 230x92 px
+ * grosser Node bekam dadurch ~380 px Luecke waagerecht und ~480 px senkrecht;
+ * bei wenigen Nodes wirkte die Ebene dadurch voellig auseinandergezogen.
+ *
+ * Referenz sind die von Hand gesetzten Abstaende des Beispielprojekts
+ * (backend/src/templates/homelab.js): x-Schritt 300-360, y-Schritt 180-200.
+ */
+const NODE_W = 230;
+const NODE_H = 92;
+
+/** Kleinster Abstand zwischen zwei benachbarten Spalten bzw. Zeilen. */
+function steps(laid) {
+  const uniq = (vals) => [...new Set(vals)].sort((a, b) => a - b);
+  const gaps = (vals) => uniq(vals).slice(1).map((v, i) => v - uniq(vals)[i]);
+  return {
+    x: gaps(laid.map((n) => n.position.x)),
+    y: gaps(laid.map((n) => n.position.y)),
+  };
+}
+
+test('Abstaende freistehender Nodes bleiben im Rahmen der Handarbeit', () => {
+  // Stern: ein Knoten zeigt auf vier weitere -> eine Zeile mit vier Spalten
+  const nodes = Array.from({ length: 5 }, (_, i) => ({
+    id: `n${i}`, name: `N${i}`, category: 'generic', parentId: null, position: { x: 0, y: 0 },
+  }));
+  const edges = Array.from({ length: 4 }, (_, i) => ({
+    id: `e${i}`, sourceId: 'n0', targetId: `n${i + 1}`,
+  }));
+
+  const { x, y } = steps(computeLayout(nodes, edges));
+  for (const step of x) {
+    assert.ok(step >= NODE_W, `Spaltenschritt ${step} laesst Nodes ueberlappen`);
+    assert.ok(step <= NODE_W + 200, `Spaltenschritt ${step} ist zu weit (Node ist ${NODE_W} breit)`);
+  }
+  for (const step of y) {
+    assert.ok(step >= NODE_H, `Zeilenschritt ${step} laesst Nodes ueberlappen`);
+    assert.ok(step <= NODE_H + 200, `Zeilenschritt ${step} ist zu weit (Node ist ${NODE_H} hoch)`);
+  }
+});
+
+test('eine lange Kette waechst linear und nicht in Spruengen', () => {
+  const chain = (n) => {
+    const nodes = Array.from({ length: n }, (_, i) => ({
+      id: `n${i}`, name: `N${i}`, category: 'generic', parentId: null, position: { x: 0, y: 0 },
+    }));
+    const edges = Array.from({ length: n - 1 }, (_, i) => ({
+      id: `e${i}`, sourceId: `n${i}`, targetId: `n${i + 1}`,
+    }));
+    const laid = computeLayout(nodes, edges);
+    return Math.max(...laid.map((p) => p.position.y)) + NODE_H;
+  };
+  // Fuenf Nodes untereinander duerfen kein halbes Stockwerk hoch werden.
+  assert.ok(chain(5) < 1100, `Kette aus 5 Nodes ist ${chain(5)} px hoch`);
+});
+
+test('Zonen umschliessen ihre Kinder mit gleichmaessigem Rand', () => {
+  const nodes = [
+    { id: 'z', name: 'Z', category: 'group', parentId: null, position: { x: 0, y: 0 } },
+    ...Array.from({ length: 6 }, (_, i) => ({
+      id: `c${i}`, name: `C${i}`, category: 'generic', parentId: 'z', position: { x: 0, y: 0 },
+    })),
+  ];
+  const laid = computeLayout(nodes, []);
+  const zone = laid.find((n) => n.id === 'z');
+  const kids = laid.filter((n) => n.parentId === 'z');
+  const right = Math.max(...kids.map((k) => k.position.x)) + NODE_W;
+  const bottom = Math.max(...kids.map((k) => k.position.y)) + NODE_H;
+
+  // Kinder passen hinein …
+  assert.ok(zone.width >= right, 'Zone ist schmaler als ihr Inhalt');
+  assert.ok(zone.height >= bottom, 'Zone ist niedriger als ihr Inhalt');
+  // … ohne dass rechts/unten fast eine ganze Rasterzelle leer bleibt.
+  assert.ok(zone.width - right <= 80, `Rand rechts ist ${zone.width - right} px`);
+  assert.ok(zone.height - bottom <= 80, `Rand unten ist ${zone.height - bottom} px`);
+});

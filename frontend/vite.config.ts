@@ -31,7 +31,10 @@ export default defineConfig({
   test: {
     // jsdom, weil der Store localStorage nutzt (zuletzt geöffnetes Projekt).
     environment: 'jsdom',
-    include: ['src/**/*.test.ts'],
+    // .tsx mit aufnehmen: Tests, die Komponenten rendern (etwa die Prüfung,
+    // dass hochgeladene Bilder nur als <img> und nie inline ins DOM kommen),
+    // brauchen JSX. Ohne das laufen sie stillschweigend gar nicht.
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     restoreMocks: true,
   },
 });

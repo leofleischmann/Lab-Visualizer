@@ -2,12 +2,16 @@ import crypto from 'node:crypto';
 import { ApiError } from './validation.js';
 import { ensureRootView } from './db.js';
 import { computeLayout } from './layout.js';
+import { decodeDataUrl } from './assets.js';
+import { createShareToken, hashShareToken, isExpired } from './share.js';
 import { normalizePacks, DEFAULT_PACKS } from './catalog/index.js';
 import {
   assertCanCreateProject,
   assertCanCreateView,
   assertCanCreateNode,
+  assertCanCreateAsset,
   assertImportWithinLimits,
+  getMaxAssetBytes,
 } from './limits.js';
 
 const now = () => new Date().toISOString();
@@ -56,6 +60,8 @@ function rowToNode(row) {
     position: { x: row.pos_x, y: row.pos_y },
     width: row.width,
     height: row.height,
+    icon: row.icon,
+    color: row.color,
     fields: JSON.parse(row.fields || '{}'),
     notes: row.notes,
     customFields: JSON.parse(row.custom_fields || '{}'),
@@ -146,6 +152,226 @@ export function sortParentsFirst(nodes) {
   };
   for (const node of nodes) visit(node);
   return result;
+}
+
+// ── Assets (hochgeladene Bilder) ────────────────────────────────
+//
+// Ein Bild wird an zwei Stellen referenziert: als Node-Icon (`asset:<id>`) und
+// als Bild in einer Markdown-Notiz (`/api/assets/<id>`). Beide Formen muessen
+// beim Export gefunden und beim Merge-Import umgeschrieben werden — sonst
+// zeigt eine geteilte Kopie auf Bilder, die dem anderen Konto gar nicht
+// gehoeren.
+const ASSET_ICON_PREFIX = 'asset:';
+const ASSET_URL_RE = /\/api\/assets\/([A-Za-z0-9_.:-]{1,64})/g;
+
+/** Alle Bild-IDs, die diese Nodes referenzieren (Icon oder Notiz). */
+function collectAssetIds(nodes) {
+  const ids = new Set();
+  for (const node of nodes) {
+    if (node.icon?.startsWith(ASSET_ICON_PREFIX)) {
+      ids.add(node.icon.slice(ASSET_ICON_PREFIX.length));
+    }
+    for (const m of (node.notes ?? '').matchAll(ASSET_URL_RE)) ids.add(m[1]);
+  }
+  return ids;
+}
+
+/** Schreibt Icon- und Notiz-Referenzen auf neue Bild-IDs um (Merge-Import). */
+function remapAssetRefs(node, assetMap) {
+  const icon = node.icon?.startsWith(ASSET_ICON_PREFIX)
+    ? ASSET_ICON_PREFIX + (assetMap.get(node.icon.slice(ASSET_ICON_PREFIX.length)) ?? '')
+    : node.icon;
+  const notes = (node.notes ?? '').replace(
+    ASSET_URL_RE,
+    (whole, id) => (assetMap.has(id) ? `/api/assets/${assetMap.get(id)}` : whole)
+  );
+  // Zeigte das Icon auf ein Bild, das der Payload nicht mitbringt, faellt der
+  // Node auf sein Kategorie-Icon zurueck statt auf eine tote Referenz.
+  return { ...node, icon: icon === ASSET_ICON_PREFIX ? null : icon, notes };
+}
+
+/** Bild als Data-URL — die Form, in der es im Export/Import reist. */
+export function assetToDataUrl(asset) {
+  return `data:${asset.mime};base64,${Buffer.from(asset.bytes).toString('base64')}`;
+}
+// Die Bytes bleiben absichtlich aus den Listen heraus: sie werden einzeln ueber
+// GET /api/assets/:id ausgeliefert, damit der Browser sie cachen kann.
+
+function rowToAsset(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    mime: row.mime,
+    byteSize: row.byte_size,
+    createdAt: row.created_at,
+  };
+}
+
+export function listAssets(db, userId) {
+  return db
+    .prepare(
+      'SELECT id, name, mime, byte_size, created_at FROM assets WHERE user_id = ? ORDER BY created_at DESC'
+    )
+    .all(userId)
+    .map(rowToAsset);
+}
+
+/** Metadaten UND Bytes — nur fuer das Ausliefern und den Export. */
+export function getAssetWithBytes(db, userId, id) {
+  const row = db.prepare('SELECT * FROM assets WHERE id = ? AND user_id = ?').get(id, userId);
+  if (!row) throw new ApiError(404, `Bild "${id}" nicht gefunden`);
+  return { ...rowToAsset(row), bytes: row.bytes };
+}
+
+export function createAsset(db, userId, { id, name, mime, bytes, createdAt }) {
+  assertCanCreateAsset(db, userId);
+  const assetId = id || crypto.randomUUID();
+  if (db.prepare('SELECT 1 FROM assets WHERE id = ?').get(assetId)) {
+    throw new ApiError(409, `Bild "${assetId}" existiert bereits`);
+  }
+  db.prepare(
+    `INSERT INTO assets (id, user_id, name, mime, byte_size, bytes, created_at)
+     VALUES (@id, @user_id, @name, @mime, @byte_size, @bytes, @created_at)`
+  ).run({
+    id: assetId,
+    user_id: userId,
+    name,
+    mime,
+    byte_size: bytes.length,
+    bytes,
+    created_at: createdAt ?? now(),
+  });
+  return listAssets(db, userId).find((a) => a.id === assetId);
+}
+
+/**
+ * Loescht ein Bild. Nodes, die es als Icon nutzen, fallen auf das Icon ihrer
+ * Kategorie zurueck — dafuer wird die Referenz mit entfernt, damit kein Node
+ * dauerhaft auf ein totes Bild zeigt.
+ */
+export function deleteAsset(db, userId, id) {
+  getAssetWithBytes(db, userId, id);
+  const ref = `asset:${id}`;
+  const tx = db.transaction(() => {
+    const cleared = db
+      .prepare(
+        `UPDATE nodes SET icon = NULL, updated_at = @ts
+         WHERE icon = @ref AND view_id IN (
+           SELECT v.id FROM views v JOIN projects p ON v.project_id = p.id WHERE p.user_id = @userId
+         )`
+      )
+      .run({ ref, ts: now(), userId }).changes;
+    db.prepare('DELETE FROM assets WHERE id = ? AND user_id = ?').run(id, userId);
+    return cleared;
+  });
+  return { clearedNodes: tx() };
+}
+
+// ── Freigabelinks (read-only) ───────────────────────────────────
+
+function rowToShareLink(row) {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    label: row.label,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    lastSeenAt: row.last_seen_at,
+  };
+}
+
+export function listShareLinks(db, userId, projectId) {
+  getProject(db, userId, projectId); // 404, falls fremd/fehlt
+  return db
+    .prepare('SELECT * FROM share_links WHERE project_id = ? ORDER BY created_at DESC')
+    .all(projectId)
+    .map(rowToShareLink);
+}
+
+/**
+ * Legt einen Freigabelink an und gibt das Klartext-Token EINMALIG zurueck.
+ * Gespeichert wird nur sein Hash — ein verlorener Link laesst sich nicht
+ * wiederherstellen, nur ersetzen.
+ */
+export function createShareLink(db, userId, projectId, { label = '', expiresAt = null } = {}) {
+  getProject(db, userId, projectId);
+  const { token, hash } = createShareToken();
+  db.prepare(
+    `INSERT INTO share_links (id, project_id, label, created_at, expires_at)
+     VALUES (@id, @project_id, @label, @created_at, @expires_at)`
+  ).run({
+    id: hash,
+    project_id: projectId,
+    label,
+    created_at: now(),
+    expires_at: expiresAt,
+  });
+  return { ...rowToShareLink(db.prepare('SELECT * FROM share_links WHERE id = ?').get(hash)), token };
+}
+
+export function deleteShareLink(db, userId, id) {
+  const row = db
+    .prepare(
+      `SELECT s.* FROM share_links s
+       JOIN projects p ON s.project_id = p.id
+       WHERE s.id = ? AND p.user_id = ?`
+    )
+    .get(id, userId);
+  if (!row) throw new ApiError(404, 'Freigabelink nicht gefunden');
+  db.prepare('DELETE FROM share_links WHERE id = ?').run(id);
+  return { revoked: 1 };
+}
+
+/**
+ * Loest ein Klartext-Token auf. Wirft 404 (nicht 403), wenn es unbekannt oder
+ * abgelaufen ist: ein Angreifer soll aus der Antwort nicht ablesen koennen, ob
+ * ein Token einmal gueltig war.
+ */
+function resolveShareLink(db, token) {
+  const row = db.prepare('SELECT * FROM share_links WHERE id = ?').get(hashShareToken(token));
+  const link = row ? rowToShareLink(row) : null;
+  if (!link || isExpired(link)) throw new ApiError(404, 'Dieser Freigabelink ist ungültig oder abgelaufen');
+  return link;
+}
+
+/**
+ * Der komplette Lesestand eines freigegebenen Projekts.
+ *
+ * Enthaelt bewusst KEINE Angaben zum Besitzer und keine anderen Projekte. Die
+ * Bilder kommen nicht mit; sie werden einzeln ueber die Share-Route abgerufen,
+ * damit der Browser sie cachen kann.
+ */
+export function getSharedProject(db, token) {
+  const link = resolveShareLink(db, token);
+  const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(link.projectId);
+  if (!project) throw new ApiError(404, 'Dieser Freigabelink ist ungültig oder abgelaufen');
+  const userId = project.user_id;
+
+  db.prepare('UPDATE share_links SET last_seen_at = ? WHERE id = ?').run(now(), link.id);
+
+  const { user_id: _ownerId, ...publicProject } = project;
+  return {
+    project: rowToProject(publicProject),
+    views: listViews(db, userId, { projectId: link.projectId }),
+    nodes: listNodes(db, userId, { projectId: link.projectId }),
+    edges: listEdges(db, userId, { projectId: link.projectId }),
+    catalog: null, // setzt die Route (buildCatalog kennt store.js nicht)
+  };
+}
+
+/**
+ * Bild eines freigegebenen Projekts.
+ *
+ * Prueft, dass das Projekt es auch WIRKLICH benutzt — sonst waere ein
+ * Freigabelink ein Leseschluessel fuer die gesamte Bildbibliothek des Kontos.
+ */
+export function getSharedAsset(db, token, assetId) {
+  const link = resolveShareLink(db, token);
+  const project = db.prepare('SELECT user_id FROM projects WHERE id = ?').get(link.projectId);
+  if (!project) throw new ApiError(404, 'Bild nicht gefunden');
+  const used = collectAssetIds(listNodes(db, project.user_id, { projectId: link.projectId }));
+  if (!used.has(assetId)) throw new ApiError(404, 'Bild nicht gefunden');
+  return getAssetWithBytes(db, project.user_id, assetId);
 }
 
 // ── Projects (Projekte) ─────────────────────────────────────────
@@ -472,10 +698,10 @@ export function getNode(db, userId, id) {
 
 const INSERT_NODE = `
   INSERT INTO nodes (id, name, category, status, parent_id, view_id, linked_view_id,
-                     pos_x, pos_y, width, height,
+                     pos_x, pos_y, width, height, icon, color,
                      fields, custom_fields, notes, created_at, updated_at)
   VALUES (@id, @name, @category, @status, @parent_id, @view_id, @linked_view_id,
-          @pos_x, @pos_y, @width, @height,
+          @pos_x, @pos_y, @width, @height, @icon, @color,
           @fields, @custom_fields, @notes, @created_at, @updated_at)`;
 
 function nodeToRow(data, timestamps) {
@@ -491,6 +717,8 @@ function nodeToRow(data, timestamps) {
     pos_y: data.position.y,
     width: data.width ?? null,
     height: data.height ?? null,
+    icon: data.icon ?? null,
+    color: data.color ?? null,
     fields: JSON.stringify(data.fields ?? {}),
     custom_fields: JSON.stringify(data.customFields ?? {}),
     notes: data.notes ?? '',
@@ -643,6 +871,7 @@ export function updateNode(db, userId, id, patch) {
       UPDATE nodes SET name = @name, category = @category, status = @status, parent_id = @parent_id,
         view_id = @view_id, linked_view_id = @linked_view_id,
         pos_x = @pos_x, pos_y = @pos_y, width = @width, height = @height,
+        icon = @icon, color = @color,
         fields = @fields, custom_fields = @custom_fields, notes = @notes,
         updated_at = @updated_at
       WHERE id = @id
@@ -844,25 +1073,45 @@ export function getGraph(db, userId, viewId) {
  * Export aller Daten des Nutzers — oder (mit `projectId`) nur eines Projekts,
  * z. B. um es zu teilen und beim Empfänger per `mode: "merge"` zu importieren.
  */
+/** Bilder als Data-URL, wahlweise nur die von `usedIds` referenzierten. */
+function exportAssets(db, userId, usedIds) {
+  return listAssets(db, userId)
+    .filter((a) => !usedIds || usedIds.has(a.id))
+    .map((a) => {
+      const full = getAssetWithBytes(db, userId, a.id);
+      return {
+        id: full.id,
+        name: full.name,
+        createdAt: full.createdAt,
+        dataUrl: assetToDataUrl(full),
+      };
+    });
+}
+
 export function exportGraph(db, userId, projectId) {
   if (projectId) {
     const project = getProject(db, userId, projectId); // 404, falls fremd/fehlt
+    const nodes = listNodes(db, userId, { projectId });
     return {
-      version: 3,
+      version: 4,
       exportedAt: now(),
       projects: [project],
       views: listViews(db, userId, { projectId }),
-      nodes: listNodes(db, userId, { projectId }),
+      nodes,
       edges: listEdges(db, userId, { projectId }),
+      // Nur die Bilder DIESES Projekts: ein geteilter Export soll nicht die
+      // ganze Bibliothek des Kontos mitschleppen.
+      assets: exportAssets(db, userId, collectAssetIds(nodes)),
     };
   }
   return {
-    version: 3,
+    version: 4,
     exportedAt: now(),
     projects: listProjects(db, userId),
     views: listViews(db, userId),
     nodes: listNodes(db, userId),
     edges: listEdges(db, userId),
+    assets: exportAssets(db, userId, null),
   };
 }
 
@@ -871,7 +1120,7 @@ export function exportGraph(db, userId, projectId) {
  * die Daten dieses Nutzers, nicht die anderer. Referenzen werden vorab geprüft und
  * beim Insert an die Projekte/Ebenen des Nutzers gebunden.
  */
-export function importGraph(db, userId, { mode = 'replace', projects = [], views = [], nodes, edges }) {
+export function importGraph(db, userId, { mode = 'replace', projects = [], views = [], nodes, edges, assets = [] }) {
   const ids = new Set(nodes.map((n) => n.id));
   if (ids.size !== nodes.length) throw new ApiError(400, 'Doppelte Node-IDs im Import');
   for (const n of nodes) {
@@ -884,13 +1133,21 @@ export function importGraph(db, userId, { mode = 'replace', projects = [], views
       throw new ApiError(400, `Edge "${e.id ?? '(neu)'}": Quelle oder Ziel nicht im Import enthalten`);
     }
   }
-  if (mode === 'merge') return mergeGraph(db, userId, { projects, views, nodes, edges });
+  if (mode === 'merge') return mergeGraph(db, userId, { projects, views, nodes, edges, assets });
   assertImportWithinLimits(db, userId, { projects, views, nodes });
   const ts = now();
   const tx = db.transaction(() => {
     db.pragma('defer_foreign_keys = ON');
     // Nur die eigenen Daten löschen (Kaskade: projects → views → nodes/edges).
     db.prepare('DELETE FROM projects WHERE user_id = ?').run(userId);
+    // Bilder ebenso: `replace` ersetzt den gesamten Bestand des Kontos. Die IDs
+    // aus dem Payload bleiben erhalten, damit die Referenzen in Icons und
+    // Notizen weiter stimmen.
+    db.prepare('DELETE FROM assets WHERE user_id = ?').run(userId);
+    for (const a of assets) {
+      const { bytes, mime } = decodeDataUrl(a.dataUrl, getMaxAssetBytes());
+      createAsset(db, userId, { id: a.id, name: a.name, mime, bytes, createdAt: a.createdAt });
+    }
 
     const insertProject = db.prepare(
       `INSERT INTO projects (id, user_id, name, color, icon, packs, sort_order, created_at, updated_at)
@@ -1012,7 +1269,8 @@ export function importGraph(db, userId, { mode = 'replace', projects = [], views
         (SELECT count(*) FROM projects WHERE user_id = @u) AS projects,
         (SELECT count(*) FROM views v JOIN projects p ON v.project_id = p.id WHERE p.user_id = @u) AS views,
         (SELECT count(*) FROM nodes n JOIN views v ON n.view_id = v.id JOIN projects p ON v.project_id = p.id WHERE p.user_id = @u) AS nodes,
-        (SELECT count(*) FROM edges e JOIN views v ON e.view_id = v.id JOIN projects p ON v.project_id = p.id WHERE p.user_id = @u) AS edges`
+        (SELECT count(*) FROM edges e JOIN views v ON e.view_id = v.id JOIN projects p ON v.project_id = p.id WHERE p.user_id = @u) AS edges,
+        (SELECT count(*) FROM assets WHERE user_id = @u) AS assets`
     )
     .get({ u: userId });
   return counts;
@@ -1025,7 +1283,7 @@ export function importGraph(db, userId, { mode = 'replace', projects = [], views
  * vorhandenen Daten ausgeschlossen. Damit lassen sich exportierte Projekte
  * zwischen Konten teilen (Export mit `?projectId=` → Import mit mode=merge).
  */
-function mergeGraph(db, userId, { projects, views, nodes, edges }) {
+function mergeGraph(db, userId, { projects, views, nodes, edges, assets = [] }) {
   const ts = now();
   // Instanz-Limits: Merge legt neue Projekte an (mindestens eines).
   const newProjects = projects.length ? projects : [{ name: 'Importiertes Projekt' }];
@@ -1037,8 +1295,17 @@ function mergeGraph(db, userId, { projects, views, nodes, edges }) {
   const projectMap = new Map(); // alte Projekt-ID → neue ID
   const viewMap = new Map(); // alte Ebenen-ID → neue ID
   const nodeMap = new Map(); // alte Node-ID → neue ID
+  const assetMap = new Map(); // alte Bild-ID → neue ID
 
   const tx = db.transaction(() => {
+    // Bilder zuerst: die Nodes weiter unten brauchen die neuen IDs. Wie alles
+    // andere beim Merge bekommen sie frische IDs, damit sie nicht mit der
+    // vorhandenen Bibliothek des Kontos kollidieren.
+    for (const a of assets) {
+      const { bytes, mime } = decodeDataUrl(a.dataUrl, getMaxAssetBytes());
+      const created = createAsset(db, userId, { name: a.name, mime, bytes });
+      assetMap.set(a.id, created.id);
+    }
     const maxOrder =
       db.prepare('SELECT max(sort_order) AS m FROM projects WHERE user_id = ?').get(userId)?.m ??
       -1;
@@ -1101,7 +1368,9 @@ function mergeGraph(db, userId, { projects, views, nodes, edges }) {
       insertNode.run(
         nodeToRow(
           {
-            ...n,
+            // Icon- und Notiz-Referenzen auf die neu vergebenen Bild-IDs
+            // umschreiben, sonst zeigt die Kopie auf fremde Bilder.
+            ...remapAssetRefs(n, assetMap),
             id: nodeMap.get(n.id),
             parentId: n.parentId ? nodeMap.get(n.parentId) : null,
             viewId,

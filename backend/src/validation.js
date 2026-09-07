@@ -143,6 +143,16 @@ export const nodeCreateSchema = z.object({
   position: positionSchema.default({ x: 0, y: 0 }),
   width: z.number().positive().max(100000).nullable().optional(),
   height: z.number().positive().max(100000).nullable().optional(),
+  /**
+   * Eigenes Icon statt des Kategorie-Icons: ein Name aus dem Icon-Mapping des
+   * Frontends ('server') oder 'asset:<id>' fuer ein hochgeladenes Bild.
+   * Bewusst nicht gegen eine Liste geprueft — das Frontend faellt bei
+   * unbekannten Namen auf das Kategorie-Icon zurueck, und eine Prueffunktion
+   * hier muesste das Icon-Mapping der UI im Backend spiegeln.
+   */
+  icon: z.string().max(100).nullable().optional(),
+  /** Eigene Farbe statt der Kategorie-Farbe; null = Kategorie. */
+  color: z.string().max(32).nullable().optional(),
   fields: fieldsSchema.default({}),
   notes: z.string().max(200000).default(''),
   customFields: customFieldsSchema.default({}),
@@ -193,13 +203,41 @@ const importTimestamps = {
   updatedAt: z.string().datetime().optional(),
 };
 
+/**
+ * Bild im Export/Import. Ohne diesen Teil verlöre ein zwischen Konten geteiltes
+ * Projekt seine eigenen Icons — genau der Grund, warum die Bilder in der
+ * Datenbank liegen und nicht im Dateisystem.
+ */
+const assetImportSchema = z.object({
+  id: idSchema,
+  name: z.string().min(1).max(200),
+  dataUrl: z.string().min(1).max(8_000_000),
+  createdAt: z.string().datetime().optional(),
+});
+
 export const importSchema = z.object({
   /** replace = eigene Daten komplett ersetzen; merge = additiv mit neuen IDs anfügen */
   mode: z.enum(['replace', 'merge']).default('replace'),
+  assets: z.array(assetImportSchema).max(2000).default([]),
   projects: z.array(projectCreateSchema.extend({ id: idSchema, ...importTimestamps })).max(1000).default([]),
   views: z.array(viewCreateSchema.extend({ id: idSchema, ...importTimestamps })).max(10000).default([]),
   nodes: z.array(nodeCreateSchema.extend({ id: idSchema, ...importTimestamps })).max(50000),
   edges: z.array(edgeCreateSchema.extend(importTimestamps)).max(200000).default([]),
+});
+
+/** Upload eines Bildes als Data-URL. Der Typ wird serverseitig an den Magic
+ *  Bytes erkannt (backend/src/assets.js), der hier genannte ist unerheblich. */
+export const assetCreateSchema = z.object({
+  name: z.string().trim().min(1, 'Name darf nicht leer sein').max(200),
+  // Grosszuegig bemessen: die harte Grenze ist MAX_ASSET_BYTES nach dem
+  // Dekodieren, hier faengt nur offensichtlicher Unsinn ab.
+  dataUrl: z.string().min(1).max(8_000_000),
+});
+
+/** Anlegen eines Freigabelinks. Beides optional: ohne Angabe laeuft er nie ab. */
+export const shareCreateSchema = z.object({
+  label: z.string().trim().max(200).default(''),
+  expiresAt: z.string().datetime().nullable().optional(),
 });
 
 export const layoutSchema = z.object({
