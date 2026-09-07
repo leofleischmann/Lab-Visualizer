@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Copy, Layers, Plus, Save, Trash2, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Copy, ImagePlus, Layers, Plus, Save, Trash2, X } from 'lucide-react';
 import clsx from 'clsx';
 import type { ApiNode, FieldDef, NodePatch } from '../../api/types';
 import {
   categoryOf,
   groupedCategories,
   groupedFields,
-  iconOf,
   isInactiveCategory,
   orphanFields,
   ORPHAN_GROUP,
 } from '../../lib/catalog';
+import { EntityIcon } from '../../lib/icons';
+import { ColorPicker } from '../ui/ColorPicker';
+import { IconPicker } from './IconPicker';
 import { absolutePosition, useGraphStore } from '../../store/graph';
 import { CustomFieldsEditor, toRecord, toRows, type FieldRow } from './CustomFieldsEditor';
 import { MarkdownEditor } from './MarkdownEditor';
@@ -21,6 +23,10 @@ type Draft = {
   category: string;
   status: string;
   parentId: string;
+  /** Eigenes Icon; null = Icon der Kategorie. */
+  icon: string | null;
+  /** Eigene Farbe; null = Farbe der Kategorie. */
+  color: string | null;
   /** Typisierte Felder (Schlüssel aus dem Backend-Katalog). */
   fields: Record<string, string>;
   notes: string;
@@ -33,6 +39,8 @@ const toDraft = (entity: ApiNode): Draft => ({
   category: entity.category,
   status: entity.status,
   parentId: entity.parentId ?? '',
+  icon: entity.icon,
+  color: entity.color,
   fields: { ...entity.fields },
   notes: entity.notes,
   customRows: toRows(entity.customFields),
@@ -118,6 +126,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
   const duplicateNode = useGraphStore((s) => s.duplicateNode);
   const createDetailView = useGraphStore((s) => s.createDetailView);
   const setActiveView = useGraphStore((s) => s.setActiveView);
+  const readOnly = useGraphStore((s) => s.readOnly);
 
   const linkedView = views.find((v) => v.id === entity.linkedViewId) ?? null;
 
@@ -129,7 +138,8 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
   }, [entity.id, entity.updatedAt]);
 
   const category = categoryOf(catalog, draft.category);
-  const Icon = iconOf(category.icon);
+  const [pickingIcon, setPickingIcon] = useState(false);
+  const effectiveColor = draft.color ?? category.color;
 
   const zoneOptions = useMemo(
     () =>
@@ -176,6 +186,8 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
       name: draft.name.trim() || entity.name,
       category: draft.category,
       status: draft.status,
+      icon: draft.icon,
+      color: draft.color,
       fields,
       notes: draft.notes,
       customFields: toRecord(draft.customRows),
@@ -208,9 +220,9 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
       <header className="flex items-center gap-3 border-b border-slate-800 px-4 py-3">
         <span
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
-          style={{ backgroundColor: `${category.color}22`, color: category.color }}
+          style={{ backgroundColor: `${effectiveColor}22`, color: effectiveColor }}
         >
-          <Icon size={18} />
+          <EntityIcon icon={draft.icon ?? category.icon} size={18} />
         </span>
         <div className="min-w-0">
           <h2 className="truncate text-sm font-semibold text-slate-100">{entity.name}</h2>
@@ -227,6 +239,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
           <Field label="Kategorie">
             <select
               value={draft.category}
+              disabled={readOnly}
               onChange={(e) => {
                 if (e.target.value === '__custom__') {
                   const input = window.prompt(
@@ -271,6 +284,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
           <Field label="Status">
             <select
               value={draft.status}
+              disabled={readOnly}
               onChange={(e) => set('status', e.target.value)}
               className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 focus:border-sky-500 focus:outline-none"
             >
@@ -283,9 +297,40 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
           </Field>
         </div>
 
+        <Field label="Icon">
+          <button
+            type="button"
+            disabled={readOnly}
+            onClick={() => setPickingIcon(true)}
+            className="flex w-full items-center gap-2 rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-left text-xs text-slate-300 transition-colors hover:border-sky-500 hover:text-sky-200"
+          >
+            <span
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded"
+              style={{ backgroundColor: `${effectiveColor}1e`, color: effectiveColor }}
+            >
+              <EntityIcon icon={draft.icon ?? category.icon} size={14} />
+            </span>
+            <span className="flex-1 truncate">
+              {draft.icon ? 'Eigenes Icon' : `Standard (${category.label})`}
+            </span>
+            <ImagePlus size={13} className="shrink-0 text-slate-500" />
+          </button>
+        </Field>
+
+        {/* Erst eine eigene Farbe macht Zonen unterscheidbar: über die
+            Kategorie hätten alle Zonen dieselbe. */}
+        <Field label="Farbe">
+          <ColorPicker
+            value={draft.color}
+            onChange={(color) => set('color', color)}
+            defaultLabel={`Standard (${category.label})`}
+          />
+        </Field>
+
         <Field label="Zone / Gruppe">
           <select
             value={draft.parentId}
+            disabled={readOnly}
             onChange={(e) => set('parentId', e.target.value)}
             className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 focus:border-sky-500 focus:outline-none"
           >
@@ -338,6 +383,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
                 >
                   <Layers size={12} /> Ebene öffnen
                 </button>
+                {!readOnly && (
                 <button
                   type="button"
                   onClick={() => void saveNode(entity.id, { linkedViewId: null })}
@@ -345,8 +391,11 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
                 >
                   <X size={12} /> Verknüpfung entfernen
                 </button>
+                )}
               </div>
             </div>
+          ) : readOnly ? (
+            <p className="text-[11px] text-slate-600">Keine Detailebene verknüpft.</p>
           ) : (
             <div className="space-y-2">
               <button
@@ -395,6 +444,16 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
         </p>
       </div>
 
+      {pickingIcon && (
+        <IconPicker
+          value={draft.icon}
+          fallbackIcon={category.icon}
+          onChange={(icon) => set('icon', icon)}
+          onClose={() => setPickingIcon(false)}
+        />
+      )}
+
+      {!readOnly && (
       <footer className="flex items-center gap-2 border-t border-slate-800 px-4 py-3">
         <button
           type="button"
@@ -421,6 +480,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
           <Trash2 size={14} /> Löschen
         </button>
       </footer>
+      )}
     </div>
   );
 }

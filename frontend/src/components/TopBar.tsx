@@ -1,6 +1,7 @@
 import { useReactFlow } from '@xyflow/react';
 import { LayoutGrid, Redo2, Undo2 } from 'lucide-react';
 import { useGraphStore } from '../store/graph';
+import { FilterBar } from './FilterBar';
 import { GlobalSearch } from './GlobalSearch';
 import { ProjectSwitcher } from './projects/ProjectSwitcher';
 import { DataMenu } from './DataMenu';
@@ -37,6 +38,7 @@ export function TopBar() {
       <GlobalSearch />
 
       <div className="flex shrink-0 items-center gap-2">
+        <FilterBar />
         <div className="mr-1 flex items-center gap-0.5">
           <button
             type="button"

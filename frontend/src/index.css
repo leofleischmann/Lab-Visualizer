@@ -72,3 +72,20 @@ body {
 *::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* Bildexport: Übergänge und Animationen stilllegen.
+ *
+ * html-to-image liest die berechneten Stile im Moment der Aufnahme. Ohne diese
+ * Regel entsteht das Bild mitten in der Opazitäts-Animation des Fokus-Modus —
+ * gerade abgewählte Nodes sind dann noch halb durchsichtig im Dokument. Nimmt
+ * zugleich Kanten-Laufschrift und Status-Puls heraus, die in einem Standbild
+ * ohnehin nur als zufälliger Zwischenstand erscheinen.
+ *
+ * Gesetzt und entfernt in store/graph.ts (withNeutralCanvas).
+ */
+.labviz-capturing *,
+.labviz-capturing *::before,
+.labviz-capturing *::after {
+  transition: none !important;
+  animation: none !important;
+}

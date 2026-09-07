@@ -229,6 +229,8 @@ verlinken. Jeder Node/jede Edge gehört zu **genau einer** Ebene.
 | `linkedViewId` | nein | `null` | Drill-down-Portal: verlinkte Detail-Ebene (Doppelklick öffnet sie) |
 | `position` | nein | `{x:0,y:0}` | Canvas-Position (siehe Parent-Regel) |
 | `width`, `height` | nein | `null` | Nur für Zonen (`category: "group"`) |
+| `icon` | nein | `null` | Eigenes Symbol; `null` = Symbol der Kategorie (siehe [Bilder](#bilder)) |
+| `color` | nein | `null` | Eigene Farbe; `null` = Farbe der Kategorie. Erst damit lassen sich Zonen unterscheiden |
 | `fields` | nein | `{}` | Typisierte Felder; Schlüssel & Typen aus `GET /meta/catalog` |
 | `notes` | nein | `""` | Markdown (max. 200 KB) |
 | `customFields` | nein | `{}` | Freiform-Key-Value, max. 100 Keys, Werte max. 4000 Zeichen |
@@ -341,7 +343,8 @@ Export enthält **alle** Projekte, Ebenen, Nodes und Edges:
    wer ein einzelnes Feld ändern will, sendet das komplette Objekt mit.
 
 8. **Suche `GET /nodes?q=`:** Durchsucht `name` sowie alle **Werte** aus `fields` und
-   `customFields`. Schlüssel matchen nicht (`q=platform` findet nichts).
+   `customFields`. Schlüssel matchen nicht (`q=platform` findet nichts). Auf exakte
+   Feldwerte filtert die UI clientseitig, siehe `select` im Katalog-Abschnitt.
 
 9. **Ebenen (Views):** Jeder Node/jede Edge gehört zu genau einer Ebene (`viewId`). Kanten
    verbinden nur Nodes **derselben** Ebene — das gilt auch für `PATCH /edges/:id`
@@ -432,6 +435,11 @@ nur dessen Kategorien und Felder erscheinen dort auch in der UI.
 
 Optional: `mono` (Monospace), `showOnNode` (Wert erscheint auf der Canvas), `wide`
 (volle Panel-Breite), `placeholder`, `options` (bei `select`), `unit` (bei `number`).
+
+Jedes Feld vom Typ `select` wird in der UI automatisch zu einem Filter (neben Status und
+Kategorie). Wer ein Feld filterbar machen will, gibt ihm also `type: "select"` mit
+`options` — es braucht dafür keinen weiteren Eintrag. Gefiltert wird rein im Client, es
+gibt keinen zusätzlichen Endpunkt; serverseitig filtern `GET /nodes?category=&status=`.
 ```
 
 ### Rechtstexte
@@ -448,6 +456,64 @@ GET /meta/legal
 Kategorien und Edge-Kinds sind **Referenzwerte** — beliebige Strings sind erlaubt.
 Unbekannte Kategorien werden in der UI mit Fallback-Icon gerendert. Status dagegen sind
 ein **geschlossenes Enum**; ein unbekannter Wert wird mit 400 abgelehnt.
+
+### Freigabelinks (read-only)
+
+Ein Link macht **genau ein Projekt** ohne Konto lesbar.
+
+| Methode | Pfad | Beschreibung |
+|---|---|---|
+| `GET` | `/projects/:id/shares` | Links des Projekts (ohne Token) |
+| `POST` | `/projects/:id/shares` | `{ label?, expiresAt? }` → `201` **mit** `token` |
+| `DELETE` | `/projects/:id/shares/:shareId` | Widerrufen |
+| `GET` | `/share/:token` | **Ohne Anmeldung:** Projekt, Ebenen, Nodes, Kanten, Katalog |
+| `GET` | `/share/:token/assets/:id` | **Ohne Anmeldung:** Bild dieses Projekts |
+
+- Das Klartext-**Token gibt es genau einmal**, in der Antwort auf `POST`. Gespeichert
+  wird nur sein sha256-Hash (wie bei den Sitzungen). Ein verlorener Link lässt sich
+  nicht wiederherstellen, nur ersetzen.
+- `GET /share/:token` liefert **alle Ebenen auf einmal**, damit der Betrachter ohne
+  weitere Anfragen durch die Drill-down-Hierarchie navigieren kann.
+- Die Antwort enthält **nichts über den Besitzer** und keine anderen Projekte.
+- Bilder sind nur abrufbar, wenn dieses Projekt sie auch benutzt — sonst wäre ein
+  Link ein Leseschlüssel für die ganze Bildbibliothek des Kontos.
+- Unbekannt, abgelaufen oder widerrufen ergibt jeweils **404**, nicht 403: die
+  Antwort soll nicht verraten, ob ein Token je gültig war.
+- Über diesen Weg lässt sich **nichts ändern**: der Router bietet nur GET.
+- Ein Projekt zu löschen entfernt seine Links mit.
+
+### Bilder
+
+Hochgeladene Bilder dienen als eigenes Node-Symbol und als Bild in Notizen.
+
+| Methode | Pfad | Beschreibung |
+|---|---|---|
+| `GET` | `/assets` | Bibliothek des Kontos (nur Metadaten) |
+| `POST` | `/assets` | `{ name, dataUrl }` → `201` mit den Metadaten |
+| `GET` | `/assets/:id` | Liefert die Bytes aus |
+| `DELETE` | `/assets/:id` | Löscht das Bild → `{ clearedNodes }` |
+
+```http
+POST /api/assets
+{ "name": "nextcloud.svg", "dataUrl": "data:image/svg+xml;base64,PHN2Zy4uLg==" }
+```
+
+- **Der Typ wird an den Magic Bytes erkannt**, nicht am `Content-Type` im Data-URL.
+  Ein als `image/png` deklariertes SVG wird als SVG gespeichert und behandelt.
+  Erlaubt: PNG, JPEG, WebP, SVG. Alles andere → `400`.
+- Grenzen: `MAX_ASSET_BYTES` (Standard 1 MB) → `413`, `MAX_ASSETS_PER_USER` → `403`
+  mit `code: "limit_reached"`.
+- **Referenziert** wird ein Bild an zwei Stellen: als `node.icon` in der Form
+  `asset:<id>` und in `node.notes` als Markdown-Bild mit der URL `/api/assets/<id>`.
+  Beide Formen werden beim Projekt-Export eingesammelt und beim Merge-Import auf die
+  neu vergebenen IDs umgeschrieben.
+- Ein Bild zu **löschen** setzt `icon` aller Nodes zurück, die es nutzen — es bleibt
+  keine tote Referenz stehen.
+- Bilder sind **unveränderlich** (nur anlegen, lesen, löschen) und werden mit
+  `Cache-Control: immutable` sowie einem `ETag` ausgeliefert.
+- Ausgeliefert wird mit `X-Content-Type-Options: nosniff` und einer eigenen
+  `Content-Security-Policy`, damit ein direkt aufgerufenes SVG nichts ausführen kann.
+  Externe Bild-URLs sind bewusst nicht vorgesehen.
 
 ### Graph
 
@@ -466,9 +532,13 @@ ein **geschlossenes Enum**; ein unbekannter Wert wird mit 400 abgelehnt.
   "projects": [ /* Project mit id */ ],
   "views": [ /* View mit id + projectId, Parents zuerst */ ],
   "nodes": [ /* Node mit id + viewId */ ],
-  "edges": [ /* Edge */ ]
+  "edges": [ /* Edge */ ],
+  "assets": [ /* { id, name, dataUrl } — siehe Bilder */ ]
 }
 ```
+
+`GET /graph/export?projectId=` führt nur die Bilder mit, die dieses Projekt auch
+benutzt; der Backup-Export (ohne `projectId`) nimmt die ganze Bibliothek.
 
 **Antwort:** `{ "projects": 2, "views": 3, "nodes": 42, "edges": 17 }`
 (`projects`/`views` fehlen → alles in Default-Projekt/Root-Ebene)
@@ -707,7 +777,10 @@ Vollständige Liste: `GET /meta/catalog` (alle Packs) bzw. `GET /projects/:id/ca
 | `backend/src/store.js` | CRUD, Import, Parent-Logik, Row-Level-Autorisierung |
 | `backend/src/catalog/` | Kern + Domain-Packs (Kategorien, Edge-Kinds, Felddefinitionen) |
 | `backend/src/templates/` | Startvorlagen für neue Projekte |
+| `backend/src/assets.js` | Bild-Typ-Erkennung und Auslieferungs-Header |
+| `backend/src/share.js` | Freigabe-Token, Hashing und Ablauf |
 | `backend/src/routes/*.js` | Route-Definitionen (inkl. `auth.js`) |
 | `frontend/src/api/types.ts` | TypeScript-Typen (Frontend) |
+| `frontend/src/lib/catalog.ts` | Katalogzugriff im Client: Felder, Badges, Filterdefinitionen |
 
 Bei Abweichungen zwischen Doku und Code gilt der **Code** in `backend/src/`.

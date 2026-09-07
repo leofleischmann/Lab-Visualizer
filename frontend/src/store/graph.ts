@@ -7,6 +7,7 @@ import {
   type NodeChange,
 } from '@xyflow/react';
 import { api, ApiRequestError } from '../api/client';
+import { isRoutingCustomized } from '../lib/edge/routing';
 import { useAuthStore } from './auth';
 import type {
   ApiEdge,
@@ -148,6 +149,18 @@ type GraphStore = {
   past: HistoryEntry[];
   future: HistoryEntry[];
   catalog: Catalog | null;
+  /**
+   * Leseansicht eines Freigabelinks: kein Konto, keine Bearbeitung. Die UI
+   * blendet damit alles Schreibende aus (Palette, Daten-Menü, Speichern-Knöpfe)
+   * und die Canvas schaltet auf reines Ansehen.
+   */
+  readOnly: boolean;
+  /**
+   * Im Lesemodus liegt der GANZE Projektstand hier: der Freigabelink liefert
+   * alle Ebenen auf einmal, damit der Betrachter ohne weitere Anfragen (und
+   * ohne Konto) durch die Drill-down-Hierarchie navigieren kann.
+   */
+  sharedGraph: { nodes: ApiNode[]; edges: ApiEdge[] } | null;
   selection: Selection;
   hoverNodeId: string | null;
   focus: FocusSet;
@@ -158,6 +171,12 @@ type GraphStore = {
    */
   geometryVersion: number;
   search: string;
+  /**
+   * Aktive Feldfilter (Schlüssel -> Wert). Nodes, die nicht auf ALLE passen,
+   * werden auf der Canvas gedimmt statt ausgeblendet — sonst reissen Kanten ins
+   * Leere und die Struktur geht verloren. Gleiches Verhalten wie bei der Suche.
+   */
+  filters: Record<string, string>;
   loading: boolean;
   error: string | null;
   /**
@@ -167,8 +186,13 @@ type GraphStore = {
   limitNotice: string | null;
 
   load: () => Promise<void>;
+  /** Lädt ein freigegebenes Projekt und schaltet den Store auf Lesen um. */
+  loadShared: (token: string) => Promise<void>;
   reload: () => Promise<void>;
   setSearch: (term: string) => void;
+  /** `value === null` entfernt den Filter. */
+  setFilter: (key: string, value: string | null) => void;
+  clearFilters: () => void;
   setError: (message: string | null) => void;
   closeLimitNotice: () => void;
   select: (selection: Selection) => void;
@@ -207,6 +231,8 @@ type GraphStore = {
 
   connect: (connection: Connection) => Promise<void>;
   saveEdge: (id: string, patch: EdgePatch) => Promise<boolean>;
+  /** Endpunkt einer bestehenden Kante auf einen anderen Node legen. */
+  reconnectEdge: (id: string, connection: Connection) => Promise<void>;
   removeEdge: (id: string) => Promise<void>;
   updateEdgeRouting: (id: string, routing: EdgeRouting, persist?: boolean) => Promise<void>;
   resetEdgeRouting: (id: string) => Promise<void>;
@@ -214,11 +240,21 @@ type GraphStore = {
   importGraph: (payload: GraphPayload, mode?: 'replace' | 'merge') => Promise<boolean>;
   clearGraph: () => Promise<boolean>;
   autoLayout: () => Promise<boolean>;
+  /** Führt `fn` aus, während flüchtige Bedienzustände neutralisiert sind. */
+  withNeutralCanvas: <T>(fn: () => Promise<T>) => Promise<T>;
 
   record: (entry: HistoryEntry) => void;
   undo: () => Promise<void>;
   redo: () => Promise<void>;
 };
+
+/** Nodes und Kanten einer Ebene aus dem kompletten Freigabe-Stand herausschneiden. */
+function sliceSharedView(nodes: ApiNode[], edges: ApiEdge[], viewId: string | null) {
+  return {
+    nodes: orderForFlow(nodes.filter((n) => n.viewId === viewId).map(toFlowNode)),
+    edges: edges.filter((e) => e.viewId === viewId).map(toFlowEdge),
+  };
+}
 
 const errorMessage = (err: unknown) =>
   err instanceof Error ? err.message : 'Unbekannter Fehler';
@@ -287,11 +323,14 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   past: [],
   future: [],
   catalog: null,
+  readOnly: false,
+  sharedGraph: null,
   selection: null,
   hoverNodeId: null,
   focus: null,
   geometryVersion: 0,
   search: '',
+  filters: {},
   loading: true,
   error: null,
   limitNotice: null,
@@ -337,6 +376,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         past: [],
         future: [],
         search: '',
+        filters: {},
         loading: false,
       });
     } catch (err) {
@@ -383,6 +423,42 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         ),
       });
     } catch (err) {
+      fail(err);
+    }
+  },
+
+  loadShared: async (token) => {
+    set({ loading: true, error: null });
+    try {
+      const shared = await api.sharedProject(token);
+      const rootId = pickRootView(shared.views);
+      const viewId = rootId ?? shared.views[0]?.id ?? null;
+      logCatalog(shared.catalog, shared.project.id);
+      console.debug('[Debug graph]: Freigabelink geladen', {
+        projekt: shared.project.name,
+        ebenen: shared.views.length,
+        nodes: shared.nodes.length,
+      });
+      set({
+        readOnly: true,
+        sharedGraph: { nodes: shared.nodes, edges: shared.edges },
+        catalog: shared.catalog,
+        projects: [shared.project],
+        activeProjectId: shared.project.id,
+        views: shared.views,
+        activeViewId: viewId,
+        ...sliceSharedView(shared.nodes, shared.edges, viewId),
+        selection: null,
+        hoverNodeId: null,
+        focus: null,
+        past: [],
+        future: [],
+        search: '',
+        filters: {},
+        loading: false,
+      });
+    } catch (err) {
+      set({ loading: false });
       fail(err);
     }
   },
@@ -469,6 +545,18 @@ export const useGraphStore = create<GraphStore>((set, get) => {
 
   setActiveView: async (id) => {
     if (id === get().activeViewId) return;
+    // Im Lesemodus liegt bereits alles vor — kein Nachladen, keine Anmeldung.
+    const shared = get().sharedGraph;
+    if (shared) {
+      set({
+        activeViewId: id,
+        ...sliceSharedView(shared.nodes, shared.edges, id),
+        selection: null,
+        hoverNodeId: null,
+        focus: null,
+      });
+      return;
+    }
     try {
       const graph = await api.graph(id);
       writeLast('view', graph.viewId ?? id);
@@ -529,6 +617,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
 
   drillInto: async (nodeId) => {
     const target = get().nodes.find((n) => n.id === nodeId)?.data.entity.linkedViewId;
+    console.debug('[Debug graph]: Drill-down', nodeId, '->', target ?? '(keine Detailebene)');
     if (target) await get().setActiveView(target);
   },
 
@@ -541,6 +630,17 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   },
 
   setSearch: (term) => set({ search: term }),
+
+  setFilter: (key, value) =>
+    set((state) => {
+      const filters = { ...state.filters };
+      if (value === null || value === '') delete filters[key];
+      else filters[key] = value;
+      console.debug('[Debug graph]: Filter', filters);
+      return { filters };
+    }),
+
+  clearFilters: () => set({ filters: {} }),
   setError: (message) => set({ error: message }),
   closeLimitNotice: () => set({ limitNotice: null }),
 
@@ -792,6 +892,8 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       position: { x: source.position.x + 40, y: source.position.y + 40 },
       width: source.width,
       height: source.height,
+      icon: source.icon,
+      color: source.color,
       fields: { ...source.fields },
       notes: source.notes,
       customFields: { ...source.customFields },
@@ -875,6 +977,45 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     }
   },
 
+  /**
+   * Kante am Endpunkt greifen und auf einen anderen Node ziehen.
+   *
+   * Die API konnte das schon immer (PATCH /edges/:id mit sourceId/targetId),
+   * nur die Canvas reichte es nicht durch — eine Verbindung umzuhängen hiess
+   * bisher löschen und neu ziehen. Ein manuell verlegter Verlauf wird dabei
+   * zurückgesetzt: die alten Stützpunkte passen nicht mehr zum neuen Endpunkt.
+   */
+  reconnectEdge: async (id, connection) => {
+    if (!connection.source || !connection.target) return;
+    const before = get().edges.find((e) => e.id === id)?.data?.entity;
+    if (!before) return;
+    if (before.sourceId === connection.source && before.targetId === connection.target) return;
+    const patch: EdgePatch = {
+      sourceId: connection.source,
+      targetId: connection.target,
+      routing: { mode: 'auto', waypoints: [], labelT: null },
+    };
+    try {
+      const updated = await api.updateEdge(id, patch);
+      set((state) => ({
+        edges: state.edges.map((e) => (e.id === id ? { ...toFlowEdge(updated), selected: e.selected } : e)),
+      }));
+      get().record({
+        label: 'Verbindung umhängen',
+        viewId: updated.viewId,
+        undo: async () =>
+          void (await api.updateEdge(id, {
+            sourceId: before.sourceId,
+            targetId: before.targetId,
+            routing: before.routing,
+          })),
+        redo: async () => void (await api.updateEdge(id, patch)),
+      });
+    } catch (err) {
+      fail(err);
+    }
+  },
+
   updateEdgeRouting: async (id, routing, persist = true) => {
     const before = persist ? get().edges.find((e) => e.id === id)?.data?.entity : undefined;
     const beforeRouting = before?.routing;
@@ -940,13 +1081,96 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   },
 
   autoLayout: async () => {
+    const viewId = get().activeViewId;
+    if (!viewId) return false;
+    // Zustand VOR dem Layout sichern. Auto-Align ordnet nicht nur Nodes neu:
+    // es setzt auch Zonengrössen UND verwirft manuelles Kanten-Routing
+    // (applyLayout in backend/src/store.js). Ein Undo muss alle drei
+    // zurückholen, sonst bleibt die Handarbeit an den Kanten verloren.
+    const before = get().nodes.map((n) => ({
+      id: n.id,
+      x: n.data.entity.position.x,
+      y: n.data.entity.position.y,
+      width: n.data.entity.width,
+      height: n.data.entity.height,
+      isZone: n.data.entity.category === 'group',
+    }));
+    const routings = get()
+      .edges.map((e) => e.data!.entity)
+      .filter((e) => isRoutingCustomized(e.routing))
+      .map((e) => ({ id: e.id, routing: e.routing }));
+
     try {
-      await api.autoLayout({ viewId: get().activeViewId ?? undefined });
+      await api.autoLayout({ viewId });
       await get().reload();
+      get().record({
+        label: 'Auto-Align',
+        viewId,
+        undo: async () => {
+          // Zonen über updateNode: der Positions-Endpunkt lässt `width`/`height`
+          // per coalesce unangetastet, wenn null übergeben wird — eine Zone, die
+          // vorher KEINE Grösse hatte, behielte sonst die vom Layout gesetzte.
+          const zones = before.filter((b) => b.isZone);
+          const rest = before.filter((b) => !b.isZone);
+          if (rest.length) {
+            await api.updatePositions(rest.map(({ id, x, y }) => ({ id, x, y })));
+          }
+          for (const z of zones) {
+            await api.updateNode(z.id, {
+              position: { x: z.x, y: z.y },
+              width: z.width,
+              height: z.height,
+            });
+          }
+          for (const r of routings) await api.updateEdge(r.id, { routing: r.routing });
+        },
+        // Das Layout ist deterministisch — dieselbe Ebene ergibt dasselbe Ergebnis.
+        redo: async () => void (await api.autoLayout({ viewId })),
+      });
       return true;
     } catch (err) {
       fail(err);
       return false;
+    }
+  },
+
+  /**
+   * Auswahl, Fokus-Modus und Suchhervorhebung für die Dauer von `fn` abschalten.
+   *
+   * Gedacht für den Bildexport: ohne das landet der aktuelle Bedienzustand im
+   * Dokument — ein ausgewählter Node behält seinen Rahmen, und der Fokus-Modus
+   * dimmt alles ausserhalb der Nachbarschaft auf 30 % herunter. Das Bild soll
+   * das Diagramm zeigen, nicht, wo gerade der Mauszeiger stand.
+   *
+   * Beeinflusst: components/canvas/InfraNode.tsx (dimmt anhand von `focus` und
+   * `search`), components/DataMenu.tsx (Bildexport).
+   */
+  withNeutralCanvas: async (fn) => {
+    const { selection, focus, hoverNodeId, search, filters, nodes } = get();
+    const hadSelection = nodes.some((n) => n.selected);
+    set({
+      selection: null,
+      focus: null,
+      hoverNodeId: null,
+      search: '',
+      // Auch die Filter: sie dimmen Nodes, und halbdurchsichtige Kästen sehen
+      // im exportierten Dokument nach einem Fehler aus.
+      filters: {},
+      nodes: hadSelection ? nodes.map((n) => ({ ...n, selected: false })) : nodes,
+    });
+    // Übergänge stilllegen: sonst entsteht das Bild mitten in der
+    // Opazitäts-Animation und gerade abgewählte Nodes sind noch halb
+    // durchsichtig (Regel `.labviz-capturing` in index.css).
+    document.body.classList.add('labviz-capturing');
+    // Zwei Frames warten, damit React die Änderung gezeichnet UND der Browser
+    // sie mit abgeschalteten Übergängen angewendet hat — html-to-image liest
+    // das DOM, nicht den State.
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    try {
+      return await fn();
+    } finally {
+      document.body.classList.remove('labviz-capturing');
+      set({ selection, focus, hoverNodeId, search, filters, nodes });
     }
   },
 
