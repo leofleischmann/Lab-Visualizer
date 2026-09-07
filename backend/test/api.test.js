@@ -65,6 +65,8 @@ test('health check', async () => {
   const res = await api('GET', '/api/health');
   assert.equal(res.status, 200);
   assert.equal(res.body.status, 'ok');
+  assert.equal(typeof res.body.version, 'string');
+  assert.ok(res.body.version.length > 0);
 });
 
 /** 1x1-PNG, das kleinste gueltige Bild. */

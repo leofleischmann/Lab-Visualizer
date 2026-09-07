@@ -31,7 +31,10 @@ jobs:
 
       - name: Docker Container bauen und starten
         working-directory: /opt/lab-visualizer
-        run: docker compose up --build -d
+        run: |
+          export VERSION=$(tr -d '[:space:]' < VERSION)
+          echo "[Debug deploy]: VERSION=$VERSION"
+          docker compose up --build -d
 
       - name: Alte Docker Images aufräumen (sanft)
         run: docker image prune -af --filter "until=168h"

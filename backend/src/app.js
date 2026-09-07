@@ -14,6 +14,7 @@ import { shareRouter } from './routes/share.js';
 import { metaRouter } from './routes/meta.js';
 import { assertLimitsAllowRegistration } from './limits.js';
 import { SEED_FOOTPRINT } from './seed.js';
+import { getAppVersion } from './version.js';
 
 /**
  * Erstellt die Express-App inkl. Datenbank.
@@ -60,7 +61,7 @@ export function createApp({ dbFile } = {}) {
   }
 
   app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', time: new Date().toISOString() });
+    res.json({ status: 'ok', version: getAppVersion(), time: new Date().toISOString() });
   });
 
   // Öffentlich: Auth (Registrierung/Login), der statische Katalog und die

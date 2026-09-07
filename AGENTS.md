@@ -409,9 +409,10 @@ zurück. Verfügbare Vorlagen: `GET /meta/templates`.
 
 ```
 GET /health   (öffentlich, kein Login nötig)
-→ 200 { "status": "ok", "time": "2026-07-02T18:00:00.000Z" }
+→ 200 { "status": "ok", "version": "1.0.0", "time": "2026-07-02T18:00:00.000Z" }
 ```
 
+`version` kommt aus `/VERSION` (bzw. `APP_VERSION` im Docker-Image).
 ### Katalog
 
 ```

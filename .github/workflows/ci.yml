@@ -60,4 +60,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Compose-Build
-        run: docker compose build
+        run: |
+          export VERSION=$(tr -d '[:space:]' < VERSION)
+          echo "[Debug ci]: VERSION=$VERSION"
+          docker compose build

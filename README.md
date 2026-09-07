@@ -6,6 +6,7 @@ Prozesslandschaften. Mit interaktiver Canvas (React Flow), Deep-Dive-Panel
 (typisierte Felder + Markdown-Notizen) und einer sauberen REST-API für Automatisierung.
 
 ![Stack](https://img.shields.io/badge/Stack-React%20%2B%20Express%20%2B%20SQLite-38bdf8)
+![Version](https://img.shields.io/badge/Version-1.0.0-38bdf8)
 ![Lizenz](https://img.shields.io/badge/Lizenz-MIT-38bdf8)
 
 ![Lab Visualizer — Übersichtsebene mit Drill-down-Hierarchie](docs/screenshot.png)
@@ -118,6 +119,14 @@ docker compose up -d --build
 ```
 
 → Web-UI: **http://localhost:8080** · API (über Frontend-Proxy): **http://localhost:8080/api**
+
+Versionierte Images (GHCR), sobald eine neue Version auf `main` landet:
+
+```bash
+export VERSION=1.0.0   # oder Inhalt von ./VERSION
+docker compose pull
+docker compose up -d
+```
 
 Beim ersten Aufruf **registrierst du ein Konto** (E-Mail + Passwort). Jeder **neu
 registrierte Nutzer** erhält automatisch ein Best-Practice-Beispielprojekt
@@ -399,6 +408,7 @@ es sie in der Regel nicht. Abrufbar sind sie auch über `GET /api/meta/legal`.
 ## Projektstruktur
 
 ```
+├── VERSION                   # App-Version (SemVer) → GHCR-Image-Tags
 ├── docker-compose.yml
 ├── docs/                     # Screenshots und Rechtstext-Vorlagen
 ├── backend/

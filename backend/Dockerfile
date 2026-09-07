@@ -1,9 +1,20 @@
 # Lab Visualizer — Backend (Express + SQLite)
+# VERSION kommt aus dem Repo-Root (Build-Arg). Beeinflusst: Image-Tags (Release-Workflow),
+# APP_VERSION -> GET /api/health, OCI-Label. docker-compose reicht VERSION durch.
+ARG VERSION=0.0.0
+
 FROM node:22-slim
+
+ARG VERSION=0.0.0
 
 ENV NODE_ENV=production \
     DATA_DIR=/data \
-    PORT=3000
+    PORT=3000 \
+    APP_VERSION=${VERSION}
+
+LABEL org.opencontainers.image.title="Lab Visualizer Backend" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.source="https://github.com/leofleischmann/Lab-Visualizer"
 
 WORKDIR /app
 
