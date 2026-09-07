@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import clsx from 'clsx';
-import { Boxes, Check, ChevronDown, Settings2, Plus, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, Settings2, Plus, Trash2 } from 'lucide-react';
 import type { Project } from '../../api/types';
+import { EntityIcon } from '../../lib/icons';
 import { useGraphStore } from '../../store/graph';
 import { NewProjectDialog } from './NewProjectDialog';
 import { ProjectSettingsDialog } from './ProjectSettingsDialog';
@@ -40,7 +41,11 @@ export function ProjectSwitcher() {
         className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950/60 px-2.5 py-1.5 text-xs font-medium text-slate-200 transition-colors hover:border-sky-500"
         title="Projekt wechseln"
       >
-        <Boxes size={14} className="text-sky-400" />
+        {/* Symbol und Farbe des Projekts: liegen seit jeher in der Datenbank
+            (Vorlagen setzen sie beim Anlegen), wurden aber nie angezeigt. */}
+        <span style={{ color: active?.color ?? '#38bdf8' }}>
+          <EntityIcon icon={active?.icon ?? 'boxes'} size={14} />
+        </span>
         <span className="max-w-[160px] truncate">{active?.name ?? 'Projekt'}</span>
         <ChevronDown size={13} className="text-slate-500" />
       </button>
@@ -76,6 +81,9 @@ export function ProjectSwitcher() {
                         p.id === activeProjectId ? 'text-sky-300' : 'text-transparent'
                       )}
                     />
+                    <span className="shrink-0" style={{ color: p.color ?? '#64748b' }}>
+                      <EntityIcon icon={p.icon ?? 'boxes'} size={13} />
+                    </span>
                     <span
                       className={clsx(
                         'truncate text-xs',

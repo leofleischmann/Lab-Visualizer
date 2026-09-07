@@ -17,8 +17,9 @@ function InfraNodeComponent({ id, data, selected }: NodeProps<FlowNode>) {
 
   const category = categoryOf(catalog, entity.category);
   const status = statusOf(catalog, entity.status);
-  // Ein eigenes Icon am Node schlaegt das der Kategorie.
+  // Eigenes Icon und eigene Farbe am Node schlagen die der Kategorie.
   const icon = entity.icon ?? category.icon;
+  const color = entity.color ?? category.color;
   const match = search.trim() ? matchesSearch(entity, search.trim()) : null;
   const isPortal = !!entity.linkedViewId;
   const badges = nodeBadges(catalog, entity);
@@ -36,7 +37,7 @@ function InfraNodeComponent({ id, data, selected }: NodeProps<FlowNode>) {
               : 'border-slate-700',
         match === false ? 'opacity-25' : dimmed && 'opacity-30'
       )}
-      style={{ borderLeftWidth: 4, borderLeftColor: category.color }}
+      style={{ borderLeftWidth: 4, borderLeftColor: color }}
       title={isPortal ? 'Doppelklick öffnet die Detailebene' : undefined}
     >
       <ConnectionHandles visible={!!selected} />
@@ -52,7 +53,7 @@ function InfraNodeComponent({ id, data, selected }: NodeProps<FlowNode>) {
       <div className="flex items-center gap-2.5">
         <span
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-          style={{ backgroundColor: `${category.color}22`, color: category.color }}
+          style={{ backgroundColor: `${color}22`, color }}
         >
           <EntityIcon icon={icon} size={17} title={category.label} />
         </span>

@@ -84,6 +84,10 @@ CREATE TABLE IF NOT EXISTS nodes (
   -- Icon-Mapping des Frontends (z. B. 'server') oder 'asset:<id>' fuer ein
   -- hochgeladenes Bild. NULL = Icon der Kategorie.
   icon           TEXT,
+  -- Eigene Farbe statt der Kategorie-Farbe. Erst damit lassen sich Zonen
+  -- unterscheiden (DMZ rot, intern gruen) -- ueber die Kategorie haetten alle
+  -- dieselbe. NULL = Farbe der Kategorie.
+  color          TEXT,
   -- Typisierte Felder (IP, Hostname, Plattform, ...) als JSON-Objekt. Die Struktur
   -- definiert ausschliesslich backend/src/catalog/ (Kern + Domain-Packs) -- ein Feld
   -- kostet dort einen Eintrag und hier KEINE Schemaaenderung.

@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react';
 import clsx from 'clsx';
-import { ChevronRight, Layers, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ChevronRight, Layers, Plus, Settings2, Trash2 } from 'lucide-react';
 import type { View } from '../../api/types';
+import { EntityIcon } from '../../lib/icons';
 import { useGraphStore, viewPath } from '../../store/graph';
+import { ViewStyleDialog } from './ViewStyleDialog';
 
 /** Flache View-Liste → verschachtelte Reihen (Tiefe für Einrückung). */
 function flattenTree(views: View[]): { view: View; depth: number }[] {
@@ -32,10 +34,10 @@ export function ViewBar() {
   const activeViewId = useGraphStore((s) => s.activeViewId);
   const setActiveView = useGraphStore((s) => s.setActiveView);
   const createView = useGraphStore((s) => s.createView);
-  const saveView = useGraphStore((s) => s.saveView);
   const removeView = useGraphStore((s) => s.removeView);
 
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<View | null>(null);
 
   const path = useMemo(() => viewPath(views, activeViewId), [views, activeViewId]);
   const rows = useMemo(() => flattenTree(views), [views]);
@@ -54,11 +56,6 @@ export function ViewBar() {
     const created = await createView({ name: name.trim(), parentId });
     if (created) await setActiveView(created.id);
     setOpen(false);
-  };
-
-  const rename = async (view: View) => {
-    const name = window.prompt('Ebene umbenennen:', view.name);
-    if (name?.trim() && name.trim() !== view.name) await saveView(view.id, { name: name.trim() });
   };
 
   const del = async (view: View) => {
@@ -86,12 +83,18 @@ export function ViewBar() {
               type="button"
               onClick={() => void setActiveView(v.id)}
               className={clsx(
-                'shrink-0 rounded px-1.5 py-0.5 transition-colors',
+                'flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 transition-colors',
                 v.id === activeViewId
                   ? 'font-semibold text-sky-300'
                   : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
               )}
             >
+              {/* Symbol und Farbe der Ebene: lagen bisher ungenutzt in der DB. */}
+              {(v.icon || v.color) && (
+                <span style={{ color: v.color ?? undefined }}>
+                  <EntityIcon icon={v.icon ?? 'layers'} size={11} />
+                </span>
+              )}
               {v.name}
             </button>
           </span>
@@ -137,9 +140,12 @@ export function ViewBar() {
                       void setActiveView(view.id);
                       setOpen(false);
                     }}
-                    className="flex min-w-0 flex-1 items-center py-1.5 text-left"
+                    className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 text-left"
                     style={{ paddingLeft: 8 + depth * 14 }}
                   >
+                    <span className="shrink-0" style={{ color: view.color ?? '#64748b' }}>
+                      <EntityIcon icon={view.icon ?? 'layers'} size={12} />
+                    </span>
                     <span
                       className={clsx(
                         'truncate text-xs',
@@ -159,11 +165,14 @@ export function ViewBar() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => void rename(view)}
-                    title="Ebene umbenennen"
+                    onClick={() => {
+                      setEditing(view);
+                      setOpen(false);
+                    }}
+                    title="Name, Symbol & Farbe"
                     className="rounded p-1 text-slate-500 opacity-0 transition-opacity hover:bg-slate-700 hover:text-slate-200 group-hover:opacity-100"
                   >
-                    <Pencil size={12} />
+                    <Settings2 size={12} />
                   </button>
                   {views.length > 1 && (
                     <button
@@ -188,6 +197,8 @@ export function ViewBar() {
           </div>
         </>
       )}
+
+      {editing && <ViewStyleDialog view={editing} onClose={() => setEditing(null)} />}
     </div>
   );
 }

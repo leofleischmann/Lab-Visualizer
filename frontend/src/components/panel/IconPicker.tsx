@@ -21,13 +21,16 @@ export function IconPicker({
   fallbackIcon,
   onChange,
   onClose,
+  defaultLabel = 'Standard der Kategorie',
 }: {
-  /** Aktuelles Icon des Nodes; null = Icon der Kategorie. */
+  /** Aktuelles Icon; null = Standard (Kategorie bzw. Vorgabe). */
   value: string | null;
-  /** Icon der Kategorie, für die Vorschau der Standardauswahl. */
+  /** Symbol, das für die Standardauswahl in der Vorschau steht. */
   fallbackIcon: string;
   onChange: (icon: string | null) => void;
   onClose: () => void;
+  /** Beschriftung der Standardauswahl — Projekte und Ebenen haben keine Kategorie. */
+  defaultLabel?: string;
 }) {
   const [assets, setAssets] = useState<Asset[] | null>(null);
   const [filter, setFilter] = useState('');
@@ -104,7 +107,7 @@ export function IconPicker({
           )}
         >
           <EntityIcon icon={fallbackIcon} size={16} />
-          Standard der Kategorie
+          {defaultLabel}
         </button>
 
         <div>

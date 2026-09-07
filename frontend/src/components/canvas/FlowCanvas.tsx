@@ -8,6 +8,7 @@ import {
   MiniMap,
   ReactFlow,
   useReactFlow,
+  type Connection,
   type NodeChange,
   type OnSelectionChangeParams,
 } from '@xyflow/react';
@@ -48,6 +49,7 @@ export function FlowCanvas() {
   const onNodesChange = useGraphStore((s) => s.onNodesChange);
   const onEdgesChange = useGraphStore((s) => s.onEdgesChange);
   const connect = useGraphStore((s) => s.connect);
+  const reconnectEdge = useGraphStore((s) => s.reconnectEdge);
   const syncSelection = useGraphStore((s) => s.syncSelection);
   const setHoverNode = useGraphStore((s) => s.setHoverNode);
   const removeNode = useGraphStore((s) => s.removeNode);
@@ -132,6 +134,17 @@ export function FlowCanvas() {
     [syncSelection]
   );
 
+  /**
+   * Kante am Endpunkt auf einen anderen Node ziehen. React Flow liefert die
+   * alte Kante und die neue Verbindung; alles Weitere macht der Store.
+   */
+  const handleReconnect = useCallback(
+    (oldEdge: FlowEdge, connection: Connection) => {
+      void reconnectEdge(oldEdge.id, connection);
+    },
+    [reconnectEdge]
+  );
+
   const handleBeforeDelete = useCallback(
     async ({ nodes: toDeleteNodes, edges: toDeleteEdges }: { nodes: FlowNode[]; edges: FlowEdge[] }) => {
       if (toDeleteNodes.length) {
@@ -200,6 +213,7 @@ export function FlowCanvas() {
       onNodesChange={handleNodesChange}
       onEdgesChange={onEdgesChange}
       onConnect={connect}
+      onReconnect={handleReconnect}
       onSelectionChange={handleSelectionChange}
       onBeforeDelete={handleBeforeDelete}
       onNodesDelete={handleNodesDelete}

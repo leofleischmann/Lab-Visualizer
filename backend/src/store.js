@@ -60,6 +60,7 @@ function rowToNode(row) {
     width: row.width,
     height: row.height,
     icon: row.icon,
+    color: row.color,
     fields: JSON.parse(row.fields || '{}'),
     notes: row.notes,
     customFields: JSON.parse(row.custom_fields || '{}'),
@@ -589,10 +590,10 @@ export function getNode(db, userId, id) {
 
 const INSERT_NODE = `
   INSERT INTO nodes (id, name, category, status, parent_id, view_id, linked_view_id,
-                     pos_x, pos_y, width, height, icon,
+                     pos_x, pos_y, width, height, icon, color,
                      fields, custom_fields, notes, created_at, updated_at)
   VALUES (@id, @name, @category, @status, @parent_id, @view_id, @linked_view_id,
-          @pos_x, @pos_y, @width, @height, @icon,
+          @pos_x, @pos_y, @width, @height, @icon, @color,
           @fields, @custom_fields, @notes, @created_at, @updated_at)`;
 
 function nodeToRow(data, timestamps) {
@@ -609,6 +610,7 @@ function nodeToRow(data, timestamps) {
     width: data.width ?? null,
     height: data.height ?? null,
     icon: data.icon ?? null,
+    color: data.color ?? null,
     fields: JSON.stringify(data.fields ?? {}),
     custom_fields: JSON.stringify(data.customFields ?? {}),
     notes: data.notes ?? '',
@@ -760,7 +762,8 @@ export function updateNode(db, userId, id, patch) {
     db.prepare(`
       UPDATE nodes SET name = @name, category = @category, status = @status, parent_id = @parent_id,
         view_id = @view_id, linked_view_id = @linked_view_id,
-        pos_x = @pos_x, pos_y = @pos_y, width = @width, height = @height, icon = @icon,
+        pos_x = @pos_x, pos_y = @pos_y, width = @width, height = @height,
+        icon = @icon, color = @color,
         fields = @fields, custom_fields = @custom_fields, notes = @notes,
         updated_at = @updated_at
       WHERE id = @id

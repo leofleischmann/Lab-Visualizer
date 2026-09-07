@@ -208,6 +208,8 @@ type GraphStore = {
 
   connect: (connection: Connection) => Promise<void>;
   saveEdge: (id: string, patch: EdgePatch) => Promise<boolean>;
+  /** Endpunkt einer bestehenden Kante auf einen anderen Node legen. */
+  reconnectEdge: (id: string, connection: Connection) => Promise<void>;
   removeEdge: (id: string) => Promise<void>;
   updateEdgeRouting: (id: string, routing: EdgeRouting, persist?: boolean) => Promise<void>;
   resetEdgeRouting: (id: string) => Promise<void>;
@@ -796,6 +798,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       width: source.width,
       height: source.height,
       icon: source.icon,
+      color: source.color,
       fields: { ...source.fields },
       notes: source.notes,
       customFields: { ...source.customFields },
@@ -876,6 +879,45 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         undo: async () => void (await api.createEdge(edge)),
         redo: () => api.deleteEdge(id),
       });
+    }
+  },
+
+  /**
+   * Kante am Endpunkt greifen und auf einen anderen Node ziehen.
+   *
+   * Die API konnte das schon immer (PATCH /edges/:id mit sourceId/targetId),
+   * nur die Canvas reichte es nicht durch — eine Verbindung umzuhängen hiess
+   * bisher löschen und neu ziehen. Ein manuell verlegter Verlauf wird dabei
+   * zurückgesetzt: die alten Stützpunkte passen nicht mehr zum neuen Endpunkt.
+   */
+  reconnectEdge: async (id, connection) => {
+    if (!connection.source || !connection.target) return;
+    const before = get().edges.find((e) => e.id === id)?.data?.entity;
+    if (!before) return;
+    if (before.sourceId === connection.source && before.targetId === connection.target) return;
+    const patch: EdgePatch = {
+      sourceId: connection.source,
+      targetId: connection.target,
+      routing: { mode: 'auto', waypoints: [], labelT: null },
+    };
+    try {
+      const updated = await api.updateEdge(id, patch);
+      set((state) => ({
+        edges: state.edges.map((e) => (e.id === id ? { ...toFlowEdge(updated), selected: e.selected } : e)),
+      }));
+      get().record({
+        label: 'Verbindung umhängen',
+        viewId: updated.viewId,
+        undo: async () =>
+          void (await api.updateEdge(id, {
+            sourceId: before.sourceId,
+            targetId: before.targetId,
+            routing: before.routing,
+          })),
+        redo: async () => void (await api.updateEdge(id, patch)),
+      });
+    } catch (err) {
+      fail(err);
     }
   },
 

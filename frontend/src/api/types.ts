@@ -117,6 +117,12 @@ export type ApiNode = {
    */
   icon: string | null;
   /**
+   * Eigene Farbe statt der Kategorie-Farbe. Erst damit lassen sich Zonen
+   * unterscheiden (DMZ rot, intern grün) — über die Kategorie hätten alle
+   * dieselbe. null = Farbe der Kategorie.
+   */
+  color: string | null;
+  /**
    * Typisierte Felder (IP, Hostname, Plattform, ...). Welche Schlüssel es gibt,
    * definiert allein der Katalog des Backends (`Catalog.fields`) — das Frontend
    * kennt keine festen Feldnamen mehr. Werte sind immer Strings; ein leerer

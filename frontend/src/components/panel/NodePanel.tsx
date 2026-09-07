@@ -11,6 +11,7 @@ import {
   ORPHAN_GROUP,
 } from '../../lib/catalog';
 import { EntityIcon } from '../../lib/icons';
+import { ColorPicker } from '../ui/ColorPicker';
 import { IconPicker } from './IconPicker';
 import { absolutePosition, useGraphStore } from '../../store/graph';
 import { CustomFieldsEditor, toRecord, toRows, type FieldRow } from './CustomFieldsEditor';
@@ -24,6 +25,8 @@ type Draft = {
   parentId: string;
   /** Eigenes Icon; null = Icon der Kategorie. */
   icon: string | null;
+  /** Eigene Farbe; null = Farbe der Kategorie. */
+  color: string | null;
   /** Typisierte Felder (Schlüssel aus dem Backend-Katalog). */
   fields: Record<string, string>;
   notes: string;
@@ -37,6 +40,7 @@ const toDraft = (entity: ApiNode): Draft => ({
   status: entity.status,
   parentId: entity.parentId ?? '',
   icon: entity.icon,
+  color: entity.color,
   fields: { ...entity.fields },
   notes: entity.notes,
   customRows: toRows(entity.customFields),
@@ -134,6 +138,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
 
   const category = categoryOf(catalog, draft.category);
   const [pickingIcon, setPickingIcon] = useState(false);
+  const effectiveColor = draft.color ?? category.color;
 
   const zoneOptions = useMemo(
     () =>
@@ -181,6 +186,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
       category: draft.category,
       status: draft.status,
       icon: draft.icon,
+      color: draft.color,
       fields,
       notes: draft.notes,
       customFields: toRecord(draft.customRows),
@@ -213,7 +219,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
       <header className="flex items-center gap-3 border-b border-slate-800 px-4 py-3">
         <span
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
-          style={{ backgroundColor: `${category.color}22`, color: category.color }}
+          style={{ backgroundColor: `${effectiveColor}22`, color: effectiveColor }}
         >
           <EntityIcon icon={draft.icon ?? category.icon} size={18} />
         </span>
@@ -296,7 +302,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
           >
             <span
               className="flex h-6 w-6 shrink-0 items-center justify-center rounded"
-              style={{ backgroundColor: `${category.color}1e`, color: category.color }}
+              style={{ backgroundColor: `${effectiveColor}1e`, color: effectiveColor }}
             >
               <EntityIcon icon={draft.icon ?? category.icon} size={14} />
             </span>
@@ -305,6 +311,16 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
             </span>
             <ImagePlus size={13} className="shrink-0 text-slate-500" />
           </button>
+        </Field>
+
+        {/* Erst eine eigene Farbe macht Zonen unterscheidbar: über die
+            Kategorie hätten alle Zonen dieselbe. */}
+        <Field label="Farbe">
+          <ColorPicker
+            value={draft.color}
+            onChange={(color) => set('color', color)}
+            defaultLabel={`Standard (${category.label})`}
+          />
         </Field>
 
         <Field label="Zone / Gruppe">

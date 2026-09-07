@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import type { Pack, Project } from '../../api/types';
 import { useGraphStore } from '../../store/graph';
 import { Modal } from '../ui/Modal';
+import { StyleFields } from '../ui/StyleFields';
 import { PackPicker } from './NewProjectDialog';
 
 /**
@@ -28,6 +29,8 @@ export function ProjectSettingsDialog({
 
   const [packs, setPacks] = useState<Pack[] | null>(null);
   const [name, setName] = useState(project.name);
+  const [icon, setIcon] = useState(project.icon);
+  const [color, setColor] = useState(project.color);
   const [selected, setSelected] = useState<string[]>(project.packs);
   const [busy, setBusy] = useState(false);
 
@@ -44,12 +47,16 @@ export function ProjectSettingsDialog({
 
   const dirty =
     name.trim() !== project.name ||
+    icon !== project.icon ||
+    color !== project.color ||
     JSON.stringify([...selected].sort()) !== JSON.stringify([...project.packs].sort());
 
   const submit = async () => {
     setBusy(true);
     const ok = await saveProject(project.id, {
       name: name.trim() || project.name,
+      icon,
+      color,
       packs: selected,
     });
     setBusy(false);
@@ -78,6 +85,14 @@ export function ProjectSettingsDialog({
               className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-2.5 py-2 text-xs text-slate-200 focus:border-sky-500 focus:outline-none"
             />
           </div>
+
+          <StyleFields
+            icon={icon}
+            color={color}
+            fallbackIcon="boxes"
+            onIconChange={setIcon}
+            onColorChange={setColor}
+          />
 
           <PackPicker
             packs={packs}

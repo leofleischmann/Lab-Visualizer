@@ -78,6 +78,9 @@ Live-Vorschau.
 - **KI-Agenten:** vollständige API-Doku in [AGENTS.md](AGENTS.md)
 - **Suche** — filtert live über Name, IP, Hostname, URL, OS und Custom Fields; die
   globale Suche springt in die richtige Ebene und **zentriert den Treffer**.
+- **Farben & Symbole überall** — Nodes und **Zonen** lassen sich einzeln einfärben
+  (DMZ rot, intern grün) statt nur über ihre Kategorie; Projekte und Ebenen tragen
+  ebenfalls Symbol und Farbe und zeigen sie in Kopfzeile und Breadcrumb.
 - **Eigene Icons & Bilder** — jedem Node lässt sich statt des Kategorie-Symbols ein
   **eigenes Bild** geben (PNG, JPEG, WebP, SVG): echte Produktlogos machen ein Diagramm
   auf einen Blick lesbar. Bilder lassen sich ebenso in **Notizen** einfügen. Sie liegen
@@ -253,7 +256,8 @@ dann von der Vorlage, `packs` überschreibt sie.
 **Node-Felder:** `name` (Pflicht), `category`, `status`
 (`active|inactive|planned|maintenance|error|unknown`), `parentId` (Zone/Gruppe),
 `position{x,y}`, `width/height` (Zonen), `icon` (Symbolname oder `asset:<id>`;
-`null` = Kategorie-Symbol), `notes` (Markdown), `fields` (String→String,
+`null` = Kategorie-Symbol), `color` (`null` = Kategorie-Farbe),
+`notes` (Markdown), `fields` (String→String,
 Schlüssel und Typen aus `/api/meta/catalog`), `customFields` (String→String, frei).
 **Edge-Felder:** `sourceId`, `targetId` (Pflicht), `label`, `kind`, `lineStyle`
 (`solid|dashed|dotted`), `animated`, `notes`, `customFields`.

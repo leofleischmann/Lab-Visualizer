@@ -151,6 +151,8 @@ export const nodeCreateSchema = z.object({
    * hier muesste das Icon-Mapping der UI im Backend spiegeln.
    */
   icon: z.string().max(100).nullable().optional(),
+  /** Eigene Farbe statt der Kategorie-Farbe; null = Kategorie. */
+  color: z.string().max(32).nullable().optional(),
   fields: fieldsSchema.default({}),
   notes: z.string().max(200000).default(''),
   customFields: customFieldsSchema.default({}),

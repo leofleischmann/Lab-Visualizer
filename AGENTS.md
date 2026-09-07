@@ -230,6 +230,7 @@ verlinken. Jeder Node/jede Edge gehört zu **genau einer** Ebene.
 | `position` | nein | `{x:0,y:0}` | Canvas-Position (siehe Parent-Regel) |
 | `width`, `height` | nein | `null` | Nur für Zonen (`category: "group"`) |
 | `icon` | nein | `null` | Eigenes Symbol; `null` = Symbol der Kategorie (siehe [Bilder](#bilder)) |
+| `color` | nein | `null` | Eigene Farbe; `null` = Farbe der Kategorie. Erst damit lassen sich Zonen unterscheiden |
 | `fields` | nein | `{}` | Typisierte Felder; Schlüssel & Typen aus `GET /meta/catalog` |
 | `notes` | nein | `""` | Markdown (max. 200 KB) |
 | `customFields` | nein | `{}` | Freiform-Key-Value, max. 100 Keys, Werte max. 4000 Zeichen |

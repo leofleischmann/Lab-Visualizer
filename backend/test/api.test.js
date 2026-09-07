@@ -75,6 +75,32 @@ const PNG_DATA_URL =
 const svgDataUrl = (body = '<svg xmlns="http://www.w3.org/2000/svg"/>') =>
   `data:image/svg+xml;base64,${Buffer.from(body).toString('base64')}`;
 
+test('nodes: eigenes Symbol und eigene Farbe überschreiben die Kategorie', async () => {
+  const { call, close } = await freshApp();
+  try {
+    // Ohne Angabe: null, die UI nimmt dann Symbol und Farbe der Kategorie.
+    const plain = await call('POST', '/api/nodes', { id: 'schlicht', name: 'Schlicht' });
+    assert.equal(plain.body.icon, null);
+    assert.equal(plain.body.color, null);
+
+    // Erst eine eigene Farbe macht Zonen unterscheidbar — über die Kategorie
+    // `group` hätten alle dieselbe.
+    const zone = await call('POST', '/api/nodes', {
+      id: 'dmz', name: 'DMZ', category: 'group', icon: 'shield', color: '#ef4444',
+    });
+    assert.equal(zone.status, 201);
+    assert.equal(zone.body.icon, 'shield');
+    assert.equal(zone.body.color, '#ef4444');
+
+    // Zurücksetzen auf die Kategorie ist ausdrücklich möglich.
+    const reset = await call('PATCH', '/api/nodes/dmz', { icon: null, color: null });
+    assert.equal(reset.body.icon, null);
+    assert.equal(reset.body.color, null);
+  } finally {
+    close();
+  }
+});
+
 test('assets: Typ kommt aus den Magic Bytes, nicht aus der Angabe des Clients', async () => {
   const { call, close } = await freshApp();
   try {
