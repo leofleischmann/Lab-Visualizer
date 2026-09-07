@@ -42,7 +42,25 @@ export function getInstanceLimits() {
     maxProjectsPerUser: envLimit('MAX_PROJECTS_PER_USER'),
     maxViewsPerProject: envLimit('MAX_VIEWS_PER_PROJECT'),
     maxNodesPerProject: envLimit('MAX_NODES_PER_PROJECT'),
+    maxAssetsPerUser: envLimit('MAX_ASSETS_PER_USER'),
   };
+}
+
+/**
+ * Groesste erlaubte Bilddatei. Anders als die Limits oben ist das KEINE
+ * Plan-Grenze, sondern ein technischer Riegel: der Upload liegt beim Verarbeiten
+ * komplett im Speicher, und der Body-Parser (MAX_BODY, Standard 2 MB) muss den
+ * base64-Aufschlag von einem Drittel noch tragen. Daher auch beim Self-Hosting
+ * ein Standardwert.
+ */
+export function getMaxAssetBytes() {
+  const raw = process.env.MAX_ASSET_BYTES;
+  if (raw === undefined || raw.trim() === '') return 1024 * 1024;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`MAX_ASSET_BYTES muss eine positive ganze Zahl sein (ist: "${raw}")`);
+  }
+  return value;
 }
 
 /**
@@ -87,6 +105,18 @@ export function assertCanCreateProject(db, userId, additional = 1) {
   if (current + additional > maxProjectsPerUser) {
     throw limitError(
       `Diese Instanz erlaubt maximal ${plural(maxProjectsPerUser, 'Projekt', 'Projekte')} pro Konto.`
+    );
+  }
+}
+
+/** Wirft 403, wenn der Nutzer kein weiteres Bild hochladen darf. */
+export function assertCanCreateAsset(db, userId) {
+  const { maxAssetsPerUser } = getInstanceLimits();
+  if (maxAssetsPerUser === null) return;
+  const current = db.prepare('SELECT count(*) AS c FROM assets WHERE user_id = ?').get(userId).c;
+  if (current + 1 > maxAssetsPerUser) {
+    throw limitError(
+      `Diese Instanz erlaubt maximal ${plural(maxAssetsPerUser, 'Bild', 'Bilder')} pro Konto.`
     );
   }
 }

@@ -26,6 +26,20 @@ export type InstanceLimits = {
   maxProjectsPerUser: number | null;
   maxViewsPerProject: number | null;
   maxNodesPerProject: number | null;
+  maxAssetsPerUser: number | null;
+};
+
+/**
+ * Hochgeladenes Bild (eigenes Node-Icon oder Bild in einer Notiz). Die Bytes
+ * kommen nie über diese API, sondern über GET /api/assets/:id — so kann der
+ * Browser sie cachen.
+ */
+export type Asset = {
+  id: string;
+  name: string;
+  mime: string;
+  byteSize: number;
+  createdAt: string;
 };
 
 /** Projekt: komplett getrennter Arbeitsbereich (z. B. „Homelab", „Arbeit"). */
@@ -46,6 +60,30 @@ export type Project = {
 };
 
 export type ProjectPatch = Partial<Omit<Project, 'id' | 'createdAt' | 'updatedAt'>>;
+
+/**
+ * Read-only-Freigabelink auf ein Projekt. `token` steht NUR in der Antwort auf
+ * das Anlegen — danach kennt der Server nur noch dessen Hash.
+ */
+export type ShareLink = {
+  id: string;
+  projectId: string;
+  label: string;
+  createdAt: string;
+  expiresAt: string | null;
+  lastSeenAt: string | null;
+  /** Nur beim Anlegen gesetzt. */
+  token?: string;
+};
+
+/** Lesestand eines freigegebenen Projekts (alle Ebenen auf einmal). */
+export type SharedProject = {
+  project: Project;
+  views: View[];
+  nodes: ApiNode[];
+  edges: ApiEdge[];
+  catalog: Catalog;
+};
 
 /** Domain-Pack: thematisches Bündel aus Kategorien, Feldern und Kantenarten. */
 export type Pack = {
@@ -97,6 +135,17 @@ export type ApiNode = {
   position: Position;
   width: number | null;
   height: number | null;
+  /**
+   * Eigenes Icon statt des Kategorie-Icons: ein Name aus dem Icon-Mapping
+   * (`iconOf`) oder `asset:<id>` für ein hochgeladenes Bild. null = Kategorie.
+   */
+  icon: string | null;
+  /**
+   * Eigene Farbe statt der Kategorie-Farbe. Erst damit lassen sich Zonen
+   * unterscheiden (DMZ rot, intern grün) — über die Kategorie hätten alle
+   * dieselbe. null = Farbe der Kategorie.
+   */
+  color: string | null;
   /**
    * Typisierte Felder (IP, Hostname, Plattform, ...). Welche Schlüssel es gibt,
    * definiert allein der Katalog des Backends (`Catalog.fields`) — das Frontend

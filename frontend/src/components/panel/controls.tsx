@@ -2,6 +2,19 @@ import clsx from 'clsx';
 import { ExternalLink } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { FieldDef } from '../../api/types';
+import { useGraphStore } from '../../store/graph';
+
+/**
+ * In der Leseansicht eines Freigabelinks sind alle Eingaben gesperrt.
+ *
+ * Zentral hier statt an jedem Feld: die Panels rendern dieselben Bausteine wie
+ * im Editor, und ein vergessenes `disabled` an einer einzelnen Stelle wäre
+ * sonst nicht als solches erkennbar. Sperrt nur die Bedienung — verbindlich
+ * ist, dass die Freigabe-Route ausschliesslich GET anbietet.
+ */
+export function useReadOnly(): boolean {
+  return useGraphStore((s) => s.readOnly);
+}
 
 export function Field({ label, children }: { label: string; children: ReactNode }) {
   // Bewusst kein <label>: es würde verschachtelten Buttons (Markdown-Tabs,
@@ -27,15 +40,18 @@ export function TextInput({
   placeholder?: string;
   mono?: boolean;
 }) {
+  const readOnly = useReadOnly();
   return (
     <input
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       spellCheck={false}
+      readOnly={readOnly}
       className={clsx(
         'w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:border-sky-500 focus:outline-none',
-        mono && 'font-mono'
+        mono && 'font-mono',
+        readOnly && 'cursor-default text-slate-400'
       )}
     />
   );
@@ -61,14 +77,21 @@ export function FieldInput({
   value: string;
   onChange: (value: string) => void;
 }) {
+  const readOnly = useReadOnly();
   const inputClass = clsx(
     'w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:border-sky-500 focus:outline-none',
-    def.mono && 'font-mono'
+    def.mono && 'font-mono',
+    readOnly && 'cursor-default text-slate-400'
   );
 
   if (def.type === 'select') {
     return (
-      <select value={value} onChange={(e) => onChange(e.target.value)} className={inputClass}>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={readOnly}
+        className={inputClass}
+      >
         <option value="">— keine Angabe —</option>
         {/* Ein Wert, den der Katalog nicht (mehr) kennt, bleibt sichtbar statt
             beim nächsten Speichern still verloren zu gehen. */}
@@ -89,6 +112,7 @@ export function FieldInput({
       onChange={(e) => onChange(e.target.value)}
       placeholder={def.placeholder}
       spellCheck={false}
+      readOnly={readOnly}
       className={inputClass}
     />
   );

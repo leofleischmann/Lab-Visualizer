@@ -38,6 +38,7 @@ export function EdgePanel({ entity }: { entity: ApiEdge }) {
   const saveEdge = useGraphStore((s) => s.saveEdge);
   const removeEdge = useGraphStore((s) => s.removeEdge);
   const resetEdgeRouting = useGraphStore((s) => s.resetEdgeRouting);
+  const readOnly = useGraphStore((s) => s.readOnly);
 
   const [draft, setDraft] = useState<Draft>(() => toDraft(entity));
   const [saving, setSaving] = useState(false);
@@ -94,6 +95,7 @@ export function EdgePanel({ entity }: { entity: ApiEdge }) {
           <span className="max-w-[42%] truncate rounded bg-slate-800 px-1.5 py-0.5">
             {nodeName(entity.targetId)}
           </span>
+          {!readOnly && (
           <button
             type="button"
             onClick={() =>
@@ -104,6 +106,7 @@ export function EdgePanel({ entity }: { entity: ApiEdge }) {
           >
             <ArrowLeftRight size={12} />
           </button>
+          )}
         </div>
       </header>
 
@@ -116,6 +119,7 @@ export function EdgePanel({ entity }: { entity: ApiEdge }) {
           <Field label="Art">
             <select
               value={draft.kind}
+              disabled={readOnly}
               onChange={(e) => set('kind', e.target.value)}
               className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 focus:border-sky-500 focus:outline-none"
             >
@@ -136,6 +140,7 @@ export function EdgePanel({ entity }: { entity: ApiEdge }) {
           <Field label="Linienstil">
             <select
               value={draft.lineStyle}
+              disabled={readOnly}
               onChange={(e) => set('lineStyle', e.target.value as LineStyle)}
               className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 focus:border-sky-500 focus:outline-none"
             >
@@ -152,6 +157,7 @@ export function EdgePanel({ entity }: { entity: ApiEdge }) {
           <input
             type="checkbox"
             checked={draft.animated}
+            disabled={readOnly}
             onChange={(e) => set('animated', e.target.checked)}
             className="h-3.5 w-3.5 accent-sky-500"
           />
@@ -165,6 +171,7 @@ export function EdgePanel({ entity }: { entity: ApiEdge }) {
               Doppelklick auf die Linie fügt einen Eckpunkt ein (Doppelklick auf Eckpunkt
               entfernt ihn), Label entlang der Linie verschieben.
             </p>
+            {!readOnly && (
             <button
               type="button"
               onClick={() => void resetEdgeRouting(entity.id)}
@@ -172,6 +179,7 @@ export function EdgePanel({ entity }: { entity: ApiEdge }) {
             >
               <RotateCcw size={12} /> Automatisches Routing wiederherstellen
             </button>
+            )}
           </div>
         )}
 
@@ -189,6 +197,7 @@ export function EdgePanel({ entity }: { entity: ApiEdge }) {
         </p>
       </div>
 
+      {!readOnly && (
       <footer className="flex items-center gap-2 border-t border-slate-800 px-4 py-3">
         <button
           type="button"
@@ -207,6 +216,7 @@ export function EdgePanel({ entity }: { entity: ApiEdge }) {
           <Trash2 size={14} /> Löschen
         </button>
       </footer>
+      )}
     </div>
   );
 }

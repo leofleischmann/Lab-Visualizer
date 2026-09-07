@@ -3,7 +3,14 @@ import { type NodeProps } from '@xyflow/react';
 import clsx from 'clsx';
 import { Layers } from 'lucide-react';
 import type { FlowNode } from '../../api/types';
-import { categoryOf, iconOf, matchesSearch, nodeBadges, statusOf } from '../../lib/catalog';
+import {
+  categoryOf,
+  matchesFilters,
+  matchesSearch,
+  nodeBadges,
+  statusOf,
+} from '../../lib/catalog';
+import { EntityIcon } from '../../lib/icons';
 import { useGraphStore } from '../../store/graph';
 import { ConnectionDropTarget, ConnectionHandles } from './handles';
 
@@ -11,13 +18,21 @@ function InfraNodeComponent({ id, data, selected }: NodeProps<FlowNode>) {
   const entity = data.entity;
   const catalog = useGraphStore((s) => s.catalog);
   const search = useGraphStore((s) => s.search);
+  const filters = useGraphStore((s) => s.filters);
   // Fokus-Modus: außerhalb des Fokus (Node + Nachbarn) wird gedimmt
   const dimmed = useGraphStore((s) => (s.focus ? !s.focus.nodeIds.has(id) : false));
+  const drillInto = useGraphStore((s) => s.drillInto);
 
   const category = categoryOf(catalog, entity.category);
   const status = statusOf(catalog, entity.status);
-  const Icon = iconOf(category.icon);
+  // Eigenes Icon und eigene Farbe am Node schlagen die der Kategorie.
+  const icon = entity.icon ?? category.icon;
+  const color = entity.color ?? category.color;
   const match = search.trim() ? matchesSearch(entity, search.trim()) : null;
+  // Feldfilter dimmen wie die Suche, heben aber nichts hervor: die Suche sucht
+  // EINEN Treffer, der Filter grenzt eine MENGE ein.
+  const filteredOut =
+    Object.keys(filters).length > 0 && !matchesFilters(entity, filters);
   const isPortal = !!entity.linkedViewId;
   const badges = nodeBadges(catalog, entity);
 
@@ -32,10 +47,13 @@ function InfraNodeComponent({ id, data, selected }: NodeProps<FlowNode>) {
             : isPortal
               ? 'border-indigo-400/70'
               : 'border-slate-700',
-        match === false ? 'opacity-25' : dimmed && 'opacity-30'
+        match === false || filteredOut ? 'opacity-25' : dimmed && 'opacity-30'
       )}
-      style={{ borderLeftWidth: 4, borderLeftColor: category.color }}
+      style={{ borderLeftWidth: 4, borderLeftColor: color }}
       title={isPortal ? 'Doppelklick öffnet die Detailebene' : undefined}
+      // Hier statt ueber ReactFlows onNodeDoubleClick: das feuert nicht, wenn
+      // Nodes nicht ziehbar sind (Leseansicht eines Freigabelinks).
+      onDoubleClick={isPortal ? () => void drillInto(id) : undefined}
     >
       <ConnectionHandles visible={!!selected} />
       <ConnectionDropTarget />
@@ -50,9 +68,9 @@ function InfraNodeComponent({ id, data, selected }: NodeProps<FlowNode>) {
       <div className="flex items-center gap-2.5">
         <span
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-          style={{ backgroundColor: `${category.color}22`, color: category.color }}
+          style={{ backgroundColor: `${color}22`, color }}
         >
-          <Icon size={17} strokeWidth={1.8} />
+          <EntityIcon icon={icon} size={17} title={category.label} />
         </span>
         <div className="min-w-0 flex-1">
           <div className="truncate text-[13px] font-semibold leading-tight text-slate-100">

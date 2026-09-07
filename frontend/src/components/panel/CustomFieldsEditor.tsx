@@ -1,4 +1,5 @@
 import { Plus, Trash2 } from 'lucide-react';
+import { useReadOnly } from './controls';
 
 export type FieldRow = { key: string; value: string };
 
@@ -21,6 +22,7 @@ export function toRecord(rows: FieldRow[]): Record<string, string> {
 }
 
 export function CustomFieldsEditor({ rows, onChange }: Props) {
+  const readOnly = useReadOnly();
   const update = (index: number, patch: Partial<FieldRow>) =>
     onChange(rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
 
@@ -37,6 +39,7 @@ export function CustomFieldsEditor({ rows, onChange }: Props) {
           <input
             value={row.key}
             onChange={(e) => update(index, { key: e.target.value })}
+            readOnly={readOnly}
             placeholder="Schlüssel"
             className={`w-2/5 rounded-md border bg-slate-900 px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:border-sky-500 focus:outline-none ${
               duplicates.has(row.key.trim()) ? 'border-red-500' : 'border-slate-700'
@@ -45,9 +48,11 @@ export function CustomFieldsEditor({ rows, onChange }: Props) {
           <input
             value={row.value}
             onChange={(e) => update(index, { value: e.target.value })}
+            readOnly={readOnly}
             placeholder="Wert"
             className="flex-1 rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:border-sky-500 focus:outline-none"
           />
+          {!readOnly && (
           <button
             type="button"
             title="Feld entfernen"
@@ -56,6 +61,7 @@ export function CustomFieldsEditor({ rows, onChange }: Props) {
           >
             <Trash2 size={14} />
           </button>
+          )}
         </div>
       ))}
       {duplicates.size > 0 && (
@@ -63,6 +69,7 @@ export function CustomFieldsEditor({ rows, onChange }: Props) {
           Doppelte Schlüssel werden beim Speichern zusammengefasst.
         </p>
       )}
+      {!readOnly && (
       <button
         type="button"
         onClick={() => onChange([...rows, { key: '', value: '' }])}
@@ -70,6 +77,7 @@ export function CustomFieldsEditor({ rows, onChange }: Props) {
       >
         <Plus size={13} /> Feld hinzufügen
       </button>
+      )}
     </div>
   );
 }

@@ -76,8 +76,33 @@ Live-Vorschau.
   Listen, Code) und ein **Key-Value-System (Custom Fields)** für alles Übrige.
 - **API-First** — jede UI-Aktion läuft über die REST-API; alles lässt sich skripten.
 - **KI-Agenten:** vollständige API-Doku in [AGENTS.md](AGENTS.md)
-- **Suche** — filtert live über Name, IP, Hostname, URL, OS und Custom Fields; die
-  globale Suche springt in die richtige Ebene und **zentriert den Treffer**.
+- **Suche** — filtert live über den Namen und **alle Feldwerte** (typisierte Felder wie
+  Custom Fields, unabhängig davon, welche Bausteine das Projekt nutzt); die globale
+  Suche springt in die richtige Ebene und **zentriert den Treffer**.
+- **Filter** — nach Status, Kategorie und jedem Auswahlfeld des Projekts (z. B.
+  Umgebung = Produktion, Kritikalität = Kritisch). Die Auswahlwerte kommen aus dem
+  Katalog, ein Prozess-Projekt filtert also nach anderen Feldern als ein Cluster-Projekt.
+  Mehrere Filter gelten gleichzeitig. Nicht passende Nodes werden **gedimmt statt
+  ausgeblendet**, damit sichtbar bleibt, woran sie hängen. Gilt auch in der Leseansicht
+  eines Freigabelinks.
+- **Farben & Symbole überall** — Nodes und **Zonen** lassen sich einzeln einfärben
+  (DMZ rot, intern grün) statt nur über ihre Kategorie; Projekte und Ebenen tragen
+  ebenfalls Symbol und Farbe und zeigen sie in Kopfzeile und Breadcrumb.
+- **Eigene Icons & Bilder** — jedem Node lässt sich statt des Kategorie-Symbols ein
+  **eigenes Bild** geben (PNG, JPEG, WebP, SVG): echte Produktlogos machen ein Diagramm
+  auf einen Blick lesbar. Bilder lassen sich ebenso in **Notizen** einfügen. Sie liegen
+  in der Datenbank dieser Instanz, werden **nie von außen nachgeladen** und reisen im
+  Projekt-Export mit, sodass eine geteilte Kopie ihre Icons behält.
+- **Diagramm als Bild** — die aktuelle Ebene als **PNG** (doppelte Auflösung) oder
+  **SVG** speichern, für Wiki, Ticket oder Folie. Aufgenommen wird immer der *ganze*
+  Graph, unabhängig vom aktuellen Zoom; Auswahl, Fokus-Modus und Suchhervorhebung
+  bleiben draußen. Läuft komplett im Browser.
+- **Read-only-Freigabelink** — ein Projekt per Link teilen, **ohne Konto** beim
+  Gegenüber: `…/s/<token>` zeigt dieselbe Canvas mit allen Ebenen, Notizen und
+  Bildern, aber gesperrt — kein Anlegen, kein Ändern, kein Löschen. Links tragen
+  eine Beschreibung, laufen optional ab und sind jederzeit widerrufbar. Gespeichert
+  wird nur der Hash des Tokens; der Link selbst ist nach dem Anlegen nicht mehr
+  abrufbar.
 - **Export / Import & Projekte teilen** — kompletter Graph als JSON-Backup, einzelne
   Projekte separat exportieren und bei einem anderen Konto **als neues Projekt
   hinzufügen** (Merge-Import, kollisionsfrei mit neuen IDs) — ideal für Teams.
@@ -192,6 +217,11 @@ beschränkt** — fremde IDs verhalten sich wie „nicht vorhanden" (`404`).
 | `GET/PATCH/PUT/DELETE` | `/api/nodes/:id` | Node lesen / ändern / löschen |
 | `POST` | `/api/nodes/positions` | Bulk-Positionsupdate (`{positions:[{id,x,y,width?,height?}]}`) |
 | `GET` | `/api/edges?nodeId=&viewId=&projectId=` | Verbindungen (Filter wie bei `/nodes`) |
+| `GET`/`POST` | `/api/projects/:id/shares` | Freigabelinks auflisten / anlegen |
+| `DELETE` | `/api/projects/:id/shares/:shareId` | Link widerrufen |
+| `GET` | `/api/share/:token` | **Ohne Anmeldung:** Lesestand eines Projekts |
+| `GET`/`POST` | `/api/assets` | Bildbibliothek auflisten / hochladen |
+| `GET`/`DELETE` | `/api/assets/:id` | Bild ausliefern / löschen |
 | `POST` | `/api/edges` | Verbindung anlegen (`{sourceId, targetId, …}`) |
 | `GET/PATCH/PUT/DELETE` | `/api/edges/:id` | Verbindung lesen / ändern / löschen |
 
@@ -241,7 +271,9 @@ dann von der Vorlage, `packs` überschreibt sie.
 
 **Node-Felder:** `name` (Pflicht), `category`, `status`
 (`active|inactive|planned|maintenance|error|unknown`), `parentId` (Zone/Gruppe),
-`position{x,y}`, `width/height` (Zonen), `notes` (Markdown), `fields` (String→String,
+`position{x,y}`, `width/height` (Zonen), `icon` (Symbolname oder `asset:<id>`;
+`null` = Kategorie-Symbol), `color` (`null` = Kategorie-Farbe),
+`notes` (Markdown), `fields` (String→String,
 Schlüssel und Typen aus `/api/meta/catalog`), `customFields` (String→String, frei).
 **Edge-Felder:** `sourceId`, `targetId` (Pflicht), `label`, `kind`, `lineStyle`
 (`solid|dashed|dotted`), `animated`, `notes`, `customFields`.
@@ -380,17 +412,24 @@ es sie in der Regel nicht. Abrufbar sind sie auch über `GET /api/meta/legal`.
 │   │   ├── limits.js         # Optionale Instanz-Limits (Standard: unbegrenzt)
 │   │   ├── legal.js          # Rechtstexte je Instanz (aus $DATA_DIR/legal)
 │   │   ├── validation.js     # Zod-Schemas (inkl. register/login)
-│   │   ├── catalog.js        # Kategorien / Status / Edge-Arten
-│   │   └── routes/           # auth, projects, views, nodes, edges, graph, meta
-│   └── test/api.test.js      # API-Tests inkl. Auth & Isolation (node --test)
+│   │   ├── assets.js         # Bild-Uploads: MIME-Sniffing, Auslieferungs-Header
+│   │   ├── share.js          # Freigabe-Tokens (Hash speichern, Ablauf prüfen)
+│   │   ├── layout.js         # Auto-Align (hierarchisches Layout)
+│   │   ├── catalog/          # Kern + Domain-Packs (Kategorien, Felder, Edge-Arten)
+│   │   ├── templates/        # Projektvorlagen (index.js Registry, apply.js Anwendung)
+│   │   └── routes/           # auth, projects, views, nodes, edges, graph, meta, assets, share
+│   └── test/                 # API, Auth & Isolation, Layout, Paketgrenzen (node --test)
 └── frontend/
     └── src/
-        ├── store/graph.ts    # Zustand-Store (Canvas ⇄ API)
+        ├── store/graph.ts    # Zustand-Store (Canvas ⇄ API), Filter, Leseansicht
         ├── store/auth.ts     # Auth-Zustand (Login/Registrierung/Session)
-        ├── components/auth    # AuthScreen (Login/Registrieren)
+        ├── components/auth   # AuthScreen (Login/Registrieren)
         ├── components/canvas # Nodes, Zonen, Edges, Canvas
         ├── components/panel  # Drawer, Formulare, Markdown, Custom Fields
-        └── lib/catalog.ts    # Icons/Farben, Suche
+        ├── components/share  # Leseansicht eines Freigabelinks (ohne Konto)
+        ├── lib/catalog.ts    # Katalogzugriff: Icons/Farben, Felder, Filter, Suche
+        ├── lib/icons.tsx     # Kategorie-Symbole und eigene Bilder (asset:<id>)
+        └── lib/diagramImage.ts # Ebene als PNG/SVG (im Browser)
 ```
 
 ## Mitmachen
