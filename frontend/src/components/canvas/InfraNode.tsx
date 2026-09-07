@@ -3,7 +3,13 @@ import { type NodeProps } from '@xyflow/react';
 import clsx from 'clsx';
 import { Layers } from 'lucide-react';
 import type { FlowNode } from '../../api/types';
-import { categoryOf, matchesSearch, nodeBadges, statusOf } from '../../lib/catalog';
+import {
+  categoryOf,
+  matchesFilters,
+  matchesSearch,
+  nodeBadges,
+  statusOf,
+} from '../../lib/catalog';
 import { EntityIcon } from '../../lib/icons';
 import { useGraphStore } from '../../store/graph';
 import { ConnectionDropTarget, ConnectionHandles } from './handles';
@@ -12,6 +18,7 @@ function InfraNodeComponent({ id, data, selected }: NodeProps<FlowNode>) {
   const entity = data.entity;
   const catalog = useGraphStore((s) => s.catalog);
   const search = useGraphStore((s) => s.search);
+  const filters = useGraphStore((s) => s.filters);
   // Fokus-Modus: außerhalb des Fokus (Node + Nachbarn) wird gedimmt
   const dimmed = useGraphStore((s) => (s.focus ? !s.focus.nodeIds.has(id) : false));
   const drillInto = useGraphStore((s) => s.drillInto);
@@ -22,6 +29,10 @@ function InfraNodeComponent({ id, data, selected }: NodeProps<FlowNode>) {
   const icon = entity.icon ?? category.icon;
   const color = entity.color ?? category.color;
   const match = search.trim() ? matchesSearch(entity, search.trim()) : null;
+  // Feldfilter dimmen wie die Suche, heben aber nichts hervor: die Suche sucht
+  // EINEN Treffer, der Filter grenzt eine MENGE ein.
+  const filteredOut =
+    Object.keys(filters).length > 0 && !matchesFilters(entity, filters);
   const isPortal = !!entity.linkedViewId;
   const badges = nodeBadges(catalog, entity);
 
@@ -36,7 +47,7 @@ function InfraNodeComponent({ id, data, selected }: NodeProps<FlowNode>) {
             : isPortal
               ? 'border-indigo-400/70'
               : 'border-slate-700',
-        match === false ? 'opacity-25' : dimmed && 'opacity-30'
+        match === false || filteredOut ? 'opacity-25' : dimmed && 'opacity-30'
       )}
       style={{ borderLeftWidth: 4, borderLeftColor: color }}
       title={isPortal ? 'Doppelklick öffnet die Detailebene' : undefined}

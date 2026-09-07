@@ -171,6 +171,12 @@ type GraphStore = {
    */
   geometryVersion: number;
   search: string;
+  /**
+   * Aktive Feldfilter (Schlüssel -> Wert). Nodes, die nicht auf ALLE passen,
+   * werden auf der Canvas gedimmt statt ausgeblendet — sonst reissen Kanten ins
+   * Leere und die Struktur geht verloren. Gleiches Verhalten wie bei der Suche.
+   */
+  filters: Record<string, string>;
   loading: boolean;
   error: string | null;
   /**
@@ -184,6 +190,9 @@ type GraphStore = {
   loadShared: (token: string) => Promise<void>;
   reload: () => Promise<void>;
   setSearch: (term: string) => void;
+  /** `value === null` entfernt den Filter. */
+  setFilter: (key: string, value: string | null) => void;
+  clearFilters: () => void;
   setError: (message: string | null) => void;
   closeLimitNotice: () => void;
   select: (selection: Selection) => void;
@@ -321,6 +330,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   focus: null,
   geometryVersion: 0,
   search: '',
+  filters: {},
   loading: true,
   error: null,
   limitNotice: null,
@@ -366,6 +376,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         past: [],
         future: [],
         search: '',
+        filters: {},
         loading: false,
       });
     } catch (err) {
@@ -443,6 +454,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         past: [],
         future: [],
         search: '',
+        filters: {},
         loading: false,
       });
     } catch (err) {
@@ -618,6 +630,17 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   },
 
   setSearch: (term) => set({ search: term }),
+
+  setFilter: (key, value) =>
+    set((state) => {
+      const filters = { ...state.filters };
+      if (value === null || value === '') delete filters[key];
+      else filters[key] = value;
+      console.debug('[Debug graph]: Filter', filters);
+      return { filters };
+    }),
+
+  clearFilters: () => set({ filters: {} }),
   setError: (message) => set({ error: message }),
   closeLimitNotice: () => set({ limitNotice: null }),
 
@@ -1123,13 +1146,16 @@ export const useGraphStore = create<GraphStore>((set, get) => {
    * `search`), components/DataMenu.tsx (Bildexport).
    */
   withNeutralCanvas: async (fn) => {
-    const { selection, focus, hoverNodeId, search, nodes } = get();
+    const { selection, focus, hoverNodeId, search, filters, nodes } = get();
     const hadSelection = nodes.some((n) => n.selected);
     set({
       selection: null,
       focus: null,
       hoverNodeId: null,
       search: '',
+      // Auch die Filter: sie dimmen Nodes, und halbdurchsichtige Kästen sehen
+      // im exportierten Dokument nach einem Fehler aus.
+      filters: {},
       nodes: hadSelection ? nodes.map((n) => ({ ...n, selected: false })) : nodes,
     });
     // Übergänge stilllegen: sonst entsteht das Bild mitten in der
@@ -1144,7 +1170,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       return await fn();
     } finally {
       document.body.classList.remove('labviz-capturing');
-      set({ selection, focus, hoverNodeId, search, nodes });
+      set({ selection, focus, hoverNodeId, search, filters, nodes });
     }
   },
 

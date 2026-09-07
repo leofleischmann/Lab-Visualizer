@@ -4,6 +4,7 @@ import { FlowCanvas } from '../canvas/FlowCanvas';
 import { DetailDrawer } from '../panel/DetailDrawer';
 import { ViewBar } from '../views/ViewBar';
 import { LegalLinks } from '../ui/LegalLinks';
+import { FilterBar } from '../FilterBar';
 import { EntityIcon, setAssetBase } from '../../lib/icons';
 import { useGraphStore } from '../../store/graph';
 
@@ -69,7 +70,9 @@ export function SharedApp({ token }: { token: string }) {
           <Layers size={12} />
           {views.length} {views.length === 1 ? 'Ebene' : 'Ebenen'}
         </span>
-        <div className="ml-auto">
+        {/* Der Filter ist eine reine Lesehilfe und gehört auch hierher. */}
+        <div className="ml-auto flex items-center gap-3">
+          <FilterBar />
           <LegalLinks />
         </div>
       </header>

@@ -343,7 +343,8 @@ Export enthält **alle** Projekte, Ebenen, Nodes und Edges:
    wer ein einzelnes Feld ändern will, sendet das komplette Objekt mit.
 
 8. **Suche `GET /nodes?q=`:** Durchsucht `name` sowie alle **Werte** aus `fields` und
-   `customFields`. Schlüssel matchen nicht (`q=platform` findet nichts).
+   `customFields`. Schlüssel matchen nicht (`q=platform` findet nichts). Auf exakte
+   Feldwerte filtert die UI clientseitig, siehe `select` im Katalog-Abschnitt.
 
 9. **Ebenen (Views):** Jeder Node/jede Edge gehört zu genau einer Ebene (`viewId`). Kanten
    verbinden nur Nodes **derselben** Ebene — das gilt auch für `PATCH /edges/:id`
@@ -434,6 +435,11 @@ nur dessen Kategorien und Felder erscheinen dort auch in der UI.
 
 Optional: `mono` (Monospace), `showOnNode` (Wert erscheint auf der Canvas), `wide`
 (volle Panel-Breite), `placeholder`, `options` (bei `select`), `unit` (bei `number`).
+
+Jedes Feld vom Typ `select` wird in der UI automatisch zu einem Filter (neben Status und
+Kategorie). Wer ein Feld filterbar machen will, gibt ihm also `type: "select"` mit
+`options` — es braucht dafür keinen weiteren Eintrag. Gefiltert wird rein im Client, es
+gibt keinen zusätzlichen Endpunkt; serverseitig filtern `GET /nodes?category=&status=`.
 ```
 
 ### Rechtstexte
@@ -775,5 +781,6 @@ Vollständige Liste: `GET /meta/catalog` (alle Packs) bzw. `GET /projects/:id/ca
 | `backend/src/share.js` | Freigabe-Token, Hashing und Ablauf |
 | `backend/src/routes/*.js` | Route-Definitionen (inkl. `auth.js`) |
 | `frontend/src/api/types.ts` | TypeScript-Typen (Frontend) |
+| `frontend/src/lib/catalog.ts` | Katalogzugriff im Client: Felder, Badges, Filterdefinitionen |
 
 Bei Abweichungen zwischen Doku und Code gilt der **Code** in `backend/src/`.

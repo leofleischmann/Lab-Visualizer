@@ -76,8 +76,15 @@ Live-Vorschau.
   Listen, Code) und ein **Key-Value-System (Custom Fields)** für alles Übrige.
 - **API-First** — jede UI-Aktion läuft über die REST-API; alles lässt sich skripten.
 - **KI-Agenten:** vollständige API-Doku in [AGENTS.md](AGENTS.md)
-- **Suche** — filtert live über Name, IP, Hostname, URL, OS und Custom Fields; die
-  globale Suche springt in die richtige Ebene und **zentriert den Treffer**.
+- **Suche** — filtert live über den Namen und **alle Feldwerte** (typisierte Felder wie
+  Custom Fields, unabhängig davon, welche Bausteine das Projekt nutzt); die globale
+  Suche springt in die richtige Ebene und **zentriert den Treffer**.
+- **Filter** — nach Status, Kategorie und jedem Auswahlfeld des Projekts (z. B.
+  Umgebung = Produktion, Kritikalität = Kritisch). Die Auswahlwerte kommen aus dem
+  Katalog, ein Prozess-Projekt filtert also nach anderen Feldern als ein Cluster-Projekt.
+  Mehrere Filter gelten gleichzeitig. Nicht passende Nodes werden **gedimmt statt
+  ausgeblendet**, damit sichtbar bleibt, woran sie hängen. Gilt auch in der Leseansicht
+  eines Freigabelinks.
 - **Farben & Symbole überall** — Nodes und **Zonen** lassen sich einzeln einfärben
   (DMZ rot, intern grün) statt nur über ihre Kategorie; Projekte und Ebenen tragen
   ebenfalls Symbol und Farbe und zeigen sie in Kopfzeile und Breadcrumb.
@@ -405,17 +412,24 @@ es sie in der Regel nicht. Abrufbar sind sie auch über `GET /api/meta/legal`.
 │   │   ├── limits.js         # Optionale Instanz-Limits (Standard: unbegrenzt)
 │   │   ├── legal.js          # Rechtstexte je Instanz (aus $DATA_DIR/legal)
 │   │   ├── validation.js     # Zod-Schemas (inkl. register/login)
-│   │   ├── catalog.js        # Kategorien / Status / Edge-Arten
-│   │   └── routes/           # auth, projects, views, nodes, edges, graph, meta
-│   └── test/api.test.js      # API-Tests inkl. Auth & Isolation (node --test)
+│   │   ├── assets.js         # Bild-Uploads: MIME-Sniffing, Auslieferungs-Header
+│   │   ├── share.js          # Freigabe-Tokens (Hash speichern, Ablauf prüfen)
+│   │   ├── layout.js         # Auto-Align (hierarchisches Layout)
+│   │   ├── catalog/          # Kern + Domain-Packs (Kategorien, Felder, Edge-Arten)
+│   │   ├── templates/        # Projektvorlagen (index.js Registry, apply.js Anwendung)
+│   │   └── routes/           # auth, projects, views, nodes, edges, graph, meta, assets, share
+│   └── test/                 # API, Auth & Isolation, Layout, Paketgrenzen (node --test)
 └── frontend/
     └── src/
-        ├── store/graph.ts    # Zustand-Store (Canvas ⇄ API)
+        ├── store/graph.ts    # Zustand-Store (Canvas ⇄ API), Filter, Leseansicht
         ├── store/auth.ts     # Auth-Zustand (Login/Registrierung/Session)
-        ├── components/auth    # AuthScreen (Login/Registrieren)
+        ├── components/auth   # AuthScreen (Login/Registrieren)
         ├── components/canvas # Nodes, Zonen, Edges, Canvas
         ├── components/panel  # Drawer, Formulare, Markdown, Custom Fields
-        └── lib/catalog.ts    # Icons/Farben, Suche
+        ├── components/share  # Leseansicht eines Freigabelinks (ohne Konto)
+        ├── lib/catalog.ts    # Katalogzugriff: Icons/Farben, Felder, Filter, Suche
+        ├── lib/icons.tsx     # Kategorie-Symbole und eigene Bilder (asset:<id>)
+        └── lib/diagramImage.ts # Ebene als PNG/SVG (im Browser)
 ```
 
 ## Mitmachen
