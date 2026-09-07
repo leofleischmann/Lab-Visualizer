@@ -2,24 +2,26 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 /**
- * Rechtstexte (Impressum, Datenschutzerklärung) — pro Instanz, nicht im Code.
+ * Rechtstexte (Impressum, Datenschutz) — pro Instanz, nicht im Code.
  *
  * Wer Lab Visualizer öffentlich anbietet, braucht in vielen Rechtsräumen eigene
  * Rechtstexte mit den EIGENEN Angaben. Sie dürfen deshalb weder mitgeliefert noch
  * fest verdrahtet sein: Jede Instanz legt ihre Dateien unter `$DATA_DIR/legal/`
  * ab (per Docker also im gemounteten `./data`-Volume, das nicht im Git liegt):
  *
- *   data/legal/impressum.md
- *   data/legal/datenschutz.md
+ *   data/legal/legal-notice.md
+ *   data/legal/privacy.md
  *
  * Vorlagen zum Ausfüllen liegen in `docs/legal/`. Fehlt eine Datei, blendet die
  * Oberfläche den jeweiligen Link einfach aus — beim reinen Self-Hosting im
  * eigenen Netz braucht es sie in der Regel nicht.
  */
 
+// Erster gefundener Dateiname gewinnt. Die deutschen Namen bleiben als Fallback
+// stehen, damit bestehende Instanzen nach der Umbenennung nichts verlieren.
 const DOCUMENTS = [
-  { id: 'impressum', file: 'impressum.md', title: 'Impressum' },
-  { id: 'privacy', file: 'datenschutz.md', title: 'Datenschutzerklärung' },
+  { id: 'impressum', files: ['legal-notice.md', 'impressum.md'], title: 'Legal notice' },
+  { id: 'privacy', files: ['privacy.md', 'datenschutz.md'], title: 'Privacy policy' },
 ];
 
 /** Obergrenze, damit eine versehentlich riesige Datei nicht den Speicher flutet. */
@@ -38,14 +40,19 @@ export function readLegalDocuments() {
   const dir = legalDir();
   const found = [];
   for (const doc of DOCUMENTS) {
-    const file = path.join(dir, doc.file);
-    try {
-      const { size } = fs.statSync(file);
-      if (size === 0 || size > MAX_BYTES) continue;
-      const markdown = fs.readFileSync(file, 'utf8').trim();
-      if (markdown) found.push({ id: doc.id, title: doc.title, markdown });
-    } catch {
-      // Datei fehlt oder ist nicht lesbar → Link wird nicht angeboten.
+    for (const name of doc.files) {
+      const file = path.join(dir, name);
+      try {
+        const { size } = fs.statSync(file);
+        if (size === 0 || size > MAX_BYTES) continue;
+        const markdown = fs.readFileSync(file, 'utf8').trim();
+        if (markdown) {
+          found.push({ id: doc.id, title: doc.title, markdown });
+          break;
+        }
+      } catch {
+        // Datei fehlt oder ist nicht lesbar → nächster Name, sonst kein Link.
+      }
     }
   }
   return found;

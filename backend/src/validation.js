@@ -19,7 +19,7 @@ const positionSchema = z.object({
 
 const customFieldsSchema = z
   .record(z.string().min(1).max(100), z.string().max(4000))
-  .refine((obj) => Object.keys(obj).length <= 100, 'Maximal 100 Custom Fields pro Objekt');
+  .refine((obj) => Object.keys(obj).length <= 100, 'At most 100 custom fields per object');
 
 /**
  * Typisierte Node-Felder (`node.fields`). Werte werden immer als String gespeichert;
@@ -39,16 +39,16 @@ const customFieldsSchema = z
  */
 const fieldValueChecks = {
   number: (value) =>
-    Number.isFinite(Number(value)) ? null : 'muss eine Zahl sein',
+    Number.isFinite(Number(value)) ? null : 'must be a number',
   date: (value) =>
-    /^\d{4}-\d{2}-\d{2}$/.test(value) ? null : 'muss ein Datum im Format JJJJ-MM-TT sein',
+    /^\d{4}-\d{2}-\d{2}$/.test(value) ? null : 'must be a date in YYYY-MM-DD format',
   url: (value) =>
-    /^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? null : 'muss mit einem Schema wie https:// beginnen',
+    /^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? null : 'must start with a scheme such as https://',
 };
 
 const fieldsSchema = z
   .record(z.string().min(1).max(100), z.string().max(4000))
-  .refine((obj) => Object.keys(obj).length <= 100, 'Maximal 100 Felder pro Node')
+  .refine((obj) => Object.keys(obj).length <= 100, 'At most 100 fields per node')
   .superRefine((obj, ctx) => {
     for (const [key, value] of Object.entries(obj)) {
       const def = FIELDS_BY_KEY.get(key);
@@ -59,7 +59,7 @@ const fieldsSchema = z
           ctx.addIssue({
             code: 'custom',
             path: [key],
-            message: `"${def.label}" muss einer von: ${def.options.join(', ')} sein`,
+            message: `"${def.label}" must be one of: ${def.options.join(', ')}`,
           });
         }
         continue;
@@ -74,33 +74,33 @@ const fieldsSchema = z
 // ── Auth ────────────────────────────────────────────────────────
 
 export const registerSchema = z.object({
-  email: z.string().trim().toLowerCase().email('Ungültige E-Mail-Adresse').max(254),
+  email: z.string().trim().toLowerCase().email('Invalid email address').max(254),
   password: z
     .string()
-    .min(8, 'Passwort muss mindestens 8 Zeichen haben')
-    .max(200, 'Passwort ist zu lang'),
+    .min(8, 'Password must be at least 8 characters')
+    .max(200, 'Password is too long'),
 });
 
 export const loginSchema = z.object({
-  email: z.string().trim().toLowerCase().email('Ungültige E-Mail-Adresse').max(254),
-  password: z.string().min(1, 'Passwort darf nicht leer sein').max(200),
+  email: z.string().trim().toLowerCase().email('Invalid email address').max(254),
+  password: z.string().min(1, 'Password must not be empty').max(200),
 });
 
 export const passwordChangeSchema = z.object({
-  currentPassword: z.string().min(1, 'Aktuelles Passwort fehlt').max(200),
+  currentPassword: z.string().min(1, 'Current password is missing').max(200),
   newPassword: z
     .string()
-    .min(8, 'Neues Passwort muss mindestens 8 Zeichen haben')
-    .max(200, 'Neues Passwort ist zu lang'),
+    .min(8, 'New password must be at least 8 characters')
+    .max(200, 'New password is too long'),
 });
 
 export const accountDeleteSchema = z.object({
-  password: z.string().min(1, 'Passwort fehlt').max(200),
+  password: z.string().min(1, 'Password is missing').max(200),
 });
 
 export const projectCreateSchema = z.object({
   id: idSchema.optional(),
-  name: z.string().min(1, 'Name darf nicht leer sein').max(200),
+  name: z.string().min(1, 'Name must not be empty').max(200),
   color: z.string().max(32).nullable().optional(),
   icon: z.string().max(50).nullable().optional(),
   sortOrder: z.number().int().optional(),
@@ -122,7 +122,7 @@ export const projectUpdateSchema = projectCreateSchema
 export const viewCreateSchema = z.object({
   id: idSchema.optional(),
   projectId: idSchema.optional(),
-  name: z.string().min(1, 'Name darf nicht leer sein').max(200),
+  name: z.string().min(1, 'Name must not be empty').max(200),
   parentId: idSchema.nullable().optional(),
   description: z.string().max(200000).default(''),
   color: z.string().max(32).nullable().optional(),
@@ -134,7 +134,7 @@ export const viewUpdateSchema = viewCreateSchema.omit({ id: true }).partial();
 
 export const nodeCreateSchema = z.object({
   id: idSchema.optional(),
-  name: z.string().min(1, 'Name darf nicht leer sein').max(200),
+  name: z.string().min(1, 'Name must not be empty').max(200),
   category: z.string().min(1).max(50).default('generic'),
   status: z.enum(STATUS_IDS).default('unknown'),
   parentId: idSchema.nullable().optional(),
@@ -228,7 +228,7 @@ export const importSchema = z.object({
 /** Upload eines Bildes als Data-URL. Der Typ wird serverseitig an den Magic
  *  Bytes erkannt (backend/src/assets.js), der hier genannte ist unerheblich. */
 export const assetCreateSchema = z.object({
-  name: z.string().trim().min(1, 'Name darf nicht leer sein').max(200),
+  name: z.string().trim().min(1, 'Name must not be empty').max(200),
   // Grosszuegig bemessen: die harte Grenze ist MAX_ASSET_BYTES nach dem
   // Dekodieren, hier faengt nur offensichtlicher Unsinn ab.
   dataUrl: z.string().min(1).max(8_000_000),
@@ -254,7 +254,7 @@ export function parseOrThrow(schema, data) {
       path: i.path.join('.'),
       message: i.message,
     }));
-    throw new ApiError(400, 'Validierung fehlgeschlagen', issues);
+    throw new ApiError(400, 'Validation failed', issues);
   }
   return result.data;
 }

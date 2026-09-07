@@ -1,48 +1,47 @@
-# Sicherheit
+# Security
 
-Lab Visualizer speichert Infrastruktur-Dokumentation — IP-Adressen, Hostnames,
-Netzwerktopologien und freie Notizen. Sicherheitslücken wiegen hier also schwerer
-als bei einem gewöhnlichen CRUD-Tool. Meldungen sind sehr willkommen.
+Lab Visualizer stores infrastructure documentation — IP addresses, hostnames,
+network topologies and free-form notes. Vulnerabilities weigh more here than in
+an ordinary CRUD tool, so reports are very welcome.
 
-## Schwachstelle melden
+## Reporting a vulnerability
 
-**Bitte kein öffentliches Issue eröffnen.** Nutze stattdessen einen dieser Wege:
+**Please do not open a public issue.** Use one of these instead:
 
-1. **GitHub Security Advisory** (bevorzugt) — im Reiter *Security* des Repos auf
+1. **GitHub Security Advisory** (preferred) — *Security* tab →
    [*Report a vulnerability*](https://github.com/leofleischmann/Lab-Visualizer/security/advisories/new).
-   Die Meldung ist nur für Maintainer sichtbar.
-2. Alternativ eine private Nachricht an den Maintainer über GitHub.
+   Only maintainers can see it.
+2. A private message to the maintainer on GitHub.
 
-Hilfreich sind: betroffene Version bzw. Commit, eine Beschreibung des Angriffs­
-szenarios, und — falls vorhanden — Schritte zum Nachstellen.
+Helpful: affected version or commit, a description of the attack scenario and,
+if you have them, steps to reproduce.
 
-Ich melde mich in der Regel innerhalb von **7 Tagen** zurück. Da dies ein
-Freizeitprojekt ist, kann es gelegentlich länger dauern; eine Erinnerung ist dann
-völlig in Ordnung.
+I usually reply within **7 days**. This is a hobby project, so it can
+occasionally take longer — a reminder is perfectly fine.
 
-## Was in den Geltungsbereich fällt
+## In scope
 
-- Umgehung der Authentifizierung oder der Session-Behandlung
-- Zugriff auf Daten anderer Konten (die Datenisolation ist eine Kernzusage)
-- Injection (SQL, XSS über Node-Felder, Markdown-Notizen oder Custom Fields)
-- CSRF, Session-Fixation, Rechteausweitung
-- Umgehung der serverseitigen Instanz-Limits
+- Bypassing authentication or session handling
+- Reading data from other accounts (isolation is a core promise)
+- Injection (SQL, XSS via node fields, Markdown notes or custom fields)
+- CSRF, session fixation, privilege escalation
+- Bypassing the server-side instance limits
 
-## Was nicht in den Geltungsbereich fällt
+## Out of scope
 
-- Fehlende Rate-Limits auf lesenden Endpunkten (bewusste Entscheidung)
-- Angriffe, die bereits Zugriff auf den Host oder die SQLite-Datei voraussetzen
-- Ergebnisse automatischer Scanner ohne nachvollziehbares Angriffsszenario
-- Schwächen in Instanzen, die entgegen der README ohne HTTPS betrieben werden
+- Missing rate limits on read endpoints (deliberate)
+- Attacks that already require access to the host or the SQLite file
+- Scanner output without a plausible attack scenario
+- Weaknesses in instances run without HTTPS, against the README's advice
 
-## Betrieb absichern
+## Hardening an instance
 
-Wer eine eigene Instanz betreibt, sollte die README-Abschnitte
-[Sicherheit](README.md#sicherheit) und [Instanz-Limits](README.md#instanz-limits)
-gelesen haben. Die wichtigsten Punkte:
+Read the [Security](README.md#security) and
+[Instance limits](README.md#instance-limits) sections of the README. The
+essentials:
 
-- **Immer über HTTPS ausliefern** und `COOKIE_SECURE=true` setzen.
-- `ALLOW_REGISTRATION=false`, wenn die Instanz nur dir gehört.
-- Für öffentliche Instanzen Obergrenzen setzen (`MAX_PROJECTS_PER_USER`,
+- **Always serve over HTTPS** and set `COOKIE_SECURE=true`.
+- Set `ALLOW_REGISTRATION=false` if the instance is yours alone.
+- Set caps on public instances (`MAX_PROJECTS_PER_USER`,
   `MAX_VIEWS_PER_PROJECT`, `MAX_NODES_PER_PROJECT`).
-- Die SQLite-Datei unter `data/` regelmäßig sichern — sie enthält alle Konten.
+- Back up `data/` regularly — it holds every account.

@@ -265,7 +265,7 @@ const errorMessage = (err: unknown) =>
  * gerade arbeitet. Quelle: backend/src/catalog/index.js.
  */
 function logCatalog(catalog: Catalog | null, projectId: string | null) {
-  console.debug('[Debug graph]: Katalog für Projekt', projectId, {
+  console.debug('[Debug graph]: catalog for project', projectId, {
     packs: catalog?.packs ?? [],
     categories: catalog?.categories.length ?? 0,
     edgeKinds: catalog?.edgeKinds.length ?? 0,
@@ -719,7 +719,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       const changed = newPos.some((p, i) => p.x !== oldPos[i].x || p.y !== oldPos[i].y);
       if (viewId && changed) {
         get().record({
-          label: 'Verschieben',
+          label: 'Move',
           viewId,
           undo: async () => void (await api.updatePositions(oldPos)),
           redo: async () => void (await api.updatePositions(newPos)),
@@ -770,7 +770,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         before.height !== height;
       if (before && viewId && changed) {
         get().record({
-          label: 'Zone anpassen',
+          label: 'Resize zone',
           viewId,
           undo: async () => void (await api.updatePositions([before])),
           redo: async () => void (await api.updatePositions([after])),
@@ -796,7 +796,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         selection: { kind: 'node', id: created.id },
       }));
       get().record({
-        label: 'Node anlegen',
+        label: 'Create node',
         viewId: created.viewId,
         undo: () => api.deleteNode(created.id),
         redo: async () => void (await api.createNode(created)),
@@ -828,7 +828,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       }
       if (before && entityChanged(before, updated)) {
         get().record({
-          label: 'Node bearbeiten',
+          label: 'Edit node',
           viewId: before.viewId,
           undo: async () => void (await api.updateNode(id, before)),
           redo: async () => void (await api.updateNode(id, updated)),
@@ -861,7 +861,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       await get().reload();
       if (node) {
         get().record({
-          label: 'Node löschen',
+          label: 'Delete node',
           viewId: node.viewId,
           undo: async () => {
             await api.createNode(node);
@@ -915,7 +915,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         selection: { kind: 'edge', id: created.id },
       }));
       get().record({
-        label: 'Verbindung anlegen',
+        label: 'Create connection',
         viewId: created.viewId,
         undo: () => api.deleteEdge(created.id),
         redo: async () => void (await api.createEdge(created)),
@@ -936,7 +936,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       }));
       if (before && entityChanged(before, updated)) {
         get().record({
-          label: 'Verbindung bearbeiten',
+          label: 'Edit connection',
           viewId: before.viewId,
           undo: async () => void (await api.updateEdge(id, before)),
           redo: async () => void (await api.updateEdge(id, updated)),
@@ -969,7 +969,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     }));
     if (deleted && edge) {
       get().record({
-        label: 'Verbindung löschen',
+        label: 'Delete connection',
         viewId: edge.viewId,
         undo: async () => void (await api.createEdge(edge)),
         redo: () => api.deleteEdge(id),
@@ -1001,7 +1001,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         edges: state.edges.map((e) => (e.id === id ? { ...toFlowEdge(updated), selected: e.selected } : e)),
       }));
       get().record({
-        label: 'Verbindung umhängen',
+        label: 'Reconnect edge',
         viewId: updated.viewId,
         undo: async () =>
           void (await api.updateEdge(id, {
@@ -1031,7 +1031,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       await api.updateEdge(id, { routing });
       if (before && beforeRouting) {
         get().record({
-          label: 'Kantenverlauf',
+          label: 'Edge path',
           viewId: before.viewId,
           undo: async () => void (await api.updateEdge(id, { routing: beforeRouting })),
           redo: async () => void (await api.updateEdge(id, { routing })),
@@ -1104,7 +1104,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       await api.autoLayout({ viewId });
       await get().reload();
       get().record({
-        label: 'Auto-Align',
+        label: 'Auto-align',
         viewId,
         undo: async () => {
           // Zonen über updateNode: der Positions-Endpunkt lässt `width`/`height`

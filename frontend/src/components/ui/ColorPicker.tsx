@@ -30,7 +30,7 @@ export const PALETTE = [
 export function ColorPicker({
   value,
   onChange,
-  defaultLabel = 'Standard',
+  defaultLabel = 'Default',
 }: {
   value: string | null;
   onChange: (color: string | null) => void;

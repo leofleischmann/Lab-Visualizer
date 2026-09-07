@@ -1,9 +1,11 @@
-# Veröffentlicht Backend- bzw. Frontend-Images auf GHCR unabhängig voneinander,
-# sobald sich backend/VERSION bzw. frontend/VERSION auf main ändert.
+# Veroeffentlicht Backend- bzw. Frontend-Image auf GHCR, sobald sich
+# backend/VERSION bzw. frontend/VERSION AUF MAIN aendert. Auf dev passiert
+# nichts — dort laeuft nur die CI.
 #
 # Pro Komponente: VERSION + package.json + CHANGELOG.md Abschnitt ## [X.Y.Z]
 # Git-Tag: backend-vX.Y.Z bzw. frontend-vX.Y.Z
-# Beeinflusst: Image-Tags, GitHub Releases, docker-compose (BACKEND_VERSION / FRONTEND_VERSION)
+# Beeinflusst: Image-Tags, GitHub Releases, docker-compose (BACKEND_VERSION /
+# FRONTEND_VERSION), .github/workflows/deploy.yml (gleicher Ausloeser).
 name: Release
 
 on:
@@ -15,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       component:
-        description: Welches Image releasen?
+        description: Which image to release?
         type: choice
         options:
           - backend
@@ -36,20 +38,29 @@ env:
 
 jobs:
   plan:
-    name: Aenderungen erkennen
+    name: Detect changes
     runs-on: ubuntu-latest
     outputs:
-      backend: ${{ steps.detect.outputs.backend }}
-      frontend: ${{ steps.detect.outputs.frontend }}
+      # JSON-Array der zu veroeffentlichenden Komponenten, z. B. ["backend"].
+      components: ${{ steps.detect.outputs.components }}
       owner: ${{ steps.detect.outputs.owner }}
     steps:
+      # Ein Dispatch von einem anderen Branch wuerde ein Image aus ungepruftem
+      # Code als `latest` veroeffentlichen. Nur main darf releasen.
+      - name: "Guard: releases only from main"
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "Release runs only on main (got ${{ github.ref }})." >&2
+          exit 1
+
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Erkennen
+      - name: Detect
         id: detect
         run: |
+          set -euo pipefail
           OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
           echo "owner=$OWNER" >> "$GITHUB_OUTPUT"
 
@@ -64,7 +75,8 @@ jobs:
             esac
           else
             BEFORE="${{ github.event.before }}"
-            if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]]; then
+            if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+              # Erster Push oder Force-Push: kein verlaesslicher Vergleichspunkt.
               BACKEND=true
               FRONTEND=true
             else
@@ -76,197 +88,133 @@ jobs:
             fi
           fi
 
-          echo "backend=$BACKEND" >> "$GITHUB_OUTPUT"
-          echo "frontend=$FRONTEND" >> "$GITHUB_OUTPUT"
-          echo "[Debug release]: backend=$BACKEND frontend=$FRONTEND owner=$OWNER"
+          COMPONENTS='[]'
+          if [[ "$BACKEND" == true && "$FRONTEND" == true ]]; then
+            COMPONENTS='["backend","frontend"]'
+          elif [[ "$BACKEND" == true ]]; then
+            COMPONENTS='["backend"]'
+          elif [[ "$FRONTEND" == true ]]; then
+            COMPONENTS='["frontend"]'
+          fi
 
-  publish-backend:
-    name: Backend releasen
+          echo "components=$COMPONENTS" >> "$GITHUB_OUTPUT"
+          echo "[Debug release]: components=$COMPONENTS owner=$OWNER"
+
+  publish:
+    name: Release ${{ matrix.component }}
     needs: plan
-    if: needs.plan.outputs.backend == 'true'
+    if: needs.plan.outputs.components != '[]'
     runs-on: ubuntu-latest
+    strategy:
+      # Backend und Frontend sind unabhaengig: ein Fehlschlag des einen darf den
+      # anderen nicht abbrechen.
+      fail-fast: false
+      matrix:
+        component: ${{ fromJSON(needs.plan.outputs.components) }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Version und Changelog
+      - name: Version and changelog
         id: meta
         env:
           OWNER: ${{ needs.plan.outputs.owner }}
+          COMPONENT: ${{ matrix.component }}
         run: |
           set -euo pipefail
-          COMPONENT=backend
           VERSION=$(tr -d '[:space:]' < "$COMPONENT/VERSION")
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
-            echo "Ungueltige $COMPONENT/VERSION: '$VERSION'" >&2
+            echo "Invalid $COMPONENT/VERSION: '$VERSION'" >&2
             exit 1
           fi
           PV=$(node -p "require('./$COMPONENT/package.json').version")
           if [[ "$PV" != "$VERSION" ]]; then
-            echo "$COMPONENT/package.json ($PV) weicht von VERSION ($VERSION) ab." >&2
+            echo "$COMPONENT/package.json ($PV) does not match VERSION ($VERSION)." >&2
             exit 1
           fi
-          if ! grep -qE "^## \[${VERSION}\]" "$COMPONENT/CHANGELOG.md"; then
-            echo "$COMPONENT/CHANGELOG.md hat keinen Abschnitt ## [${VERSION}]." >&2
-            exit 1
+          TAG="${COMPONENT}-v${VERSION}"
+          # Bereits veroeffentlicht: nicht erneut bauen und `latest` nicht auf
+          # eine alte Version zurueckdrehen (Re-Run, Dispatch ohne Bump).
+          if git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "[Debug release]: tag $TAG already exists — skipping"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          # Abschnitt der Version aus dem CHANGELOG schneiden. Bewusst mit
+          # index() statt einer Regex: "## [1.0.0]" enthaelt Zeichen, die als
+          # Regex eine Zeichenklasse bilden, und die noetigen Backslashes
+          # ueberleben den Weg YAML -> Shell -> awk je nach awk-Variante nicht.
           awk -v ver="$VERSION" '
-            $0 ~ ("^## \\[" ver "\\]") { found=1; print; next }
-            found && /^## \[/ { exit }
+            index($0, "## [" ver "]") == 1 { found = 1; print; next }
+            found && index($0, "## [") == 1 { exit }
             found { print }
           ' "$COMPONENT/CHANGELOG.md" > /tmp/release-notes.md
+          if [[ ! -s /tmp/release-notes.md ]]; then
+            echo "$COMPONENT/CHANGELOG.md has no section ## [${VERSION}]." >&2
+            exit 1
+          fi
           {
             echo ""
             echo "---"
             echo ""
-            echo "### Docker-Image"
+            echo "### Docker image"
             echo ""
-            echo "- \`ghcr.io/${OWNER}/lab-visualizer-backend:${VERSION}\`"
+            echo "- \`ghcr.io/${OWNER}/lab-visualizer-${COMPONENT}:${VERSION}\`"
             echo ""
             echo "\`\`\`bash"
-            echo "export BACKEND_VERSION=${VERSION}"
-            echo "docker compose pull backend"
-            echo "docker compose up -d backend"
+            echo "export $(echo "$COMPONENT" | tr '[:lower:]' '[:upper:]')_VERSION=${VERSION}"
+            echo "docker compose pull ${COMPONENT}"
+            echo "docker compose up -d ${COMPONENT}"
             echo "\`\`\`"
           } >> /tmp/release-notes.md
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=backend-v${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "image=lab-visualizer-backend" >> "$GITHUB_OUTPUT"
-          echo "[Debug release]: $COMPONENT $VERSION -> backend-v${VERSION}"
+
+          {
+            echo "skip=false"
+            echo "version=$VERSION"
+            echo "tag=$TAG"
+            echo "image=lab-visualizer-${COMPONENT}"
+            echo "title=${COMPONENT^}"
+          } >> "$GITHUB_OUTPUT"
+          echo "[Debug release]: $COMPONENT $VERSION -> $TAG"
 
       - uses: docker/login-action@v3
+        if: steps.meta.outputs.skip == 'false'
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: docker/setup-buildx-action@v3
+        if: steps.meta.outputs.skip == 'false'
 
       - uses: docker/build-push-action@v6
+        if: steps.meta.outputs.skip == 'false'
         with:
-          context: ./backend
+          context: ./${{ matrix.component }}
           push: true
           build-args: VERSION=${{ steps.meta.outputs.version }}
           tags: |
-            ${{ env.REGISTRY }}/${{ needs.plan.outputs.owner }}/lab-visualizer-backend:${{ steps.meta.outputs.version }}
-            ${{ env.REGISTRY }}/${{ needs.plan.outputs.owner }}/lab-visualizer-backend:latest
+            ${{ env.REGISTRY }}/${{ needs.plan.outputs.owner }}/${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
+            ${{ env.REGISTRY }}/${{ needs.plan.outputs.owner }}/${{ steps.meta.outputs.image }}:latest
           labels: |
             org.opencontainers.image.version=${{ steps.meta.outputs.version }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.title=Lab Visualizer Backend
-          cache-from: type=gha,scope=backend
-          cache-to: type=gha,mode=max,scope=backend
+            org.opencontainers.image.title=Lab Visualizer ${{ steps.meta.outputs.title }}
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
 
-      - name: Git-Tag und Release
+      - name: Git tag and GitHub release
+        if: steps.meta.outputs.skip == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.meta.outputs.tag }}
-          VERSION: ${{ steps.meta.outputs.version }}
-        run: |
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "[Debug release]: Tag $TAG existiert bereits — kein neues Release"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" -m "Backend $VERSION"
-          git push origin "$TAG"
-          gh release create "$TAG" \
-            --title "Backend $VERSION" \
-            --notes-file /tmp/release-notes.md
-
-  publish-frontend:
-    name: Frontend releasen
-    needs: plan
-    if: needs.plan.outputs.frontend == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Version und Changelog
-        id: meta
-        env:
-          OWNER: ${{ needs.plan.outputs.owner }}
+          TITLE: ${{ steps.meta.outputs.title }} ${{ steps.meta.outputs.version }}
         run: |
           set -euo pipefail
-          COMPONENT=frontend
-          VERSION=$(tr -d '[:space:]' < "$COMPONENT/VERSION")
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
-            echo "Ungueltige $COMPONENT/VERSION: '$VERSION'" >&2
-            exit 1
-          fi
-          PV=$(node -p "require('./$COMPONENT/package.json').version")
-          if [[ "$PV" != "$VERSION" ]]; then
-            echo "$COMPONENT/package.json ($PV) weicht von VERSION ($VERSION) ab." >&2
-            exit 1
-          fi
-          if ! grep -qE "^## \[${VERSION}\]" "$COMPONENT/CHANGELOG.md"; then
-            echo "$COMPONENT/CHANGELOG.md hat keinen Abschnitt ## [${VERSION}]." >&2
-            exit 1
-          fi
-          awk -v ver="$VERSION" '
-            $0 ~ ("^## \\[" ver "\\]") { found=1; print; next }
-            found && /^## \[/ { exit }
-            found { print }
-          ' "$COMPONENT/CHANGELOG.md" > /tmp/release-notes.md
-          {
-            echo ""
-            echo "---"
-            echo ""
-            echo "### Docker-Image"
-            echo ""
-            echo "- \`ghcr.io/${OWNER}/lab-visualizer-frontend:${VERSION}\`"
-            echo ""
-            echo "\`\`\`bash"
-            echo "export FRONTEND_VERSION=${VERSION}"
-            echo "docker compose pull frontend"
-            echo "docker compose up -d frontend"
-            echo "\`\`\`"
-          } >> /tmp/release-notes.md
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=frontend-v${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "[Debug release]: $COMPONENT $VERSION -> frontend-v${VERSION}"
-
-      - uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: docker/setup-buildx-action@v3
-
-      - uses: docker/build-push-action@v6
-        with:
-          context: ./frontend
-          push: true
-          build-args: VERSION=${{ steps.meta.outputs.version }}
-          tags: |
-            ${{ env.REGISTRY }}/${{ needs.plan.outputs.owner }}/lab-visualizer-frontend:${{ steps.meta.outputs.version }}
-            ${{ env.REGISTRY }}/${{ needs.plan.outputs.owner }}/lab-visualizer-frontend:latest
-          labels: |
-            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.title=Lab Visualizer Frontend
-          cache-from: type=gha,scope=frontend
-          cache-to: type=gha,mode=max,scope=frontend
-
-      - name: Git-Tag und Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.meta.outputs.tag }}
-          VERSION: ${{ steps.meta.outputs.version }}
-        run: |
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "[Debug release]: Tag $TAG existiert bereits — kein neues Release"
-            exit 0
-          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" -m "Frontend $VERSION"
+          git tag -a "$TAG" -m "$TITLE"
           git push origin "$TAG"
-          gh release create "$TAG" \
-            --title "Frontend $VERSION" \
-            --notes-file /tmp/release-notes.md
+          gh release create "$TAG" --title "$TITLE" --notes-file /tmp/release-notes.md

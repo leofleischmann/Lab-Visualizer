@@ -27,9 +27,9 @@ const toDraft = (entity: ApiEdge): Draft => ({
 });
 
 const LINE_STYLE_LABELS: Record<LineStyle, string> = {
-  solid: 'Durchgezogen',
-  dashed: 'Gestrichelt',
-  dotted: 'Gepunktet',
+  solid: 'Solid',
+  dashed: 'Dashed',
+  dotted: 'Dotted',
 };
 
 export function EdgePanel({ entity }: { entity: ApiEdge }) {
@@ -78,7 +78,7 @@ export function EdgePanel({ entity }: { entity: ApiEdge }) {
   };
 
   const handleDelete = () => {
-    if (window.confirm('Diese Verbindung löschen?')) {
+    if (window.confirm('Delete this connection?')) {
       void removeEdge(entity.id);
     }
   };
@@ -86,7 +86,7 @@ export function EdgePanel({ entity }: { entity: ApiEdge }) {
   return (
     <div className="flex h-full flex-col">
       <header className="border-b border-slate-800 px-4 py-3">
-        <h2 className="text-sm font-semibold text-slate-100">Verbindung</h2>
+        <h2 className="text-sm font-semibold text-slate-100">Connection</h2>
         <div className="mt-1.5 flex items-center gap-1.5 text-xs text-slate-400">
           <span className="max-w-[42%] truncate rounded bg-slate-800 px-1.5 py-0.5">
             {nodeName(entity.sourceId)}
@@ -101,7 +101,7 @@ export function EdgePanel({ entity }: { entity: ApiEdge }) {
             onClick={() =>
               void saveEdge(entity.id, { sourceId: entity.targetId, targetId: entity.sourceId })
             }
-            title="Richtung umkehren (Quelle ↔ Ziel)"
+            title="Reverse direction (source ↔ target)"
             className="ml-auto shrink-0 rounded-md border border-slate-700 p-1 text-slate-400 transition-colors hover:border-sky-500 hover:text-sky-300"
           >
             <ArrowLeftRight size={12} />
@@ -111,12 +111,12 @@ export function EdgePanel({ entity }: { entity: ApiEdge }) {
       </header>
 
       <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
-        <Field label="Beschriftung">
-          <TextInput value={draft.label} onChange={(v) => set('label', v)} placeholder="z. B. Domain, Port, Protokoll" />
+        <Field label="Label">
+          <TextInput value={draft.label} onChange={(v) => set('label', v)} placeholder="e.g. domain, port, protocol" />
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Art">
+          <Field label="Kind">
             <select
               value={draft.kind}
               disabled={readOnly}
@@ -137,7 +137,7 @@ export function EdgePanel({ entity }: { entity: ApiEdge }) {
               ))}
             </select>
           </Field>
-          <Field label="Linienstil">
+          <Field label="Line style">
             <select
               value={draft.lineStyle}
               disabled={readOnly}
@@ -161,15 +161,15 @@ export function EdgePanel({ entity }: { entity: ApiEdge }) {
             onChange={(e) => set('animated', e.target.checked)}
             className="h-3.5 w-3.5 accent-sky-500"
           />
-          Animiert (Datenfluss visualisieren)
+          Animated (visualize data flow)
         </label>
 
         {routingCustomized && (
           <div className="rounded-md border border-slate-700 bg-slate-900/60 px-3 py-2">
             <p className="text-[11px] text-slate-400">
-              Verlauf oder Label manuell angepasst. Am Canvas: Linie greifen und ziehen,
-              Doppelklick auf die Linie fügt einen Eckpunkt ein (Doppelklick auf Eckpunkt
-              entfernt ihn), Label entlang der Linie verschieben.
+              Path or label adjusted by hand. On the canvas: grab and drag the line,
+              double-click it to insert a waypoint (double-click a waypoint to remove it),
+              drag the label along the line.
             </p>
             {!readOnly && (
             <button
@@ -177,23 +177,23 @@ export function EdgePanel({ entity }: { entity: ApiEdge }) {
               onClick={() => void resetEdgeRouting(entity.id)}
               className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-amber-300 hover:text-amber-200"
             >
-              <RotateCcw size={12} /> Automatisches Routing wiederherstellen
+              <RotateCcw size={12} /> Restore automatic routing
             </button>
             )}
           </div>
         )}
 
-        <Field label="Notizen (Markdown)">
+        <Field label="Notes (Markdown)">
           <MarkdownEditor value={draft.notes} onChange={(v) => set('notes', v)} />
         </Field>
 
-        <Field label="Custom Fields">
+        <Field label="Custom fields">
           <CustomFieldsEditor rows={draft.fields} onChange={(rows) => set('fields', rows)} />
         </Field>
 
         <p className="text-[10px] text-slate-600">
-          Erstellt: {new Date(entity.createdAt).toLocaleString('de-DE')} · Geändert:{' '}
-          {new Date(entity.updatedAt).toLocaleString('de-DE')}
+          Created: {new Date(entity.createdAt).toLocaleString()} · Updated:{' '}
+          {new Date(entity.updatedAt).toLocaleString()}
         </p>
       </div>
 
@@ -205,15 +205,15 @@ export function EdgePanel({ entity }: { entity: ApiEdge }) {
           disabled={!dirty || saving}
           className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-sky-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500"
         >
-          <Save size={14} /> {saving ? 'Speichert …' : 'Speichern'}
+          <Save size={14} /> {saving ? 'Saving …' : 'Save'}
         </button>
         <button
           type="button"
           onClick={handleDelete}
-          title="Verbindung löschen"
+          title="Delete connection"
           className="flex items-center gap-1.5 rounded-md border border-red-900/60 px-3 py-2 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/10"
         >
-          <Trash2 size={14} /> Löschen
+          <Trash2 size={14} /> Delete
         </button>
       </footer>
       )}

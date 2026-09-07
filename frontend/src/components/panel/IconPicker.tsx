@@ -21,7 +21,7 @@ export function IconPicker({
   fallbackIcon,
   onChange,
   onClose,
-  defaultLabel = 'Standard der Kategorie',
+  defaultLabel = 'Category default',
 }: {
   /** Aktuelles Icon; null = Standard (Kategorie bzw. Vorgabe). */
   value: string | null;
@@ -43,7 +43,7 @@ export function IconPicker({
     void api
       .listAssets()
       .then((a) => !cancelled && setAssets(a))
-      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : 'Fehler'));
+      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : 'Error'));
     return () => {
       cancelled = true;
     };
@@ -56,7 +56,7 @@ export function IconPicker({
       const dataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result));
-        reader.onerror = () => reject(new Error('Datei konnte nicht gelesen werden'));
+        reader.onerror = () => reject(new Error('Could not read the file'));
         reader.readAsDataURL(file);
       });
       const created = await api.createAsset(file.name.slice(0, MAX_NAME), dataUrl);
@@ -64,20 +64,20 @@ export function IconPicker({
       onChange(assetIconRef(created.id));
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Upload fehlgeschlagen');
+      setError(e instanceof Error ? e.message : 'Upload failed');
     } finally {
       setBusy(false);
     }
   };
 
   const remove = async (asset: Asset) => {
-    if (!window.confirm(`Bild „${asset.name}" löschen? Nodes, die es nutzen, zeigen danach wieder ihr Kategorie-Icon.`)) return;
+    if (!window.confirm(`Delete image “${asset.name}”? Nodes using it fall back to their category icon.`)) return;
     try {
       await api.deleteAsset(asset.id);
       setAssets((a) => (a ?? []).filter((x) => x.id !== asset.id));
       if (value && isAssetIcon(value) && value === assetIconRef(asset.id)) onChange(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Löschen fehlgeschlagen');
+      setError(e instanceof Error ? e.message : 'Delete failed');
     }
   };
 
@@ -90,7 +90,7 @@ export function IconPicker({
   };
 
   return (
-    <Modal title="Icon wählen" onClose={onClose} maxWidth="max-w-lg">
+    <Modal title="Choose icon" onClose={onClose} maxWidth="max-w-lg">
       <div className="space-y-4">
         {error && (
           <p className="rounded-md border border-red-900/60 bg-red-500/10 px-2.5 py-2 text-[11px] text-red-300">
@@ -113,7 +113,7 @@ export function IconPicker({
         <div>
           <div className="mb-2 flex items-center justify-between gap-3">
             <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
-              Eigene Bilder
+              Your images
             </span>
             <button
               type="button"
@@ -122,7 +122,7 @@ export function IconPicker({
               className="flex items-center gap-1.5 rounded-md border border-slate-700 px-2 py-1 text-[11px] text-slate-300 transition-colors hover:border-sky-500 hover:text-sky-300 disabled:opacity-50"
             >
               {busy ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
-              Hochladen
+              Upload
             </button>
             <input
               ref={fileInput}
@@ -137,11 +137,11 @@ export function IconPicker({
             />
           </div>
           {assets === null ? (
-            <p className="text-[11px] text-slate-600">Wird geladen …</p>
+            <p className="text-[11px] text-slate-600">Loading …</p>
           ) : assets.length === 0 ? (
             <p className="text-[11px] leading-relaxed text-slate-600">
-              Noch keine Bilder. PNG, JPEG, WebP oder SVG hochladen — sie bleiben auf
-              dieser Instanz und reisen im Projekt-Export mit.
+              No images yet. Upload PNG, JPEG, WebP or SVG — they stay on this
+              instance and travel with the project export.
             </p>
           ) : (
             <div className="grid grid-cols-6 gap-1.5">
@@ -167,7 +167,7 @@ export function IconPicker({
                     <button
                       type="button"
                       onClick={() => void remove(asset)}
-                      title="Bild löschen"
+                      title="Delete image"
                       className="absolute -right-1 -top-1 rounded-full bg-slate-900 p-0.5 text-slate-500 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
                     >
                       <Trash2 size={11} />
@@ -182,12 +182,12 @@ export function IconPicker({
         <div>
           <div className="mb-2 flex items-center justify-between gap-3">
             <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
-              Symbole
+              Symbols
             </span>
             <input
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              placeholder="filtern …"
+              placeholder="filter …"
               className="w-32 rounded-md border border-slate-700 bg-slate-950/70 px-2 py-1 text-[11px] text-slate-200 placeholder:text-slate-600 focus:border-sky-500 focus:outline-none"
             />
           </div>

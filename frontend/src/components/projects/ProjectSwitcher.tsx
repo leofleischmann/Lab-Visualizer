@@ -29,7 +29,7 @@ export function ProjectSwitcher() {
 
   const del = async (id: string, name: string) => {
     if (projects.length <= 1) return;
-    if (window.confirm(`Projekt „${name}" mit ALLEN Ebenen, Nodes und Verbindungen löschen?`)) {
+    if (window.confirm(`Delete project “${name}” with ALL its levels, nodes and connections?`)) {
       await removeProject(id);
       setOpen(false);
     }
@@ -41,14 +41,14 @@ export function ProjectSwitcher() {
         type="button"
         onClick={() => setOpen((o) => !o)}
         className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950/60 px-2.5 py-1.5 text-xs font-medium text-slate-200 transition-colors hover:border-sky-500"
-        title="Projekt wechseln"
+        title="Switch project"
       >
         {/* Symbol und Farbe des Projekts: liegen seit jeher in der Datenbank
             (Vorlagen setzen sie beim Anlegen), wurden aber nie angezeigt. */}
         <span style={{ color: active?.color ?? '#38bdf8' }}>
           <EntityIcon icon={active?.icon ?? 'boxes'} size={14} />
         </span>
-        <span className="max-w-[160px] truncate">{active?.name ?? 'Projekt'}</span>
+        <span className="max-w-[160px] truncate">{active?.name ?? 'Project'}</span>
         <ChevronDown size={13} className="text-slate-500" />
       </button>
 
@@ -57,7 +57,7 @@ export function ProjectSwitcher() {
           <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
           <div className="absolute left-0 top-10 z-40 w-72 rounded-lg border border-slate-700 bg-slate-900 p-1.5 shadow-2xl shadow-black/60">
             <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-              Projekte
+              Projects
             </div>
             <div className="max-h-72 overflow-y-auto">
               {projects.map((p) => (
@@ -101,7 +101,7 @@ export function ProjectSwitcher() {
                       setSharing(p);
                       setOpen(false);
                     }}
-                    title="Read-only teilen"
+                    title="Share read-only"
                     className="rounded p-1 text-slate-500 opacity-0 transition-opacity hover:bg-slate-700 hover:text-sky-300 group-hover:opacity-100"
                   >
                     <Share2 size={12} />
@@ -112,7 +112,7 @@ export function ProjectSwitcher() {
                       setEditing(p);
                       setOpen(false);
                     }}
-                    title="Name & Bausteine"
+                    title="Name & building blocks"
                     className="rounded p-1 text-slate-500 opacity-0 transition-opacity hover:bg-slate-700 hover:text-slate-200 group-hover:opacity-100"
                   >
                     <Settings2 size={12} />
@@ -121,7 +121,7 @@ export function ProjectSwitcher() {
                     <button
                       type="button"
                       onClick={() => void del(p.id, p.name)}
-                      title="Projekt löschen"
+                      title="Delete project"
                       className="rounded p-1 text-slate-500 opacity-0 transition-opacity hover:bg-red-500/20 hover:text-red-300 group-hover:opacity-100"
                     >
                       <Trash2 size={12} />
@@ -138,7 +138,7 @@ export function ProjectSwitcher() {
               }}
               className="mt-1 flex w-full items-center gap-1.5 rounded-md border-t border-slate-800 px-2 py-1.5 text-[11px] font-medium text-slate-400 hover:text-sky-300"
             >
-              <Plus size={12} /> Neues Projekt
+              <Plus size={12} /> New project
             </button>
           </div>
         </>

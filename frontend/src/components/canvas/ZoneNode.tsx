@@ -41,7 +41,7 @@ function ZoneNodeComponent({ id, data, selected }: NodeProps<FlowNode>) {
         // Siehe InfraNode: der Drill-down haengt nicht an ReactFlows
         // onNodeDoubleClick, weil das ohne Ziehbarkeit nicht feuert.
         onDoubleClick={entity.linkedViewId ? () => void drillInto(id) : undefined}
-        title={entity.linkedViewId ? 'Doppelklick öffnet die Detailebene' : undefined}
+        title={entity.linkedViewId ? 'Double-click opens the detail level' : undefined}
         className={clsx(
           'group h-full w-full rounded-2xl border-2 border-dashed transition-colors',
           selected && 'border-sky-400/80 bg-sky-950/20',

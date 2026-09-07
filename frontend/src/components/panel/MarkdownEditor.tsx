@@ -36,7 +36,7 @@ export function MarkdownEditor({ value, onChange }: Props) {
       const dataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result));
-        reader.onerror = () => reject(new Error('Datei konnte nicht gelesen werden'));
+        reader.onerror = () => reject(new Error('Could not read the file'));
         reader.readAsDataURL(file);
       });
       const asset = await api.createAsset(file.name.slice(0, 60), dataUrl);
@@ -44,7 +44,7 @@ export function MarkdownEditor({ value, onChange }: Props) {
       onChange(value ? `${value.replace(/\s*$/, '')}\n\n${markdown}\n` : `${markdown}\n`);
       setTab('preview');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Upload fehlgeschlagen');
+      setError(e instanceof Error ? e.message : 'Upload failed');
     } finally {
       setUploading(false);
     }
@@ -55,8 +55,8 @@ export function MarkdownEditor({ value, onChange }: Props) {
       <div className="flex items-center border-b border-slate-700 bg-slate-800/60 text-xs">
         {(
           [
-            ['write', 'Bearbeiten'],
-            ['preview', 'Vorschau'],
+            ['write', 'Edit'],
+            ['preview', 'Preview'],
           ] as const
         ).map(([key, label]) => (
           <button
@@ -79,11 +79,11 @@ export function MarkdownEditor({ value, onChange }: Props) {
           type="button"
           disabled={uploading}
           onClick={() => fileInput.current?.click()}
-          title="Bild hochladen und einfügen"
+          title="Upload and insert an image"
           className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] text-slate-400 transition-colors hover:text-sky-300 disabled:opacity-50"
         >
           {uploading ? <Loader2 size={12} className="animate-spin" /> : <ImagePlus size={12} />}
-          Bild
+          Image
         </button>
         )}
         <input
@@ -110,17 +110,17 @@ export function MarkdownEditor({ value, onChange }: Props) {
           rows={8}
           spellCheck={false}
           readOnly={readOnly}
-          placeholder="Notizen in Markdown … (Tabellen, Listen, Code-Blöcke)"
+          placeholder="Notes in Markdown … (tables, lists, code blocks)"
           className="block w-full resize-y bg-transparent p-2.5 font-mono text-xs leading-relaxed text-slate-200 placeholder:text-slate-600 focus:outline-none"
         />
       ) : (
         <div className="prose prose-invert prose-sm max-w-none p-3 prose-headings:mt-3 prose-headings:mb-1.5 prose-p:my-1.5 prose-table:text-xs prose-th:px-2 prose-th:py-1 prose-td:px-2 prose-td:py-1">
           {value.trim() ? (
-            <Suspense fallback={<p className="italic text-slate-500">Vorschau wird geladen …</p>}>
+            <Suspense fallback={<p className="italic text-slate-500">Loading preview …</p>}>
               <MarkdownPreview value={value} />
             </Suspense>
           ) : (
-            <p className="italic text-slate-500">Keine Notizen vorhanden.</p>
+            <p className="italic text-slate-500">No notes yet.</p>
           )}
         </div>
       )}

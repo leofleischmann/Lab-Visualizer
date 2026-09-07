@@ -1,14 +1,14 @@
-## Was ändert dieser PR?
+## What does this PR change?
 
-<!-- Kurz das Warum, nicht nur das Was. -->
+<!-- Briefly: the why, not just the what. -->
 
-## Wie getestet?
+## How was it tested?
 
-<!-- Welche Tests kamen dazu? Was hast du manuell geprüft? -->
+<!-- Which tests did you add? What did you verify by hand? -->
 
-## Checkliste
+## Checklist
 
-- [ ] `cd backend && npm test` läuft durch
-- [ ] `cd frontend && npm test && npm run build` läuft durch
-- [ ] Neues Verhalten ist durch einen Test abgedeckt
-- [ ] Doku (README / AGENTS.md) angepasst, falls die API sich ändert
+- [ ] `cd backend && npm test` passes
+- [ ] `cd frontend && npm test && npm run build` passes
+- [ ] New behavior is covered by a test
+- [ ] Docs (README / AGENTS.md) updated if the API changed

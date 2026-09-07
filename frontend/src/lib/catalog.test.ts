@@ -114,7 +114,7 @@ describe('Darstellen vs. Anbieten', () => {
 
   test('Verbindungsart eines abgewählten Packs behält ihre Farbe', () => {
     const kind = kindOf(network, 'process-flow');
-    expect(kind.label).toBe('Ablauf / nächster Schritt');
+    expect(kind.label).toBe('Flow / next step');
     expect(kind.color).not.toBe('#9ca3af');
   });
 

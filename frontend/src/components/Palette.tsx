@@ -31,7 +31,7 @@ export function Palette() {
       y: window.innerHeight / 2,
     });
     void createNode({
-      name: `Neu: ${label}`,
+      name: `New: ${label}`,
       category: categoryId,
       position,
       ...(categoryId === 'group' ? { width: 420, height: 260 } : {}),
@@ -48,13 +48,13 @@ export function Palette() {
       <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2">
         {!collapsed && (
           <span className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-            Bausteine
+            Building blocks
           </span>
         )}
         <button
           type="button"
           onClick={() => setCollapsed((c) => !c)}
-          title={collapsed ? 'Palette einblenden' : 'Palette ausblenden'}
+          title={collapsed ? 'Show palette' : 'Hide palette'}
           className="rounded-md p-1 text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-200"
         >
           {collapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
@@ -64,12 +64,12 @@ export function Palette() {
       {!collapsed && (
         <div className="flex-1 space-y-4 overflow-y-auto px-2.5 py-3">
           <p className="px-1 text-[10px] leading-relaxed text-slate-600">
-            Auf die Canvas ziehen oder anklicken, um einen Node zu erstellen.
+            Drag onto the canvas or click to create a node.
           </p>
           <input
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            placeholder="Bausteine filtern …"
+            placeholder="Filter building blocks …"
             spellCheck={false}
             className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:border-sky-500 focus:outline-none"
           />

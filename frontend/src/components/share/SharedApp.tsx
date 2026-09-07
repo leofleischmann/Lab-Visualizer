@@ -37,7 +37,7 @@ export function SharedApp({ token }: { token: string }) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 bg-slate-950 text-slate-500">
         <RotateCw size={22} className="animate-spin" />
-        <p className="text-sm">Freigabe wird geladen …</p>
+        <p className="text-sm">Loading shared project …</p>
       </div>
     );
   }
@@ -46,10 +46,10 @@ export function SharedApp({ token }: { token: string }) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 bg-slate-950 px-6 text-center">
         <AlertTriangle size={24} className="text-amber-400" />
-        <p className="text-sm font-semibold text-slate-200">Diese Freigabe ist nicht verfügbar</p>
+        <p className="text-sm font-semibold text-slate-200">This share is not available</p>
         <p className="max-w-md text-xs leading-relaxed text-slate-500">
-          Der Link ist ungültig, abgelaufen oder wurde widerrufen. Frag die Person,
-          die ihn geteilt hat, nach einem neuen.
+          The link is invalid, expired or has been revoked. Ask whoever shared it
+          for a new one.
         </p>
         <LegalLinks />
       </div>
@@ -64,11 +64,11 @@ export function SharedApp({ token }: { token: string }) {
         </span>
         <span className="truncate text-sm font-semibold text-slate-100">{project.name}</span>
         <span className="flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-300">
-          <Eye size={11} /> Nur lesen
+          <Eye size={11} /> Read only
         </span>
         <span className="hidden items-center gap-1 text-[11px] text-slate-500 sm:flex">
           <Layers size={12} />
-          {views.length} {views.length === 1 ? 'Ebene' : 'Ebenen'}
+          {views.length} {views.length === 1 ? 'level' : 'levels'}
         </span>
         {/* Der Filter ist eine reine Lesehilfe und gehört auch hierher. */}
         <div className="ml-auto flex items-center gap-3">

@@ -737,14 +737,14 @@ test('fields: Typen werden geprüft, unbekannte Schlüssel bleiben erhalten', as
   const ok = await api('POST', '/api/nodes', {
     id: 'field-types',
     name: 'Feldtypen',
-    fields: { ram: '16', environment: 'Produktion', reviewedAt: '2026-01-31', spaeteres_pack_feld: 'x' },
+    fields: { ram: '16', environment: 'Production', reviewedAt: '2026-01-31', spaeteres_pack_feld: 'x' },
   });
   assert.equal(ok.status, 201);
   assert.equal(ok.body.fields.spaeteres_pack_feld, 'x');
 
   for (const fields of [
     { ram: 'viel' },              // number
-    { environment: 'Irgendwas' }, // select ausserhalb der Optionen
+    { environment: 'Whatever' },   // select ausserhalb der Optionen
     { url: 'example.com' },       // url ohne Schema
     { reviewedAt: '31.01.2026' }, // date im falschen Format
   ]) {
@@ -1193,7 +1193,7 @@ test('views: Parent aus anderem Projekt wird abgelehnt', async () => {
 
     const res = await call('PATCH', `/api/views/${rootB}`, { parentId: rootA });
     assert.equal(res.status, 400);
-    assert.match(res.body.error, /selben Projekt/);
+    assert.match(res.body.error, /same project/);
   } finally {
     close();
   }
@@ -1332,7 +1332,7 @@ test('auth: Registrierung, Login, me und Logout (inkl. Validierung)', async () =
     // Falsches Passwort → 401 (generisch).
     const bad = await raw('POST', '/api/auth/login', { email: 'alice@example.com', password: 'falsch1234' });
     assert.equal(bad.status, 401);
-    assert.match(bad.body.error, /Zugangsdaten/);
+    assert.match(bad.body.error, /Invalid credentials/);
 
     // Korrekter Login → 200 + Cookie.
     const login = await raw('POST', '/api/auth/login', { email: 'alice@example.com', password: 'supersecret' });
@@ -1436,7 +1436,7 @@ test('edges: PATCH kann keine ebenen-übergreifende Verbindung erzeugen', async 
 
     const cross = await call('PATCH', '/api/edges/e-r', { targetId: 'x1' });
     assert.equal(cross.status, 400);
-    assert.match(cross.body.error, /derselben Ebene/);
+    assert.match(cross.body.error, /same level/);
 
     // viewId-Patch wird ignoriert — die Ebene folgt den Endknoten.
     const viewPatch = await call('PATCH', '/api/edges/e-r', { viewId: 'v-x' });
@@ -1545,8 +1545,8 @@ test('legal: hinterlegte Texte sind OHNE Anmeldung abrufbar', async () => {
   const app = await freshApp();
   const dir = path.join(os.tmpdir(), `labviz-legal-${crypto.randomUUID()}`);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'impressum.md'), '# Impressum\n\nMax Mustermann');
-  fs.writeFileSync(path.join(dir, 'datenschutz.md'), '# Datenschutz\n\nKeine Cookies.');
+  fs.writeFileSync(path.join(dir, 'legal-notice.md'), '# Legal notice\n\nMax Mustermann');
+  fs.writeFileSync(path.join(dir, 'privacy.md'), '# Privacy\n\nNo cookies.');
   const previous = process.env.LEGAL_DIR;
   process.env.LEGAL_DIR = dir;
   try {
@@ -1558,7 +1558,32 @@ test('legal: hinterlegte Texte sind OHNE Anmeldung abrufbar', async () => {
       ['impressum', 'privacy']
     );
     assert.match(res.body.documents[0].markdown, /Max Mustermann/);
-    assert.equal(res.body.documents[1].title, 'Datenschutzerklärung');
+    assert.equal(res.body.documents[1].title, 'Privacy policy');
+  } finally {
+    if (previous === undefined) delete process.env.LEGAL_DIR;
+    else process.env.LEGAL_DIR = previous;
+    fs.rmSync(dir, { recursive: true, force: true });
+    app.close();
+  }
+});
+
+// Bestehende Instanzen haben ihre Dateien noch unter den deutschen Namen —
+// die duerfen mit der Umbenennung nicht stillschweigend verschwinden.
+test('legal: die alten Dateinamen funktionieren weiterhin', async () => {
+  const app = await freshApp();
+  const dir = path.join(os.tmpdir(), `labviz-legal-alt-${crypto.randomUUID()}`);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'impressum.md'), '# Impressum\n\nMax Mustermann');
+  fs.writeFileSync(path.join(dir, 'datenschutz.md'), '# Datenschutz\n\nKeine Cookies.');
+  const previous = process.env.LEGAL_DIR;
+  process.env.LEGAL_DIR = dir;
+  try {
+    const res = await app.call('GET', '/api/meta/legal', null, null);
+    assert.deepEqual(
+      res.body.documents.map((d) => d.id),
+      ['impressum', 'privacy']
+    );
+    assert.match(res.body.documents[0].markdown, /Max Mustermann/);
   } finally {
     if (previous === undefined) delete process.env.LEGAL_DIR;
     else process.env.LEGAL_DIR = previous;
@@ -1779,7 +1804,7 @@ test('limits: zu enge Konfiguration bricht den Start ab statt die Registrierung'
 
 test('limits: ungültige Env-Werte werden beim Start gemeldet', async () => {
   await withLimits({ MAX_PROJECTS_PER_USER: 'viele' }, () => {
-    assert.throws(() => createApp({ dbFile: ':memory:' }), /nicht-negative ganze Zahl/);
+    assert.throws(() => createApp({ dbFile: ':memory:' }), /non-negative integer/);
   });
 });
 

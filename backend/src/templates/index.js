@@ -36,8 +36,8 @@ import { network } from './network.js';
 /** Leeres Projekt: nur die Root-Ebene, die jedes Projekt ohnehin bekommt. */
 const empty = {
   id: 'empty',
-  label: 'Leeres Projekt',
-  description: 'Nur eine leere Übersichtsebene — alles selbst aufbauen.',
+  label: 'Empty project',
+  description: 'Just one empty overview level — build everything yourself.',
   icon: 'square-dashed',
   color: '#64748b',
   packs: ['infrastructure', 'network', 'operations'],

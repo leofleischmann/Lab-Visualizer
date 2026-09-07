@@ -1,788 +1,523 @@
-# Lab Visualizer – API für KI-Agenten
+# Lab Visualizer — API for AI agents
 
-Diese Datei beschreibt die REST-API für automatisierte Clients (Skripte, Monitoring, KI-Agenten).
-Menschenlesbare Projektinfos: [README.md](README.md).
+REST API reference for automated clients (scripts, monitoring, AI agents).
+Human-readable project info: [README.md](README.md).
+**If docs and code disagree, the code in `backend/src/` wins.**
 
-## Zweck
+Lab Visualizer documents infrastructure as a graph: **nodes** (servers,
+containers, services, zones) and **edges** (connections). The UI and this API
+share the same database — every UI action is reproducible over the API.
 
-Lab Visualizer dokumentiert Homelab-/Netzwerk-Infrastruktur als Graph:
+## Protocol
 
-- **Nodes** = Server, Container, Dienste, Zonen/Gruppen, …
-- **Edges** = Verbindungen zwischen Nodes (HTTP, VPN, Monitoring, …)
+Base URL `http://localhost:8080/api` (Docker) or `http://localhost:3000/api`
+(backend direct). All paths below are relative to `/api`.
 
-Die Web-UI und diese API greifen auf dieselbe SQLite-Datenbank zu. Jede UI-Aktion ist per API reproduzierbar.
+- **Format** JSON (`Content-Type: application/json`); success without a body is
+  `204 No Content`.
+- **Auth** required for every data endpoint, scoped to the signed-in user.
+  Public: `/health`, `/meta/catalog`, `/meta/legal`, `/auth/*`.
+- **CORS** off by default (same-origin through the proxy); opt in via `CORS_ORIGIN`.
+- **Body limit** 2 MB per request; `POST /graph/import` accepts 20 MB.
+- **IDs** `^[A-Za-z0-9_.:-]{1,64}$` — readable IDs like `nginx` or `db-primary`
+  are recommended, because they make later updates scriptable.
+- **Timestamps** ISO 8601 (`createdAt`, `updatedAt`).
 
-## Basis-URL
+### Authentication
 
-| Umgebung | Base URL |
-|---|---|
-| Docker (Standard) | `http://localhost:8080/api` |
-| Backend direkt | `http://localhost:3000/api` |
-| Produktion | `http://<host>:8080/api` (Port aus `docker-compose.yml`) |
-
-Alle Pfade unten sind relativ zu `/api`.
-
-## Protokoll
-
-- **Format:** JSON (`Content-Type: application/json`)
-- **Auth:** **Anmeldung erforderlich** (Session-Cookie). Alle Daten-Endpunkte setzen eine
-  gültige Session voraus und sind **auf den angemeldeten Nutzer beschränkt** — siehe
-  [Authentifizierung](#authentifizierung). Öffentlich ohne Login: `/api/health`,
-  `/api/meta/catalog`, `/api/meta/legal`, `/api/auth/*`.
-- **CORS:** standardmäßig aus (same-origin über den Proxy); optional via `CORS_ORIGIN`
-- **Body-Limit:** 2 MB je Request; nur `POST /graph/import` nimmt 20 MB (beides per Env änderbar)
-- **IDs:** `^[A-Za-z0-9_.:-]{1,64}$` — sprechende IDs wie `nginx` oder `db-primary` empfohlen
-- **Zeitstempel:** ISO 8601 (`createdAt`, `updatedAt`)
-
-### Authentifizierung
-
-Die API nutzt **serverseitige Sessions** über ein `HttpOnly`-Cookie (`sid`). Ein Skript
-meldet sich einmal an, speichert das Cookie und schickt es bei jedem weiteren Request mit:
+Server-side sessions over an `HttpOnly` cookie (`sid`). Sign in once, keep the
+cookie, send it with every request:
 
 ```bash
-# Anmelden (oder /api/auth/register für ein neues Konto) und Cookie speichern
 curl -c cookies.txt -X POST http://localhost:8080/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{ "email": "du@example.com", "password": "dein-passwort" }'
+  -d '{ "email": "you@example.com", "password": "your-password" }'
 
-# Cookie bei jedem Daten-Request mitsenden
 curl -b cookies.txt http://localhost:8080/api/graph
 ```
 
-Auth-Endpunkte: `POST /api/auth/register` (`{email, password}`, legt Konto an + seedet ein
-Beispielprojekt), `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`
-(inkl. `limits` der Instanz), `POST /api/auth/password` (`{currentPassword, newPassword}`,
-beendet alle anderen Sessions), `DELETE /api/auth/account` (`{password}`, löscht alle Daten).
-Zustandsändernde Requests aus dem Browser müssen einen zum Host passenden `Origin`-Header
-tragen (CSRF-Schutz); Cookie-basierte CLI-Clients wie `curl` sind davon nicht betroffen.
+State-changing requests from a browser need an `Origin` header matching the host
+(CSRF protection); cookie-based CLI clients such as `curl` are unaffected.
 
-### Fehlerantworten
+### Errors
 
 ```json
-{
-  "error": "Kurze Fehlermeldung",
-  "details": [{ "path": "feldname", "message": "…" }]
-}
+{ "error": "Short message", "details": [{ "path": "field", "message": "…" }] }
 ```
 
-| Status | Bedeutung |
+| Status | Meaning |
 |---|---|
-| `400` | Validierung / ungültige Referenz |
-| `401` | Nicht angemeldet (fehlende/abgelaufene Session) |
-| `403` | CSRF-Schutz (unpassender Origin) **oder** Instanz-Limit erreicht (`code: "limit_reached"`) |
-| `404` | Node/Edge/Route nicht gefunden **oder gehört einem anderen Nutzer** |
-| `409` | ID existiert bereits |
-| `413` | Request-Body zu groß |
-| `429` | Zu viele Login-/Registrierungsversuche **oder** Schreib-Rate-Limit überschritten |
-| `500` | Interner Serverfehler |
+| `400` | Validation / invalid reference |
+| `401` | Not signed in (missing or expired session) |
+| `403` | CSRF (wrong origin) **or** instance limit reached (`code: "limit_reached"`) |
+| `404` | Not found **or owned by another user** |
+| `409` | ID already exists |
+| `413` | Request body too large |
+| `429` | Too many login/registration attempts **or** write rate limit exceeded |
+| `500` | Internal server error |
 
-### Instanz-Limits
+### Instance limits
 
-Das Projekt ist vollständig kostenlos; es gibt keine Pläne und keine Bezahlfunktionen.
-**Standardmäßig gilt kein Limit.** Öffentlich betriebene Instanzen können jedoch
-Obergrenzen per Umgebungsvariable setzen (`MAX_PROJECTS_PER_USER`,
-`MAX_VIEWS_PER_PROJECT`, `MAX_NODES_PER_PROJECT`).
-
-Die geltenden Werte stehen in `GET /api/auth/me` unter `limits` — `null` bedeutet
-unbegrenzt:
-
-```json
-{
-  "user": { "id": "…", "email": "du@example.com" },
-  "limits": { "maxProjectsPerUser": null, "maxViewsPerProject": null, "maxNodesPerProject": null }
-}
-```
-
-Geprüft wird serverseitig bei `POST /projects`, `POST /views`, `POST /nodes` und
-`POST /graph/import` (der Import vollständig vorab, bevor etwas geschrieben wird).
-Eine erreichte Grenze liefert `403` mit `code: "limit_reached"` — ein Client sollte
-darauf mit einem Hinweis reagieren, nicht mit einem Retry.
-
-Schreibende Requests sind zusätzlich pro IP gedrosselt
-(`RATE_LIMIT_WRITES_PER_MIN`, Default 600/min, `0` = aus) → `429` mit `Retry-After`.
-
-Erfolg ohne Body: `204 No Content` (DELETE, Logout).
+No limit applies by default. A public instance may cap projects, levels and
+nodes per account. The effective values are in `GET /auth/me` under `limits`
+(`null` = unlimited). They are enforced on `POST /projects`, `/views`, `/nodes`
+and `/graph/import` (imports fully checked before anything is written). Hitting
+one returns `403` with `code: "limit_reached"` — surface it, do not retry.
+Writes are additionally throttled per IP (`RATE_LIMIT_WRITES_PER_MIN`, default
+600/min) → `429` with `Retry-After`.
 
 ---
 
-## Datenmodell
+## Data model
 
-### Project (Projekt)
+Hierarchy: **project → levels (tree) → nodes/edges**.
 
-Projekte sind **komplett getrennte Arbeitsbereiche** (z. B. „Homelab", „Arbeit"). Jede Ebene
-gehört zu genau einem Projekt; beim Arbeiten sieht man nur die Ebenen/Nodes des aktiven
-Projekts. Hierarchie: **Projekt → Ebenen (Baum) → Nodes/Edges**.
+### Project
+
+Completely separate workspaces. Each belongs to exactly one user.
 
 ```json
-{
-  "id": "homelab",
-  "name": "Mein Homelab",
-  "color": "#38bdf8",
-  "icon": "boxes",
-  "packs": ["infrastructure", "network", "operations"],
-  "sortOrder": 0
-}
+{ "id": "homelab", "name": "My Homelab", "color": "#38bdf8", "icon": "boxes",
+  "packs": ["infrastructure", "network", "operations"], "sortOrder": 0 }
 ```
 
-- Jedes Projekt gehört **genau einem Nutzer**; du siehst/änderst nur deine eigenen Projekte.
-  Bei der Registrierung wird automatisch ein Beispielprojekt „Homelab (Beispiel)" angelegt.
-  Ein neues Projekt startet mit einer eigenen Root-Ebene.
-- **`packs`** bestimmt, welche Kategorien, Felder und Verbindungsarten dieses Projekt sieht
-  (siehe [Domain-Packs](#domain-packs)). Beim Anlegen kann stattdessen `template` gesetzt
-  werden — dann kommen die Packs von der Vorlage und ihr Startinhalt wird mit aufgebaut.
-  `template` ist eine reine Anlege-Option: ein PATCH ignoriert sie.
+`packs` decides which categories, fields and edge kinds this project sees. On
+create you may pass `template` instead — the packs then come from the template
+and its starter content is built too. `template` is a create-only option; PATCH
+ignores it. Deleting a project cascades to its levels, nodes and edges; the last
+project cannot be deleted.
 
-#### Domain-Packs
+#### Domain packs
 
-Der Katalog ist in thematische Pakete geteilt. Ein **Kern-Pack** (Anwendung, Datenbank,
-Gruppe, Nutzer, Abhängigkeit, Datenfluss, `url`, `owner`, `platform` …) ist immer aktiv;
-alles Weitere kommt aus den gewählten Packs:
+A **core pack** (application, database, group, user, dependency, data flow,
+`url`, `owner`, `platform` …) is always active. Everything else comes from the
+selected packs:
 
-| id | Inhalt |
+| id | Contents |
 |---|---|
-| `infrastructure` | Hypervisor, VM, Container, physische Geräte · `os`, `cpu`, `ram`, `disk` |
-| `network` | Router, Proxy, VPN, DNS · Protokolle · `ip`, `hostname`, `vlan`, `mac` |
-| `security` | Firewall, IDS, SSO, Secrets, Zertifikate · `expiresAt` |
-| `operations` | Monitoring, Backup, CI/CD, Cronjobs · `sla` |
-| `cloud` | Region, VPC, Managed Service, Bucket, Serverless · `region`, `accountId`, `cost` |
-| `kubernetes` | Cluster, Namespace, Workload, Service, Volume · `namespace`, `image`, `replicas` |
-| `software` | System, Komponente, API, Queue, Akteur · `repository`, `language` |
-| `business` | Prozess, Schritt, Entscheidung, Rolle, Abteilung · `costCenter`, `frequency` |
-| `homelab` | Medien, Game-Server, Smart Home, IoT |
+| `infrastructure` | Hypervisor, VM, container, physical devices · `os`, `cpu`, `ram`, `disk` |
+| `network` | Router, proxy, VPN, DNS · protocols · `ip`, `hostname`, `vlan`, `mac` |
+| `security` | Firewall, IDS, SSO, secrets, certificates · `expiresAt` |
+| `operations` | Monitoring, backup, CI/CD, cron jobs · `sla` |
+| `cloud` | Region, VPC, managed service, bucket, serverless · `region`, `accountId`, `cost` |
+| `kubernetes` | Cluster, namespace, workload, service, volume · `namespace`, `image`, `replicas` |
+| `software` | System, component, API, queue, actor · `repository`, `language` |
+| `business` | Process, step, decision, role, department · `costCenter`, `frequency` |
+| `homelab` | Media, game servers, smart home, IoT |
 
-Ein Pack abzuwählen **löscht nichts**: Werte zu dessen Feldern bleiben am Node erhalten und
-werden weiterhin akzeptiert (die Validierung prüft gegen alle Packs, nicht nur die aktiven).
-- Ein Projekt löschen **kaskadiert** auf alle Ebenen/Nodes/Edges; das **letzte** Projekt
-  bleibt erhalten.
+Turning a pack off **deletes nothing**: values for its fields stay on the node
+and are still accepted — validation runs against all packs, not just the active
+ones.
 
-### View (Ebene)
+### View (level)
 
-Ebenen gliedern ein Projekt in eine **Drill-down-Hierarchie** (C4-artig): eine
-Übersichts-Ebene zeigt grobe Bausteine, ein Node kann in eine eigene **Detail-Ebene**
-verlinken. Jeder Node/jede Edge gehört zu **genau einer** Ebene.
+Levels split a project into a drill-down hierarchy (C4-style). Every node and
+edge belongs to exactly one level.
 
 ```json
-{
-  "id": "server-intern",
-  "projectId": "homelab",
-  "name": "Server-Intern",
-  "parentId": null,
-  "description": "",
-  "color": "#38bdf8",
-  "icon": "layers",
-  "sortOrder": 0,
-  "createdAt": "…",
-  "updatedAt": "…"
-}
+{ "id": "server-internal", "projectId": "homelab", "name": "Server internals",
+  "parentId": null, "description": "", "color": "#38bdf8", "icon": "layers",
+  "sortOrder": 0 }
 ```
 
-| Feld | Pflicht | Default | Beschreibung |
+| Field | Required | Default | Description |
 |---|---|---|---|
-| `id` | nein (POST) | UUID | Stabile ID |
-| `projectId` | nein | Default-Projekt | Projekt der Ebene (erbt bei `parentId` vom Parent) |
-| `name` | ja | — | Anzeigename |
-| `parentId` | nein | `null` | Eltern-Ebene (Baum); `null` = Root-Ebene |
-| `description`, `color`, `icon`, `sortOrder` | nein | — | Metadaten für die UI |
+| `id` | no (POST) | UUID | Stable ID |
+| `projectId` | no | default project | Inherited from `parentId` when set |
+| `name` | yes | — | Display name |
+| `parentId` | no | `null` | Parent level; `null` = root |
+| `description`, `color`, `icon`, `sortOrder` | no | — | UI metadata |
 
-- Es existiert **immer mindestens eine** Ebene (Root „Übersicht" wird automatisch angelegt).
-- Neue Nodes/Edges ohne `viewId` landen in der ersten Root-Ebene.
-- Eine Ebene löschen **kaskadiert** auf Unterebenen inkl. deren Nodes/Edges; die **letzte**
-  Ebene kann nicht gelöscht werden.
+There is always at least one level (a root "Overview" is created automatically).
+Nodes and edges without a `viewId` land in the first root level. Deleting a level
+cascades to its sub-levels including their nodes and edges; the last level of a
+project cannot be deleted.
 
 ### Node
 
 ```json
 {
-  "id": "nginx",
-  "name": "nginx Reverse Proxy",
-  "category": "reverse-proxy",
-  "status": "active",
-  "parentId": "host-zone",
-  "viewId": "server-intern",
-  "linkedViewId": null,
-  "position": { "x": 120, "y": 80 },
-  "width": null,
-  "height": null,
-  "fields": {
-    "ip": "192.168.2.104",
-    "vlan": "10",
-    "os": "Debian 12",
-    "hostname": "nginx.lan",
-    "url": "https://example.com",
-    "platform": "Proxmox VE"
-  },
-  "notes": "# Markdown\nFreitext-Dokumentation (GFM).",
-  "customFields": { "Container-ID": "118", "Stack": "nginx:alpine" },
-  "createdAt": "2026-07-02T18:00:00.000Z",
-  "updatedAt": "2026-07-02T18:00:00.000Z"
+  "id": "nginx", "name": "nginx Reverse Proxy", "category": "reverse-proxy",
+  "status": "active", "parentId": "host-zone", "viewId": "server-internal",
+  "linkedViewId": null, "position": { "x": 120, "y": 80 },
+  "width": null, "height": null, "icon": null, "color": null,
+  "fields": { "ip": "192.168.2.104", "os": "Debian 12", "platform": "Proxmox VE" },
+  "notes": "# Markdown\nFree-form documentation (GFM).",
+  "customFields": { "Container ID": "118" },
+  "createdAt": "2026-07-02T18:00:00.000Z", "updatedAt": "2026-07-02T18:00:00.000Z"
 }
 ```
 
-| Feld | Pflicht | Default | Beschreibung |
+| Field | Required | Default | Description |
 |---|---|---|---|
-| `id` | nein (POST) | UUID | Stabile ID für Updates via Skript |
-| `name` | ja | — | Anzeigename (1–200 Zeichen) |
-| `category` | nein | `generic` | Kategorie-String (beliebig, siehe Katalog) |
-| `status` | nein | `unknown` | Siehe Status-Werte |
-| `parentId` | nein | `null` | Zone/Gruppe; `category: "group"` für visuelle Zonen |
-| `viewId` | nein | erste Root-Ebene | Ebene, zu der der Node gehört |
-| `linkedViewId` | nein | `null` | Drill-down-Portal: verlinkte Detail-Ebene (Doppelklick öffnet sie) |
-| `position` | nein | `{x:0,y:0}` | Canvas-Position (siehe Parent-Regel) |
-| `width`, `height` | nein | `null` | Nur für Zonen (`category: "group"`) |
-| `icon` | nein | `null` | Eigenes Symbol; `null` = Symbol der Kategorie (siehe [Bilder](#bilder)) |
-| `color` | nein | `null` | Eigene Farbe; `null` = Farbe der Kategorie. Erst damit lassen sich Zonen unterscheiden |
-| `fields` | nein | `{}` | Typisierte Felder; Schlüssel & Typen aus `GET /meta/catalog` |
-| `notes` | nein | `""` | Markdown (max. 200 KB) |
-| `customFields` | nein | `{}` | Freiform-Key-Value, max. 100 Keys, Werte max. 4000 Zeichen |
+| `id` | no (POST) | UUID | Stable ID for script updates |
+| `name` | yes | — | Display name (1–200 chars) |
+| `category` | no | `generic` | Any string, see catalog |
+| `status` | no | `unknown` | `active`\|`inactive`\|`planned`\|`maintenance`\|`error`\|`unknown` |
+| `parentId` | no | `null` | Zone/group; use `category: "group"` for visual zones |
+| `viewId` | no | first root level | Level the node belongs to |
+| `linkedViewId` | no | `null` | Drill-down portal: linked detail level |
+| `position` | no | `{x:0,y:0}` | Canvas position (see parent rule) |
+| `width`, `height` | no | `null` | Zones only |
+| `icon` | no | `null` | Own symbol; `null` = category icon. See [Images](#images) |
+| `color` | no | `null` | Own color; `null` = category color |
+| `fields` | no | `{}` | Typed fields; keys and types from the catalog |
+| `notes` | no | `""` | Markdown, max 200 KB |
+| `customFields` | no | `{}` | Free-form key/value, max 100 keys, values max 4000 chars |
 
-**Status-Werte:** `active` | `inactive` | `planned` | `maintenance` | `error` | `unknown`
+**`fields` vs `customFields`** — `fields` holds the catalog-defined fields (label,
+type, group, server-side validation). `customFields` is the escape hatch for
+everything the catalog does not know; there the key *is* the label.
 
-#### `fields` vs. `customFields`
+All values are **strings**, including `number` and `date` types. An empty string
+means "not set" and is never rejected. Validation by type:
 
-`fields` enthält die **im Katalog definierten** Felder (`GET /meta/catalog` → `fields`):
-sie haben Label, Typ, Gruppe und werden serverseitig geprüft. `customFields` ist der
-Freiform-Ausweg für alles, was der Katalog nicht kennt — dort ist der Schlüssel selbst
-das Label.
-
-Alle Werte sind **Strings**, auch bei `type: "number"` und `type: "date"`. Ein leerer
-String bedeutet „nicht gesetzt" und wird nie abgelehnt. Validiert wird nach Typ:
-
-| Typ | Regel |
+| Type | Rule |
 |---|---|
-| `number` | muss als Zahl parsebar sein (`"16"`, nicht `"viel"`) |
-| `date` | `JJJJ-MM-TT` |
-| `url` | braucht ein Schema (`https://…`) |
-| `select` | einer der Werte aus `options` |
-| `text` | max. 4000 Zeichen |
+| `number` | must parse as a number (`"16"`, not `"lots"`) |
+| `date` | `YYYY-MM-DD` |
+| `url` | needs a scheme (`https://…`) |
+| `select` | one of `options` |
+| `text` | max 4000 chars |
 
-Unbekannte Schlüssel in `fields` werden **akzeptiert und gespeichert**, nicht abgelehnt —
-sonst würde der Import eines Projekts scheitern, dessen Felddefinition diese Instanz
-nicht kennt.
+Unknown keys in `fields` are **accepted and stored**, not rejected — otherwise
+importing a project whose field definitions this instance does not know would
+fail.
 
-> **Produktneutralität:** Kategorien beschreiben Bausteine, keine Hersteller. Ein
-> Proxmox-, ESXi- oder Hyper-V-Host ist `category: "hypervisor"` mit
-> `fields.platform: "Proxmox VE"` — nicht eine eigene Kategorie pro Produkt.
+> **Product neutrality:** categories describe building blocks, not vendors. A
+> Proxmox, ESXi or Hyper-V host is `category: "hypervisor"` with
+> `fields.platform: "Proxmox VE"` — not one category per product.
 
-> Status ist **manuell/API-gesteuert**. Es gibt keinen Ping oder Health-Check.
+> Status is **manual / API-driven**. There is no ping or health check.
 
 ### Edge
 
 ```json
 {
-  "id": "e-nginx-app",
-  "sourceId": "nginx",
-  "targetId": "web-app",
-  "viewId": "server-intern",
-  "label": "HTTP :80",
-  "kind": "http",
-  "lineStyle": "solid",
-  "animated": false,
-  "notes": "",
+  "id": "e-nginx-app", "sourceId": "nginx", "targetId": "web-app",
+  "viewId": "server-internal", "label": "HTTP :80", "kind": "http",
+  "lineStyle": "solid", "animated": false, "notes": "",
   "routing": { "mode": "auto", "waypoints": [], "labelT": null },
-  "customFields": {},
-  "createdAt": "2026-07-02T18:00:00.000Z",
-  "updatedAt": "2026-07-02T18:00:00.000Z"
+  "customFields": {}
 }
 ```
 
-| Feld | Pflicht | Default |
+| Field | Required | Default |
 |---|---|---|
-| `sourceId`, `targetId` | ja | — |
-| `viewId` | nein | Ebene der Quelle | Ebene der Kante (**Quelle & Ziel müssen dieselbe Ebene haben**) |
-| `label` | nein | `""` |
-| `kind` | nein | `generic` |
-| `lineStyle` | nein | `solid` |
-| `animated` | nein | `false` |
-| `notes`, `customFields` | nein | wie Node |
-| `routing` | nein | `{ mode: "auto", waypoints: [], labelT?: 0..1 }` — manueller Kantenverlauf + Label-Anker |
+| `sourceId`, `targetId` | yes | — |
+| `viewId` | no | level of the source (**source and target must share a level**) |
+| `label` | no | `""` |
+| `kind` | no | `generic` |
+| `lineStyle` | no | `solid` (`solid`\|`dashed`\|`dotted`) |
+| `animated` | no | `false` |
+| `notes`, `customFields` | no | as for nodes |
+| `routing` | no | `{ mode: "auto", waypoints: [], labelT?: 0..1 }` |
 
-**routing.mode:** `auto` (automatisch) | `manual` (Waypoints aus UI/API).
-**routing.waypoints:** absolute Canvas-Punkte; das Andocken an den Nodes wird von der UI automatisch repariert (orthogonal), auch wenn Nodes später verschoben werden.
-**routing.labelT:** Position des Labels **auf** der Linie (0 = Quelle, 1 = Ziel, Default 0.5).
-**Auto-Layout (`POST /graph/layout`) setzt `routing` aller Edges zurück** — manuelle Waypoints beziehen sich auf alte Positionen und wären danach wertlos.
-
-**lineStyle:** `solid` | `dashed` | `dotted`
-
-### Graph
-
-`GET /graph?viewId=…` liefert **nur die Nodes/Edges einer Ebene** (ohne `viewId`: Root-Ebene):
-
-```json
-{ "viewId": "…", "nodes": [ /* Node[] */ ], "edges": [ /* Edge[] */ ] }
-```
-
-Export enthält **alle** Projekte, Ebenen, Nodes und Edges:
-`{ "version": 3, "exportedAt": "…", "projects": [], "views": [], "nodes": [], "edges": [] }`
+`routing.mode` is `auto` or `manual`; `waypoints` are absolute canvas points (the
+UI re-docks them orthogonally when nodes move); `labelT` places the label on the
+line (0 = source, 1 = target, default 0.5). **Auto-layout resets `routing` on
+every edge** — manual waypoints refer to old positions and would be worthless.
 
 ---
 
-## Wichtige Regeln für Agenten
+## Rules that matter for agents
 
-1. **Parent-Positionen:** Kinder speichern `position` **relativ zum Parent** (React-Flow-Konvention).
-   Absolute Position = Summe aller Parent-Positionen in der Kette.
-
-2. **Reihenfolge bei Import:** In `nodes` muss jeder Parent **vor** seinen Kindern stehen.
-
-3. **Zonen:** `category: "group"` + `width`/`height` für Gruppierungsrahmen.
-   Kinder via `parentId` zuweisen. **Parent und Kind müssen in derselben Ebene liegen**;
-   ohne `viewId` erbt ein Kind die Ebene seines Parents. Wechselt ein Node per PATCH die
-   Ebene, wird ein zurückbleibender Parent automatisch gelöst (Position wird absolut).
-
-4. **Node löschen:** Verbundene Edges werden mitgelöscht.
-   Kinder werden an den Großeltern-Node gehängt; Positionen werden angepasst (kein Sprung auf der Canvas).
-
-5. **Parent-Zyklen:** Werden abgelehnt (`400`).
-
-6. **Graph-Import:** `POST /graph/import` mit `mode: "replace"` **löscht alle** bestehenden
-   Daten des Nutzers und ersetzt sie. `mode: "merge"` fügt den Payload **additiv** hinzu:
-   alle IDs werden neu vergeben (Referenzen werden umgeschrieben), Bestehendes bleibt
-   unangetastet — so lassen sich exportierte Projekte zwischen Konten teilen.
-
-7. **PATCH vs. PUT:** Beide partielles Update (nur gesendete Felder ändern sich).
-   `fields` und `customFields` werden bei PATCH **als Ganzes ersetzt**, nicht gemerged —
-   wer ein einzelnes Feld ändern will, sendet das komplette Objekt mit.
-
-8. **Suche `GET /nodes?q=`:** Durchsucht `name` sowie alle **Werte** aus `fields` und
-   `customFields`. Schlüssel matchen nicht (`q=platform` findet nichts). Auf exakte
-   Feldwerte filtert die UI clientseitig, siehe `select` im Katalog-Abschnitt.
-
-9. **Ebenen (Views):** Jeder Node/jede Edge gehört zu genau einer Ebene (`viewId`). Kanten
-   verbinden nur Nodes **derselben** Ebene — das gilt auch für `PATCH /edges/:id`
-   (Endpunkt-Wechsel); die `viewId` einer Kante folgt immer ihren Endknoten.
-   Ebenen-übergreifende Bezüge werden über `node.linkedViewId` (Drill-down) modelliert,
-   nicht über Kanten. Auto-Align (`/graph/layout`) wirkt nur auf die angegebene `viewId`.
-   Import: `views` mit Parents **vor** Kindern. Eine Ebene, deren Unterbaum **alle**
-   Ebenen des Projekts umfasst, kann nicht gelöscht werden (`400`).
-
-10. **Projekte:** Oberste Ebene, komplett getrennt. `GET /views?projectId=` und
-    `GET /nodes?projectId=` (globale Suche) scopen auf ein Projekt. Import: `projects` zuerst.
+1. **Parent positions** — children store `position` **relative to their parent**
+   (React Flow convention). Absolute position = sum of the parent chain.
+2. **Import order** — in `nodes`, every parent must come **before** its children;
+   likewise `views` before their sub-levels, and `projects` first.
+3. **Zones** — `category: "group"` plus `width`/`height`; assign children via
+   `parentId`. Parent and child must be on the same level; without a `viewId` a
+   child inherits its parent's level. Moving a node to another level detaches a
+   parent left behind (its position becomes absolute).
+4. **Deleting a node** removes its edges and re-parents its children to the
+   grandparent, adjusting positions so nothing jumps on the canvas.
+5. **Parent cycles** are rejected with `400`.
+6. **Import modes** — `mode: "replace"` deletes **all** of the user's data and
+   replaces it. `mode: "merge"` adds the payload additively with fresh IDs
+   (references rewritten), leaving existing data untouched — this is how exported
+   projects move between accounts.
+7. **PATCH and PUT** are both partial updates. `fields` and `customFields` are
+   **replaced wholesale**, not merged — send the complete object to change one
+   entry.
+8. **Search `GET /nodes?q=`** matches `name` and all **values** in `fields` and
+   `customFields`. Keys do not match (`q=platform` finds nothing).
+9. **Edges are intra-level.** This also holds for `PATCH /edges/:id`; an edge's
+   `viewId` always follows its endpoints. Cross-level relationships are modeled
+   with `node.linkedViewId`, not with edges. A level whose subtree covers *all*
+   levels of the project cannot be deleted (`400`).
 
 ---
 
-## Endpunkte
-
-### Projekte
-
-| Methode | Pfad | Beschreibung |
-|---|---|---|
-| `GET` | `/projects` | Alle Projekte |
-| `POST` | `/projects` | Projekt (inkl. leerer Root-Ebene) anlegen → `201` |
-| `GET` | `/projects/:id` | Einzelnes Projekt |
-| `GET` | `/projects/:id/catalog` | Katalog **dieses Projekts** (nur seine Packs) |
-| `PATCH`/`PUT` | `/projects/:id` | Partielles Update |
-| `DELETE` | `/projects/:id` | Kaskadiert auf Ebenen/Nodes/Edges (letztes Projekt: `400`) |
-
-**Projekt mit Vorlage anlegen:**
-
-```http
-POST /api/projects
-{ "name": "Prod-Cluster", "template": "kubernetes" }
-```
-
-Baut Ebenen, Nodes und Kanten der Vorlage auf und übernimmt deren Packs. Ein
-mitgesendetes `packs` gewinnt gegenüber der Vorlage. Projekt und Inhalt entstehen in
-**einer Transaktion** — läuft der Aufbau in ein Instanz-Limit, bleibt kein halbes Projekt
-zurück. Verfügbare Vorlagen: `GET /meta/templates`.
-
-### Ebenen (Views)
-
-| Methode | Pfad | Beschreibung |
-|---|---|---|
-| `GET` | `/views?projectId=` | Ebenen (eines Projekts; flach, Hierarchie über `parentId`) |
-| `POST` | `/views` | Ebene anlegen → `201` |
-| `GET` | `/views/:id` | Einzelne Ebene |
-| `PATCH`/`PUT` | `/views/:id` | Partielles Update |
-| `DELETE` | `/views/:id` | Kaskadiert auf Unterebenen + Nodes/Edges (letzte Ebene des Projekts: `400`) |
+## Endpoints
 
 ### Auth
 
-| Methode | Pfad | Beschreibung |
+| Method | Path | Description |
 |---|---|---|
-| `POST` | `/auth/register` | Konto anlegen (`{email, password}`), seedet Beispielprojekt, setzt Cookie → `201` |
-| `POST` | `/auth/login` | Anmelden (`{email, password}`), setzt Cookie → `200` |
-| `POST` | `/auth/logout` | Session beenden → `204` |
-| `GET` | `/auth/me` | Aktueller Nutzer inkl. `limits` der Instanz (`401`, wenn nicht angemeldet) |
-| `POST` | `/auth/password` | Passwort ändern (`{currentPassword, newPassword}`) → `204`, beendet andere Sessions |
-| `DELETE` | `/auth/account` | Konto + alle Daten löschen (`{password}`) → `204` |
+| `POST` | `/auth/register` | `{email, password}` → `201`, seeds an example project, sets the cookie |
+| `POST` | `/auth/login` | `{email, password}` → `200`, sets the cookie |
+| `POST` | `/auth/logout` | → `204` |
+| `GET` | `/auth/me` | Current user plus the instance `limits` |
+| `POST` | `/auth/password` | `{currentPassword, newPassword}` → `204`, ends other sessions |
+| `DELETE` | `/auth/account` | `{password}` → `204`, deletes all data |
 
-### Health
+### Projects and levels
 
-```
-GET /health   (öffentlich, kein Login nötig)
-→ 200 { "status": "ok", "version": "1.0.0", "time": "2026-07-02T18:00:00.000Z" }
-```
-
-`version` ist die **Backend**-Version aus `backend/VERSION` (bzw. `APP_VERSION` im Docker-Image).
-Das Frontend hat eine eigene Version in `frontend/VERSION`.
-### Katalog
-
-```
-GET /meta/catalog
-→ 200 { "categories": [...], "statuses": [...], "edgeKinds": [...], "lineStyles": [...],
-        "fields": [...], "packs": [...] }
-
-GET /meta/packs      → 200 { "packs": [ { "id": "network", "label": "Netzwerk", … } ] }
-GET /meta/templates  → 200 { "templates": [ { "id": "kubernetes", "packs": [...], … } ] }
-```
-
-`/meta/catalog` liefert den **vollständigen** Katalog über alle Packs — die Referenz, wenn
-du kein konkretes Projekt im Blick hast. Für ein Projekt nimm `GET /projects/:id/catalog`;
-nur dessen Kategorien und Felder erscheinen dort auch in der UI.
-
-`fields` beschreibt die typisierten Node-Felder. Ein Eintrag sieht so aus:
-
-```json
-{ "key": "ram", "label": "Arbeitsspeicher", "type": "number", "group": "System", "unit": "GB" }
-```
-
-Optional: `mono` (Monospace), `showOnNode` (Wert erscheint auf der Canvas), `wide`
-(volle Panel-Breite), `placeholder`, `options` (bei `select`), `unit` (bei `number`).
-
-Jedes Feld vom Typ `select` wird in der UI automatisch zu einem Filter (neben Status und
-Kategorie). Wer ein Feld filterbar machen will, gibt ihm also `type: "select"` mit
-`options` — es braucht dafür keinen weiteren Eintrag. Gefiltert wird rein im Client, es
-gibt keinen zusätzlichen Endpunkt; serverseitig filtern `GET /nodes?category=&status=`.
-```
-
-### Rechtstexte
-
-Impressum und Datenschutzerklärung werden pro Instanz unter `$DATA_DIR/legal/`
-hinterlegt und sind ohne Anmeldung abrufbar. Ein leeres Array bedeutet, dass die
-Instanz keine Texte veröffentlicht (Normalfall beim Self-Hosting).
-
-```
-GET /meta/legal
-→ 200 { "documents": [ { "id": "impressum", "title": "Impressum", "markdown": "# Impressum…" } ] }
-```
-
-Kategorien und Edge-Kinds sind **Referenzwerte** — beliebige Strings sind erlaubt.
-Unbekannte Kategorien werden in der UI mit Fallback-Icon gerendert. Status dagegen sind
-ein **geschlossenes Enum**; ein unbekannter Wert wird mit 400 abgelehnt.
-
-### Freigabelinks (read-only)
-
-Ein Link macht **genau ein Projekt** ohne Konto lesbar.
-
-| Methode | Pfad | Beschreibung |
+| Method | Path | Description |
 |---|---|---|
-| `GET` | `/projects/:id/shares` | Links des Projekts (ohne Token) |
-| `POST` | `/projects/:id/shares` | `{ label?, expiresAt? }` → `201` **mit** `token` |
-| `DELETE` | `/projects/:id/shares/:shareId` | Widerrufen |
-| `GET` | `/share/:token` | **Ohne Anmeldung:** Projekt, Ebenen, Nodes, Kanten, Katalog |
-| `GET` | `/share/:token/assets/:id` | **Ohne Anmeldung:** Bild dieses Projekts |
+| `GET`/`POST` | `/projects` | List / create (→ `201`, with an empty root level) |
+| `GET`/`PATCH`/`PUT`/`DELETE` | `/projects/:id` | Read / partial update / cascade delete |
+| `GET` | `/projects/:id/catalog` | Catalog of **this project** (its packs only) |
+| `GET`/`POST` | `/views?projectId=` | Levels of a project (flat, hierarchy via `parentId`) / create |
+| `GET`/`PATCH`/`PUT`/`DELETE` | `/views/:id` | Read / partial update / cascade delete |
 
-- Das Klartext-**Token gibt es genau einmal**, in der Antwort auf `POST`. Gespeichert
-  wird nur sein sha256-Hash (wie bei den Sitzungen). Ein verlorener Link lässt sich
-  nicht wiederherstellen, nur ersetzen.
-- `GET /share/:token` liefert **alle Ebenen auf einmal**, damit der Betrachter ohne
-  weitere Anfragen durch die Drill-down-Hierarchie navigieren kann.
-- Die Antwort enthält **nichts über den Besitzer** und keine anderen Projekte.
-- Bilder sind nur abrufbar, wenn dieses Projekt sie auch benutzt — sonst wäre ein
-  Link ein Leseschlüssel für die ganze Bildbibliothek des Kontos.
-- Unbekannt, abgelaufen oder widerrufen ergibt jeweils **404**, nicht 403: die
-  Antwort soll nicht verraten, ob ein Token je gültig war.
-- Über diesen Weg lässt sich **nichts ändern**: der Router bietet nur GET.
-- Ein Projekt zu löschen entfernt seine Links mit.
-
-### Bilder
-
-Hochgeladene Bilder dienen als eigenes Node-Symbol und als Bild in Notizen.
-
-| Methode | Pfad | Beschreibung |
-|---|---|---|
-| `GET` | `/assets` | Bibliothek des Kontos (nur Metadaten) |
-| `POST` | `/assets` | `{ name, dataUrl }` → `201` mit den Metadaten |
-| `GET` | `/assets/:id` | Liefert die Bytes aus |
-| `DELETE` | `/assets/:id` | Löscht das Bild → `{ clearedNodes }` |
+Creating a project from a template:
 
 ```http
-POST /api/assets
-{ "name": "nextcloud.svg", "dataUrl": "data:image/svg+xml;base64,PHN2Zy4uLg==" }
+POST /api/projects
+{ "name": "Prod cluster", "template": "kubernetes" }
 ```
 
-- **Der Typ wird an den Magic Bytes erkannt**, nicht am `Content-Type` im Data-URL.
-  Ein als `image/png` deklariertes SVG wird als SVG gespeichert und behandelt.
-  Erlaubt: PNG, JPEG, WebP, SVG. Alles andere → `400`.
-- Grenzen: `MAX_ASSET_BYTES` (Standard 1 MB) → `413`, `MAX_ASSETS_PER_USER` → `403`
-  mit `code: "limit_reached"`.
-- **Referenziert** wird ein Bild an zwei Stellen: als `node.icon` in der Form
-  `asset:<id>` und in `node.notes` als Markdown-Bild mit der URL `/api/assets/<id>`.
-  Beide Formen werden beim Projekt-Export eingesammelt und beim Merge-Import auf die
-  neu vergebenen IDs umgeschrieben.
-- Ein Bild zu **löschen** setzt `icon` aller Nodes zurück, die es nutzen — es bleibt
-  keine tote Referenz stehen.
-- Bilder sind **unveränderlich** (nur anlegen, lesen, löschen) und werden mit
-  `Cache-Control: immutable` sowie einem `ETag` ausgeliefert.
-- Ausgeliefert wird mit `X-Content-Type-Options: nosniff` und einer eigenen
-  `Content-Security-Policy`, damit ein direkt aufgerufenes SVG nichts ausführen kann.
-  Externe Bild-URLs sind bewusst nicht vorgesehen.
+Builds the template's levels, nodes and edges and adopts its packs (an explicit
+`packs` wins). Project and content are created in **one transaction**, so hitting
+an instance limit mid-build leaves no half project behind.
+
+### Nodes and edges
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/nodes?q=&category=&status=&viewId=&projectId=` | List / search / filter (`projectId` searches all levels) |
+| `POST` | `/nodes` | Create → `201` |
+| `GET`/`PATCH`/`PUT`/`DELETE` | `/nodes/:id` | Read / partial update / delete (`204`) |
+| `POST` | `/nodes/positions` | Bulk positions → `{ "updated": 2 }` |
+| `GET` | `/edges?nodeId=&viewId=&projectId=` | Same filters as `/nodes` |
+| `POST` | `/edges` | Create → `201` |
+| `GET`/`PATCH`/`PUT`/`DELETE` | `/edges/:id` | Read / partial update / delete (`204`) |
+
+```json
+{ "positions": [ { "id": "nginx", "x": 100, "y": 200 },
+                 { "id": "host-zone", "x": 0, "y": 0, "width": 600, "height": 400 } ] }
+```
 
 ### Graph
 
-| Methode | Pfad | Beschreibung |
+| Method | Path | Description |
 |---|---|---|
-| `GET` | `/graph?viewId=` | Graph **einer Ebene** (Default: Root) |
-| `GET` | `/graph/export?projectId=` | Backup-JSON (alle Projekte — oder nur eines, zum Teilen) |
-| `POST` | `/graph/import` | Graph ersetzen (`mode:"replace"`) oder additiv anfügen (`mode:"merge"`) |
-| `POST` | `/graph/layout` | Auto-Align einer Ebene (`viewId` im Body) |
+| `GET` | `/graph?viewId=` | Graph of **one level** (default: root) → `{ viewId, nodes, edges }` |
+| `GET` | `/graph/export?projectId=` | Backup JSON (everything, or a single project to share) |
+| `POST` | `/graph/import` | Replace or merge |
+| `POST` | `/graph/layout` | Auto-align one level |
 
-**Import-Body:**
+Export shape: `{ "version": 3, "exportedAt": "…", "projects": [], "views": [],
+"nodes": [], "edges": [], "assets": [] }`. Exporting one project carries only the
+images that project uses; a full backup carries the whole library.
 
 ```json
-{
-  "mode": "replace",
-  "projects": [ /* Project mit id */ ],
-  "views": [ /* View mit id + projectId, Parents zuerst */ ],
-  "nodes": [ /* Node mit id + viewId */ ],
-  "edges": [ /* Edge */ ],
-  "assets": [ /* { id, name, dataUrl } — siehe Bilder */ ]
-}
+{ "mode": "replace", "projects": [], "views": [], "nodes": [], "edges": [], "assets": [] }
 ```
 
-`GET /graph/export?projectId=` führt nur die Bilder mit, die dieses Projekt auch
-benutzt; der Backup-Export (ohne `projectId`) nimmt die ganze Bibliothek.
+Import responds `{ "projects": 2, "views": 3, "nodes": 42, "edges": 17 }`. Missing
+`projects`/`views` means everything lands in the default project and root level.
 
-**Antwort:** `{ "projects": 2, "views": 3, "nodes": 42, "edges": 17 }`
-(`projects`/`views` fehlen → alles in Default-Projekt/Root-Ebene)
+Layout body `{ "viewId": "server-internal", "maxCols": 5 }` (both optional)
+arranges that level deterministically — layers along the edges with barycenter
+sorting, zones with internal edges flowing left to right — and answers
+`{ "updated": 42 }`.
 
-**Layout-Body (optional):**
+### Catalog
+
+```
+GET /meta/catalog    → { categories, statuses, edgeKinds, lineStyles, fields, packs }
+GET /meta/packs      → { packs: [ { id: "network", label: "Network", … } ] }
+GET /meta/templates  → { templates: [ { id: "kubernetes", packs: [...], … } ] }
+```
+
+`/meta/catalog` returns the **complete** catalog across all packs — the reference
+when no specific project is in view. For a project use
+`GET /projects/:id/catalog`; only its categories and fields appear in the UI.
+
+A `fields` entry looks like:
 
 ```json
-{ "viewId": "server-intern", "maxCols": 5 }
+{ "key": "ram", "label": "Memory", "type": "number", "group": "System", "unit": "GB" }
 ```
 
-Ordnet die Nodes **der angegebenen Ebene** (Default: Root) deterministisch an:
-- Schichten entlang der Kanten + Barycenter-Sortierung
-- **Zonen mit internen Kanten:** Spaltenfluss links→rechts (z.B. DNS → Tunnel → WAF)
-- Mehr Zellenabstand für lesbare Labels und weniger Überlappung
+Optional keys: `mono`, `showOnNode` (value appears on the canvas), `wide`,
+`placeholder`, `options` (for `select`), `unit` (for `number`). Every `select`
+field automatically becomes a UI filter alongside status and category — filtering
+happens client-side; the server filters via `GET /nodes?category=&status=`.
 
-**Antwort:** `{ "updated": 42 }`
+Categories and edge kinds are **reference values** — any string is allowed, and
+unknown categories render with a fallback icon. Statuses are a **closed enum**;
+an unknown value is rejected with `400`.
 
-### Nodes
+### Share links (read-only)
 
-| Methode | Pfad | Beschreibung |
+One link makes **exactly one project** readable without an account.
+
+| Method | Path | Description |
 |---|---|---|
-| `GET` | `/nodes?q=&category=&status=&viewId=&projectId=` | Liste / Suche / Filter (`projectId` = globale Suche über alle Ebenen) |
-| `POST` | `/nodes` | Anlegen → `201` |
-| `GET` | `/nodes/:id` | Einzelner Node |
-| `PATCH` | `/nodes/:id` | Partielles Update |
-| `PUT` | `/nodes/:id` | Partielles Update (gleich wie PATCH) |
-| `DELETE` | `/nodes/:id` | Löschen → `204` |
-| `POST` | `/nodes/positions` | Bulk-Positionsupdate |
+| `GET`/`POST` | `/projects/:id/shares` | List (without tokens) / create `{ label?, expiresAt? }` → `201` **with** `token` |
+| `DELETE` | `/projects/:id/shares/:shareId` | Revoke |
+| `GET` | `/share/:token` | **No auth:** project, levels, nodes, edges, catalog |
+| `GET` | `/share/:token/assets/:id` | **No auth:** an image used by this project |
 
-**POST /nodes/positions:**
+- The plaintext token is returned **exactly once**, in the `POST` response; only
+  its sha256 hash is stored. A lost link can be replaced, not recovered.
+- `GET /share/:token` returns **all levels at once**, so the viewer can navigate
+  the drill-down hierarchy without further requests.
+- The response contains nothing about the owner and no other projects. Images are
+  only reachable if this project uses them.
+- Unknown, expired or revoked all return **404**, not 403 — the response must not
+  reveal whether a token was ever valid.
+- Nothing can be changed through this path: the router only offers GET. Deleting
+  a project removes its links.
 
-```json
-{
-  "positions": [
-    { "id": "nginx", "x": 100, "y": 200 },
-    { "id": "host-zone", "x": 0, "y": 0, "width": 600, "height": 400 }
-  ]
-}
+### Images
+
+Uploaded images serve as a node's own icon and as images in notes.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET`/`POST` | `/assets` | Library metadata / upload `{ name, dataUrl }` → `201` |
+| `GET`/`DELETE` | `/assets/:id` | Serve the bytes / delete → `{ clearedNodes }` |
+
+- **The type comes from the magic bytes**, not the data URL's declared MIME type.
+  Allowed: PNG, JPEG, WebP, SVG. Anything else → `400`.
+- Limits: `MAX_ASSET_BYTES` (default 1 MB) → `413`; `MAX_ASSETS_PER_USER` → `403`
+  with `code: "limit_reached"`.
+- An image is referenced as `node.icon` in the form `asset:<id>` and in
+  `node.notes` as Markdown with the URL `/api/assets/<id>`. Both forms are
+  collected on project export and rewritten to the new IDs on merge import.
+- Deleting an image resets `icon` on every node using it — no dead references.
+- Images are immutable (create, read, delete) and served with
+  `Cache-Control: immutable`, an `ETag`, `nosniff` and their own CSP so a
+  directly opened SVG cannot execute anything.
+
+### Health and legal texts
+
+```
+GET /health      → { "status": "ok", "version": "1.0.0", "time": "…" }
+GET /meta/legal  → { "documents": [ { "id": "impressum", "title": "Legal notice", "markdown": "…" } ] }
 ```
 
-**Antwort:** `{ "updated": 2 }`
-
-### Edges
-
-| Methode | Pfad | Beschreibung |
-|---|---|---|
-| `GET` | `/edges?nodeId=&viewId=&projectId=` | Alle Edges, gleiche Filter wie `/nodes` |
-| `POST` | `/edges` | Anlegen → `201` |
-| `GET` | `/edges/:id` | Einzelne Edge |
-| `PATCH` | `/edges/:id` | Partielles Update |
-| `PUT` | `/edges/:id` | Partielles Update |
-| `DELETE` | `/edges/:id` | Löschen → `204` |
+`version` is the **backend** version from `backend/VERSION`; the frontend has its
+own in `frontend/VERSION`. Legal texts are per instance under `$DATA_DIR/legal/`
+and readable without signing in; an empty array means this instance publishes
+none (the normal case when self-hosting).
 
 ---
 
-## Typische Agent-Workflows
-
-### 1. Infrastruktur-Node anlegen
+## Common workflows
 
 ```http
+### Create an infrastructure node
 POST /api/nodes
-Content-Type: application/json
-
-{
-  "id": "postgres",
-  "name": "PostgreSQL",
-  "category": "database",
-  "status": "active",
+{ "id": "postgres", "name": "PostgreSQL", "category": "database", "status": "active",
   "fields": { "ip": "192.168.2.50", "hostname": "postgres.lan", "version": "16", "ram": "8" },
-  "customFields": { "Port": "5432" }
-}
-```
+  "customFields": { "Port": "5432" } }
 
-### 2. Monitoring-Status aktualisieren
-
-```http
+### Update status from monitoring
 PATCH /api/nodes/postgres
-Content-Type: application/json
-
 { "status": "error" }
-```
 
-Gültige Status: `active`, `inactive`, `planned`, `maintenance`, `error`, `unknown`.
-
-### 3. Verbindung dokumentieren
-
-```http
+### Document a connection
 POST /api/edges
-Content-Type: application/json
+{ "id": "e-app-db", "sourceId": "web-app", "targetId": "postgres",
+  "kind": "tcp", "label": "PostgreSQL :5432", "lineStyle": "dashed" }
 
-{
-  "id": "e-app-db",
-  "sourceId": "web-app",
-  "targetId": "postgres",
-  "kind": "tcp",
-  "label": "PostgreSQL :5432",
-  "lineStyle": "dashed"
-}
-```
-
-### 4. Zone mit Kindern anlegen
-
-```http
+### Zone with children (zone first!)
 POST /api/nodes
-{ "id": "homelab", "name": "Homelab", "category": "group", "position": {"x":0,"y":0}, "width": 800, "height": 600 }
-
+{ "id": "homelab", "name": "Homelab", "category": "group",
+  "position": {"x":0,"y":0}, "width": 800, "height": 600 }
 POST /api/nodes
-{ "id": "nginx", "name": "nginx", "category": "reverse-proxy", "parentId": "homelab", "position": {"x": 40, "y": 60} }
-```
+{ "id": "nginx", "name": "nginx", "category": "reverse-proxy",
+  "parentId": "homelab", "position": {"x": 40, "y": 60} }
 
-### 5. Backup & Restore
-
-```bash
-# (einmalig anmelden → cookies.txt, siehe „Authentifizierung")
-
-# Backup (nur die eigenen Daten)
-curl -s -b cookies.txt http://localhost:8080/api/graph/export -o backup.json
-
-# Restore (ersetzt die eigenen Daten!)
-curl -b cookies.txt -X POST http://localhost:8080/api/graph/import \
-  -H 'Content-Type: application/json' \
-  -d @backup.json
-```
-
-Import-Body muss `mode: "replace"` enthalten (Export-JSON hat kein `mode` → manuell ergänzen oder wrappen).
-
-### 6. Graph lesen und diffen
-
-```http
-GET /api/graph
-```
-
-Empfohlen für Agenten, die den Gesamtzustand analysieren oder synchronisieren sollen.
-
-### 7. Alles löschen
-
-```http
+### Wipe everything
 POST /api/graph/import
-Content-Type: application/json
-
 { "mode": "replace", "nodes": [], "edges": [] }
-```
 
-### 8. Nach API-Import anordnen
-
-```http
+### Tidy up after a bulk import
 POST /api/graph/layout
-Content-Type: application/json
-
 { "maxCols": 5 }
 ```
 
-Empfohlen direkt nach Bulk-Import oder wenn viele Nodes bei (0,0) liegen.
+Backup and restore (sign in first, see [Authentication](#authentication)):
 
----
+```bash
+curl -s -b cookies.txt http://localhost:8080/api/graph/export -o backup.json
 
-## Katalog-Referenz (häufige Werte)
+# Restore — replaces your data! The export has no `mode`, so add it.
+curl -b cookies.txt -X POST http://localhost:8080/api/graph/import \
+  -H 'Content-Type: application/json' -d @backup.json
+```
 
-Vollständige Liste: `GET /meta/catalog` (alle Packs) bzw. `GET /projects/:id/catalog`
-(nur die eines Projekts). Nach Pack gruppiert — welche davon sichtbar sind, entscheidet
-`project.packs`, siehe [Domain-Packs](#domain-packs).
+## Which endpoint?
 
-### Node-Kategorien (Auszug)
-
-| Pack | ids |
+| Goal | Endpoint |
 |---|---|
-| *Kern* (immer aktiv) | `generic`, `group`, `web-app`, `native-service`, `database`, `storage`, `client`, `internet`, `cloud-service`, `domain`, `email` |
-| `infrastructure` | `hypervisor`, `vm`, `system-container`, `physical-device`, `vps`, `docker-stack`, `docker-container` |
-| `network` | `router`, `wifi-ap`, `reverse-proxy`, `tunnel`, `vpn`, `dns` |
-| `security` | `firewall`, `ids`, `auth`, `secrets`, `certificate` |
-| `operations` | `monitoring`, `backup`, `file-share`, `ci-runner`, `git-repo`, `automation` |
-| `cloud` | `cloud-region`, `cloud-network`, `managed-service`, `object-storage`, `serverless`, `load-balancer` |
-| `kubernetes` | `k8s-cluster`, `k8s-namespace`, `k8s-workload`, `k8s-service`, `k8s-ingress`, `k8s-volume` |
-| `software` | `software-system`, `component`, `api-endpoint`, `message-queue`, `external-system`, `actor`, `ai-service` |
-| `business` | `process`, `process-step`, `decision`, `document`, `role`, `department`, `business-system` |
-| `homelab` | `media`, `game-server`, `smart-home`, `iot-device` |
+| Change a single field | `PATCH /nodes/:id` or `PATCH /edges/:id` |
+| New device or service | `POST /nodes` |
+| Document a connection | `POST /edges` |
+| Read the whole state | `GET /graph` |
+| Migration / sync | `GET /graph/export` + `POST /graph/import` |
+| Positions only | `POST /nodes/positions` |
+| Auto-align a level | `POST /graph/layout` |
+| All categories, statuses, edge kinds, fields | `GET /meta/catalog` |
+| What one project sees | `GET /projects/:id/catalog` |
+| Available packs / templates | `GET /meta/packs` · `GET /meta/templates` |
+| Is the API up? | `GET /health` |
 
-### Edge-Kinds
+## Catalog reference
 
-| Pack | ids |
+Full list: `GET /meta/catalog`. Which of these are visible depends on
+`project.packs`.
+
+**Node categories** — *core (always on):* `generic`, `group`, `web-app`,
+`native-service`, `database`, `storage`, `client`, `internet`, `cloud-service`,
+`domain`, `email`, `notification` · `infrastructure`: `hypervisor`, `vm`,
+`system-container`, `physical-device`, `vps`, `docker-stack`, `docker-container`
+· `network`: `router`, `wifi-ap`, `reverse-proxy`, `tunnel`, `vpn`, `dns` ·
+`security`: `firewall`, `ids`, `auth`, `secrets`, `certificate` · `operations`:
+`monitoring`, `backup`, `file-share`, `ci-runner`, `git-repo`, `automation` ·
+`cloud`: `cloud-region`, `cloud-network`, `managed-service`, `object-storage`,
+`serverless`, `load-balancer` · `kubernetes`: `k8s-cluster`, `k8s-namespace`,
+`k8s-workload`, `k8s-service`, `k8s-ingress`, `k8s-volume` · `software`:
+`software-system`, `component`, `api-endpoint`, `message-queue`,
+`external-system`, `actor`, `ai-service` · `business`: `process`,
+`process-step`, `decision`, `document`, `role`, `department`, `business-system` ·
+`homelab`: `media`, `game-server`, `smart-home`, `iot-device`
+
+**Edge kinds** — *core:* `generic`, `dependency`, `data-flow`, `control`, `api` ·
+`network`: `http`, `https`, `tcp`, `udp`, `dns`, `tunnel`, `vpn`, `mail` ·
+`infrastructure`: `ssh` · `operations`: `monitoring`, `backup`, `ci` ·
+`software`: `event` · `business`: `process-flow`, `responsibility`
+
+**Node fields** — *core:* `url`, `owner`, `environment`, `criticality`,
+`platform`, `version`, `location`, `reviewedAt` · `infrastructure`: `os`, `cpu`,
+`ram`, `disk` · `network`: `ip`, `hostname`, `vlan`, `mac` · `security`:
+`expiresAt` · `operations`: `sla` · `cloud`: `region`, `accountId`,
+`resourceId`, `cost` · `kubernetes`: `namespace`, `image`, `replicas` ·
+`software`: `repository`, `language` · `business`: `costCenter`, `frequency`
+
+**Templates** — `empty` · `homelab` · `network` · `cloud` · `kubernetes` ·
+`software` · `business`
+
+## Source map
+
+| File | Contents |
 |---|---|
-| *Kern* | `generic`, `dependency`, `data-flow`, `control`, `api` |
-| `network` | `http`, `https`, `tcp`, `udp`, `dns`, `tunnel`, `vpn`, `mail` |
-| `infrastructure` | `ssh` |
-| `operations` | `monitoring`, `backup`, `ci` |
-| `software` | `event` |
-| `business` | `process-flow`, `responsibility` |
-
-### Node-Felder
-
-| Pack | keys |
-|---|---|
-| *Kern* | `url`, `owner`, `environment`, `criticality`, `platform`, `version`, `location`, `reviewedAt` |
-| `infrastructure` | `os`, `cpu`, `ram`, `disk` |
-| `network` | `ip`, `hostname`, `vlan`, `mac` |
-| `security` | `expiresAt` |
-| `operations` | `sla` |
-| `cloud` | `region`, `accountId`, `resourceId`, `cost` |
-| `kubernetes` | `namespace`, `image`, `replicas` |
-| `software` | `repository`, `language` |
-| `business` | `costCenter`, `frequency` |
-
-### Vorlagen
-
-`empty` · `homelab` · `network` · `cloud` · `kubernetes` · `software` · `business`
-(`GET /meta/templates` liefert Beschreibung, Packs und Grösse jeder Vorlage.)
-
----
-
-## Entscheidungshilfe: welcher Endpunkt?
-
-| Ziel | Endpunkt |
-|---|---|
-| Einzelnes Feld ändern | `PATCH /nodes/:id` oder `PATCH /edges/:id` |
-| Neues Gerät/Dienst | `POST /nodes` |
-| Verbindung dokumentieren | `POST /edges` |
-| Gesamtzustand lesen | `GET /graph` |
-| Migration / Sync | `GET /graph/export` + `POST /graph/import` |
-| Nur Positionen (Layout) | `POST /nodes/positions` |
-| Auto-Align (gesamter Graph) | `POST /graph/layout` |
-| Alle Kategorien, Status, Edge-Kinds & Felder | `GET /meta/catalog` |
-| Was ein bestimmtes Projekt sieht | `GET /projects/:id/catalog` |
-| Verfügbare Packs / Vorlagen | `GET /meta/packs` · `GET /meta/templates` |
-| API erreichbar? | `GET /health` |
-
----
-
-## Quellcode-Referenz
-
-| Datei | Inhalt |
-|---|---|
-| `backend/src/auth.js` | Passwort-Hashing (scrypt), Sessions, `requireAuth`, CSRF, Rate-Limit |
-| `backend/src/limits.js` | Optionale Instanz-Limits (Standard: unbegrenzt) + Enforcement |
-| `backend/src/validation.js` | Zod-Schemas, Limits (inkl. `register`/`login`) |
-| `backend/src/layout.js` | Auto-Layout-Algorithmus |
-| `backend/src/store.js` | CRUD, Import, Parent-Logik, Row-Level-Autorisierung |
-| `backend/src/catalog/` | Kern + Domain-Packs (Kategorien, Edge-Kinds, Felddefinitionen) |
-| `backend/src/templates/` | Startvorlagen für neue Projekte |
-| `backend/src/assets.js` | Bild-Typ-Erkennung und Auslieferungs-Header |
-| `backend/src/share.js` | Freigabe-Token, Hashing und Ablauf |
-| `backend/src/routes/*.js` | Route-Definitionen (inkl. `auth.js`) |
-| `frontend/src/api/types.ts` | TypeScript-Typen (Frontend) |
-| `frontend/src/lib/catalog.ts` | Katalogzugriff im Client: Felder, Badges, Filterdefinitionen |
-
-Bei Abweichungen zwischen Doku und Code gilt der **Code** in `backend/src/`.
+| `backend/src/store.js` | CRUD, import, parent logic, row-level authorization |
+| `backend/src/auth.js` | Password hashing (scrypt), sessions, `requireAuth`, CSRF, rate limit |
+| `backend/src/validation.js` | Zod schemas including `register`/`login` |
+| `backend/src/limits.js` | Optional instance limits and their enforcement |
+| `backend/src/layout.js` | Auto-layout algorithm |
+| `backend/src/catalog/` | Core plus domain packs (categories, edge kinds, fields) |
+| `backend/src/templates/` | Starter templates for new projects |
+| `backend/src/assets.js` | Image type detection and serving headers |
+| `backend/src/share.js` | Share tokens, hashing and expiry |
+| `backend/src/routes/*.js` | Route definitions |
+| `frontend/src/api/types.ts` | TypeScript types |
+| `frontend/src/lib/catalog.ts` | Client-side catalog access: fields, badges, filters |

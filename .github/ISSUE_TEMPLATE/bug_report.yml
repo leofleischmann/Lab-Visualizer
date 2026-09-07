@@ -1,49 +1,49 @@
-name: Fehler melden
-description: Etwas funktioniert nicht wie erwartet
+name: Bug report
+description: Something does not work as expected
 labels: [bug]
 body:
   - type: markdown
     attributes:
       value: |
-        Sicherheitslücken bitte **nicht** hier melden, sondern über den Weg in
+        Please do **not** report security vulnerabilities here — use the process in
         [SECURITY.md](https://github.com/leofleischmann/Lab-Visualizer/blob/main/SECURITY.md).
   - type: textarea
-    id: was-passiert
+    id: what-happens
     attributes:
-      label: Was passiert?
-      description: Beobachtetes Verhalten und was du stattdessen erwartet hast.
+      label: What happens?
+      description: The observed behavior and what you expected instead.
     validations:
       required: true
   - type: textarea
-    id: schritte
+    id: steps
     attributes:
-      label: Schritte zum Nachstellen
+      label: Steps to reproduce
       placeholder: |
-        1. Neues Projekt anlegen
-        2. Node auf die Canvas ziehen
+        1. Create a new project
+        2. Drag a node onto the canvas
         3. …
     validations:
       required: true
   - type: input
     id: version
     attributes:
-      label: Versionen
-      description: Backend- und Frontend-Version (VERSION-Dateien oder Image-Tags).
+      label: Versions
+      description: Backend and frontend version (VERSION files or image tags).
       placeholder: "Backend 1.0.0 / Frontend 1.0.0"
   - type: dropdown
-    id: betrieb
+    id: deployment
     attributes:
-      label: Wie betreibst du Lab Visualizer?
+      label: How do you run Lab Visualizer?
       options:
         - Docker Compose
-        - Lokale Entwicklung (npm run dev)
-        - Oeffentliche Instanz (fremd gehostet)
-        - Anders
+        - Local development (npm run dev)
+        - Public instance (hosted by someone else)
+        - Other
     validations:
       required: true
   - type: textarea
     id: logs
     attributes:
-      label: Relevante Logausgaben
-      description: Browser-Konsole und/oder `docker compose logs backend`.
+      label: Relevant log output
+      description: Browser console and/or `docker compose logs backend`.
       render: shell

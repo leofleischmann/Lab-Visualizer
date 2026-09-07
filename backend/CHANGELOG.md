@@ -1,26 +1,25 @@
-# Changelog (Backend)
+# Changelog (backend)
 
-Alle nennenswerten Änderungen am Lab-Visualizer-Backend (API, Store, Auth).
+Notable changes to the Lab Visualizer backend (API, store, auth).
+Format follows [Keep a Changelog](https://keepachangelog.com/), versioning
+follows [SemVer](https://semver.org/).
 
-Format angelehnt an [Keep a Changelog](https://keepachangelog.com/).
-Versionierung nach [SemVer](https://semver.org/).
-
-Single source of truth: `backend/VERSION` (muss zu `backend/package.json` passen).
-Der Abschnitt zur aktuellen Version wird beim Backend-Release als
-GitHub-Release-Notes übernommen (`.github/workflows/release.yml`).
+Single source of truth: `backend/VERSION` (must match `backend/package.json`).
+The section for the current version becomes the GitHub release notes
+(`.github/workflows/release.yml`).
 
 ## [1.0.0] - 2026-09-07
 
-Erster versionierter Backend-Release.
+First versioned backend release.
 
 ### Added
-- **Accounts und Mehrbenutzer** mit Registrierung, Login, Passwort ändern und
-  Konto löschen. Row-Level-Isolation über `userId`.
-- **Projekte, Ebenen, Nodes und Edges** inkl. Domain-Packs, Katalog und
-  Startvorlagen.
-- **Read-only-Freigabelinks**, Asset-Uploads und Graph-Export/Import
-  (Replace und Merge).
-- **REST-API** mit Session-Auth, CSRF-Schutz und optionalen Instanz-Limits.
-- Auto-Align (`POST /graph/layout`) und Seed-Beispielprojekt bei Registrierung.
-- Docker-Image `lab-visualizer-backend` auf GHCR bei Versions-Bump.
-- Öffentlicher Health-Check mit Backend-Version: `GET /api/health`.
+- **Accounts and multi-user** with registration, login, password change and
+  account deletion. Row-level isolation via `userId`.
+- **Projects, levels, nodes and edges** including domain packs, catalog and
+  starter templates.
+- **Read-only share links**, asset uploads and graph export/import
+  (replace and merge).
+- **REST API** with session auth, CSRF protection and optional instance limits.
+- Auto-align (`POST /graph/layout`) and a seeded example project on registration.
+- Docker image `lab-visualizer-backend` on GHCR on every version bump.
+- Public health check including the backend version: `GET /api/health`.

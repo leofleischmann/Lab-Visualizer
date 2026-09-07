@@ -1,24 +1,40 @@
+# Rollt den Stand auf den eigenen Server aus — NUR wenn sich auf main eine
+# Version aendert. Gleicher Ausloeser wie .github/workflows/release.yml: ein
+# Push auf dev oder ein gewoehnlicher Commit auf main deployt nicht.
 name: Deploy to Server
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+    paths:
+      - backend/VERSION
+      - frontend/VERSION
+  # Notfall-Rollout ohne Versions-Bump (nur von main aus, siehe Guard unten).
+  workflow_dispatch:
 
 # Verhindert, dass sich mehrere Deployments in die Quere kommen
 concurrency:
   group: production-deployment
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   deploy:
     runs-on: self-hosted
 
     steps:
-      - name: Checkout Code
+      - name: "Guard: deploy only from main"
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "Deploy runs only on main (got ${{ github.ref }})." >&2
+          exit 1
+
+      - name: Checkout code
         uses: actions/checkout@v7
 
-      - name: Synchronisiere Dateien auf den Server
+      - name: Sync files to the server
         # rsync --delete: data/ ausschließen, sonst würde die SQLite-DB auf dem Server gelöscht
         # (data/ ist nicht im Git-Checkout, liegt aber persistent unter /opt/lab-visualizer/data)
         run: |
@@ -29,7 +45,7 @@ jobs:
             --exclude='data/' \
             . /opt/lab-visualizer/
 
-      - name: Docker Container bauen und starten
+      - name: Build and start containers
         working-directory: /opt/lab-visualizer
         run: |
           export BACKEND_VERSION=$(tr -d '[:space:]' < backend/VERSION)
@@ -37,17 +53,17 @@ jobs:
           echo "[Debug deploy]: BACKEND_VERSION=$BACKEND_VERSION FRONTEND_VERSION=$FRONTEND_VERSION"
           docker compose up --build -d
 
-      - name: Alte Docker Images aufräumen (sanft)
+      - name: Prune old Docker images (gentle)
         run: docker image prune -af --filter "until=168h"
 
-      - name: Telegram Benachrichtigung senden
+      - name: Telegram notification
         uses: appleboy/telegram-action@master
         if: always()
         with:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           message: |
-            Pipeline-Status: ${{ job.status == 'success' && '✅ Erfolgreich' || '❌ Fehlgeschlagen' }}
-            Projekt: ${{ github.repository }}
+            Pipeline status: ${{ job.status == 'success' && '✅ Success' || '❌ Failed' }}
+            Project: ${{ github.repository }}
             Branch: ${{ github.ref_name }}
             Commit: ${{ github.event.head_commit.message }}

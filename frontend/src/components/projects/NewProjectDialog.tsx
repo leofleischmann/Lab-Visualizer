@@ -64,7 +64,7 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
   const submit = async () => {
     setBusy(true);
     const created = await createProject({
-      name: name.trim() || template?.label || 'Neues Projekt',
+      name: name.trim() || template?.label || 'New project',
       color: template?.color ?? null,
       icon: template?.icon ?? null,
       template: templateId,
@@ -75,16 +75,16 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <Modal title="Neues Projekt" onClose={onClose} maxWidth="max-w-2xl">
+    <Modal title="New project" onClose={onClose} maxWidth="max-w-2xl">
       {!templates || !packs ? (
         <div className="flex items-center gap-2 py-8 text-xs text-slate-400">
-          <Loader2 size={14} className="animate-spin" /> Vorlagen werden geladen …
+          <Loader2 size={14} className="animate-spin" /> Loading templates …
         </div>
       ) : (
         <div className="space-y-5">
           <div>
             <span className="mb-2 block text-[11px] font-medium uppercase tracking-wide text-slate-500">
-              Vorlage
+              Template
             </span>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {templates.map((t) => {
@@ -113,8 +113,8 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
                     </span>
                     {t.footprint.nodes > 0 && (
                       <span className="text-[10px] text-slate-600">
-                        {t.footprint.nodes} Nodes · {t.footprint.views}{' '}
-                        {t.footprint.views === 1 ? 'Ebene' : 'Ebenen'}
+                        {t.footprint.nodes} nodes · {t.footprint.views}{' '}
+                        {t.footprint.views === 1 ? 'level' : 'levels'}
                       </span>
                     )}
                   </button>
@@ -131,7 +131,7 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
               value={name}
               autoFocus
               onChange={(e) => setName(e.target.value)}
-              placeholder={template?.label ?? 'Neues Projekt'}
+              placeholder={template?.label ?? 'New project'}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !busy) void submit();
               }}
@@ -147,7 +147,7 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
               onClick={onClose}
               className="rounded-md border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:border-slate-500"
             >
-              Abbrechen
+              Cancel
             </button>
             <button
               type="button"
@@ -156,7 +156,7 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
               className="flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-500 disabled:bg-slate-800 disabled:text-slate-500"
             >
               {busy && <Loader2 size={13} className="animate-spin" />}
-              Projekt anlegen
+              Create project
             </button>
           </div>
         </div>
@@ -181,11 +181,11 @@ export function PackPicker({
   return (
     <div>
       <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500">
-        Bausteine
+        Building blocks
       </span>
       <p className="mb-2 text-[10px] leading-relaxed text-slate-600">
-        Bestimmt, welche Kategorien und Felder das Projekt zeigt. Kern-Bausteine
-        (Anwendung, Datenbank, Gruppe, Nutzer …) sind immer dabei.
+        Decides which categories and fields the project shows. Core blocks
+        (application, database, group, user …) are always included.
       </p>
       <div className="grid grid-cols-2 gap-1.5">
         {packs.map((pack) => {
@@ -221,7 +221,7 @@ export function PackPicker({
                   {pack.label}
                 </span>
                 <span className="block text-[10px] text-slate-600">
-                  {pack.categories} Kategorien · {pack.fields} Felder
+                  {pack.categories} categories · {pack.fields} fields
                 </span>
               </span>
             </button>

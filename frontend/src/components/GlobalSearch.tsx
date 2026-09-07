@@ -43,7 +43,7 @@ export function GlobalSearch() {
     return () => clearTimeout(t);
   }, [search, activeProjectId]);
 
-  const viewName = (id: string) => views.find((v) => v.id === id)?.name ?? 'Ebene';
+  const viewName = (id: string) => views.find((v) => v.id === id)?.name ?? 'Level';
 
   const reveal = async (node: ApiNode) => {
     if (node.viewId !== activeViewId) await setActiveView(node.viewId);
@@ -71,7 +71,7 @@ export function GlobalSearch() {
         }}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
-        placeholder="Projektweit suchen: Name und alle Feldwerte …"
+        placeholder="Search the project: name and all field values …"
         spellCheck={false}
         className="w-full rounded-lg border border-slate-700 bg-slate-950/70 py-1.5 pl-8 pr-8 text-xs text-slate-200 placeholder:text-slate-600 focus:border-sky-500 focus:outline-none"
       />
@@ -80,7 +80,7 @@ export function GlobalSearch() {
           type="button"
           onClick={() => setSearch('')}
           className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-500 hover:text-slate-300"
-          title="Suche leeren"
+          title="Clear search"
         >
           <X size={13} />
         </button>
@@ -89,7 +89,7 @@ export function GlobalSearch() {
       {open && search.trim() && (
         <div className="absolute left-0 right-0 top-9 z-40 max-h-96 overflow-y-auto rounded-lg border border-slate-700 bg-slate-900 p-1 shadow-2xl shadow-black/60">
           {results.length === 0 ? (
-            <p className="px-3 py-2 text-xs text-slate-500">Keine Treffer im Projekt.</p>
+            <p className="px-3 py-2 text-xs text-slate-500">No matches in this project.</p>
           ) : (
             results.map((node) => {
               const cat = categoryOf(catalog, node.category);

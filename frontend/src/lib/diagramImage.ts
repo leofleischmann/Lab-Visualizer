@@ -49,7 +49,7 @@ export async function renderDiagram(
   format: ImageFormat,
   scale = 2
 ): Promise<string> {
-  if (!nodes.length) throw new Error('Diese Ebene enthält keine Nodes.');
+  if (!nodes.length) throw new Error('This level has no nodes.');
   const element = document.querySelector<HTMLElement>('.react-flow__viewport');
   if (!element) throw new Error('Die Canvas wurde nicht gefunden.');
 

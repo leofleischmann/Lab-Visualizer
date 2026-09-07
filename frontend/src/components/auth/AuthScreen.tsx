@@ -45,7 +45,7 @@ export function AuthScreen() {
           </div>
           <h1 className="text-lg font-semibold text-slate-100">Lab Visualizer</h1>
           <p className="text-xs text-slate-500">
-            {isRegister ? 'Neues Konto erstellen' : 'Mit deinem Konto anmelden'}
+            {isRegister ? 'Create a new account' : 'Sign in to your account'}
           </p>
         </div>
 
@@ -57,7 +57,7 @@ export function AuthScreen() {
               !isRegister ? 'bg-sky-500/15 text-sky-300' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            <LogIn size={13} /> Anmelden
+            <LogIn size={13} /> Sign in
           </button>
           <button
             type="button"
@@ -66,7 +66,7 @@ export function AuthScreen() {
               isRegister ? 'bg-sky-500/15 text-sky-300' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            <UserPlus size={13} /> Registrieren
+            <UserPlus size={13} /> Register
           </button>
         </div>
 
@@ -75,7 +75,7 @@ export function AuthScreen() {
           className="flex flex-col gap-3 rounded-xl border border-slate-800 bg-slate-900/60 p-5"
         >
           <label className="flex flex-col gap-1 text-xs text-slate-400">
-            E-Mail
+            Email
             <input
               type="email"
               autoComplete="email"
@@ -83,12 +83,12 @@ export function AuthScreen() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition-colors focus:border-sky-500"
-              placeholder="du@example.com"
+              placeholder="you@example.com"
             />
           </label>
 
           <label className="flex flex-col gap-1 text-xs text-slate-400">
-            Passwort
+            Password
             <input
               type="password"
               autoComplete={isRegister ? 'new-password' : 'current-password'}
@@ -97,7 +97,7 @@ export function AuthScreen() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition-colors focus:border-sky-500"
-              placeholder={isRegister ? 'Mindestens 8 Zeichen' : '••••••••'}
+              placeholder={isRegister ? 'At least 8 characters' : '••••••••'}
             />
           </label>
 
@@ -116,26 +116,26 @@ export function AuthScreen() {
             {submitting ? (
               <>
                 <RotateCw size={14} className="animate-spin" />
-                Bitte warten …
+                Please wait …
               </>
             ) : isRegister ? (
               <>
-                <UserPlus size={14} /> Konto erstellen
+                <UserPlus size={14} /> Create account
               </>
             ) : (
               <>
-                <LogIn size={14} /> Anmelden
+                <LogIn size={14} /> Sign in
               </>
             )}
           </button>
         </form>
 
         <p className="mt-4 text-center text-[11px] leading-relaxed text-slate-600">
-          Deine Projekte sind privat und nur für dein Konto sichtbar.
+          Your projects are private and visible only to your account.
           {isRegister && (
             <>
               <br />
-              Kostenlos und quelloffen — keine Bezahlfunktionen, kein Abo.
+              Free and open source — no paid features, no subscription.
             </>
           )}
         </p>

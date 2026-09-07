@@ -64,10 +64,10 @@ export function ProjectSettingsDialog({
   };
 
   return (
-    <Modal title={`Projekt „${project.name}"`} onClose={onClose} maxWidth="max-w-lg">
+    <Modal title={`Project “${project.name}”`} onClose={onClose} maxWidth="max-w-lg">
       {!packs ? (
         <div className="flex items-center gap-2 py-8 text-xs text-slate-400">
-          <Loader2 size={14} className="animate-spin" /> Wird geladen …
+          <Loader2 size={14} className="animate-spin" /> Loading …
         </div>
       ) : (
         <div className="space-y-5">
@@ -103,8 +103,8 @@ export function ProjectSettingsDialog({
           />
 
           <p className="rounded-md border border-slate-800 bg-slate-950/50 px-2.5 py-2 text-[10px] leading-relaxed text-slate-500">
-            Ein Baustein-Paket abzuwählen blendet nur aus. Bereits gefüllte Felder
-            bleiben am Node erhalten und erscheinen im Panel unter „Weitere Felder“.
+            Turning a building-block pack off only hides it. Values you already entered
+            stay on the node and reappear in the panel under “Other fields”.
           </p>
 
           <div className="flex justify-end gap-2 border-t border-slate-800 pt-4">
@@ -113,7 +113,7 @@ export function ProjectSettingsDialog({
               onClick={onClose}
               className="rounded-md border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:border-slate-500"
             >
-              Abbrechen
+              Cancel
             </button>
             <button
               type="button"
@@ -122,7 +122,7 @@ export function ProjectSettingsDialog({
               className="flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-500 disabled:bg-slate-800 disabled:text-slate-500"
             >
               {busy && <Loader2 size={13} className="animate-spin" />}
-              Speichern
+              Save
             </button>
           </div>
         </div>

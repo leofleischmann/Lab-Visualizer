@@ -54,7 +54,7 @@ describe('Verbindung umhängen', () => {
     await useGraphStore.getState().reconnectEdge('e1', { source: 'a', target: 'c' } as never);
     const past = useGraphStore.getState().past;
     expect(past).toHaveLength(1);
-    expect(past[0]).toMatchObject({ label: 'Verbindung umhängen', viewId: 'v' });
+    expect(past[0]).toMatchObject({ label: 'Reconnect edge', viewId: 'v' });
 
     mocked.updateEdge.mockClear();
     await past[0].undo();

@@ -4,27 +4,27 @@
  */
 export const business = {
   id: 'business',
-  label: 'Prozesse & Organisation',
-  description: 'Prozessschritte, Entscheidungen, Rollen, Abteilungen, Fachsysteme.',
+  label: 'Processes & organization',
+  description: 'Process steps, decisions, roles, departments, business systems.',
   icon: 'briefcase',
 
   categories: [
-    { id: 'process', label: 'Prozess', group: 'Prozesse', color: '#a3e635', icon: 'workflow' },
-    { id: 'process-step', label: 'Prozessschritt', group: 'Prozesse', color: '#84cc16', icon: 'list-checks' },
-    { id: 'decision', label: 'Entscheidung', group: 'Prozesse', color: '#fbbf24', icon: 'git-fork' },
-    { id: 'document', label: 'Dokument / Formular', group: 'Prozesse', color: '#93c5fd', icon: 'file-text' },
-    { id: 'role', label: 'Rolle', group: 'Organisation', color: '#e2e8f0', icon: 'user-round' },
-    { id: 'department', label: 'Abteilung / Team', group: 'Organisation', color: '#64748b', icon: 'building-2' },
-    { id: 'business-system', label: 'Fachsystem', group: 'Organisation', color: '#c084fc', icon: 'briefcase' },
+    { id: 'process', label: 'Process', group: 'Processes', color: '#a3e635', icon: 'workflow' },
+    { id: 'process-step', label: 'Process step', group: 'Processes', color: '#84cc16', icon: 'list-checks' },
+    { id: 'decision', label: 'Decision', group: 'Processes', color: '#fbbf24', icon: 'git-fork' },
+    { id: 'document', label: 'Document / form', group: 'Processes', color: '#93c5fd', icon: 'file-text' },
+    { id: 'role', label: 'Role', group: 'Organization', color: '#e2e8f0', icon: 'user-round' },
+    { id: 'department', label: 'Department / team', group: 'Organization', color: '#64748b', icon: 'building-2' },
+    { id: 'business-system', label: 'Business system', group: 'Organization', color: '#c084fc', icon: 'briefcase' },
   ],
 
   edgeKinds: [
-    { id: 'process-flow', label: 'Ablauf / nächster Schritt', group: 'Prozesse', color: '#a3e635' },
-    { id: 'responsibility', label: 'Zuständigkeit', group: 'Prozesse', color: '#e2e8f0' },
+    { id: 'process-flow', label: 'Flow / next step', group: 'Processes', color: '#a3e635' },
+    { id: 'responsibility', label: 'Responsibility', group: 'Processes', color: '#e2e8f0' },
   ],
 
   fields: [
-    { key: 'costCenter', label: 'Kostenstelle', type: 'text', group: 'Organisation', mono: true },
-    { key: 'frequency', label: 'Häufigkeit', type: 'text', group: 'Organisation', placeholder: 'täglich, monatlich …' },
+    { key: 'costCenter', label: 'Cost center', type: 'text', group: 'Organization', mono: true },
+    { key: 'frequency', label: 'Frequency', type: 'text', group: 'Organization', placeholder: 'daily, monthly …' },
   ],
 };

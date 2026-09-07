@@ -1,19 +1,19 @@
 # Lab Visualizer — Compose
-# Backend und Frontend sind getrennt versioniert:
+# Backend and frontend are versioned independently:
 #   backend/VERSION  -> BACKEND_VERSION  -> lab-visualizer-backend:$tag
 #   frontend/VERSION -> FRONTEND_VERSION -> lab-visualizer-frontend:$tag
 #
-# Lokal / Deploy:
+# Local / deploy:
 #   export BACKEND_VERSION=$(tr -d '[:space:]' < backend/VERSION)
 #   export FRONTEND_VERSION=$(tr -d '[:space:]' < frontend/VERSION)
-# Oder in .env setzen. Defaults unten = aktuelle Release-Stände.
+# Or set them in .env. The defaults below are the current releases.
 #
-# GHCR (nach jeweiligem Versions-Bump auf main):
+# GHCR (published on a version bump on main):
 #   ghcr.io/leofleischmann/lab-visualizer-backend:$BACKEND_VERSION
 #   ghcr.io/leofleischmann/lab-visualizer-frontend:$FRONTEND_VERSION
 #
-# Beeinflusst: .github/workflows/release.yml, Dockerfiles (ARG VERSION),
-# GET /api/health (APP_VERSION nur Backend).
+# Related: .github/workflows/release.yml, the Dockerfiles (ARG VERSION),
+# GET /api/health (APP_VERSION, backend only).
 
 services:
   backend:
@@ -24,38 +24,38 @@ services:
         VERSION: ${BACKEND_VERSION:-1.0.0}
     container_name: labviz-backend
     restart: unless-stopped
-    # NODE_ENV=production kommt aus dem Image → Secure-Cookies sind in Produktion Standard.
+    # NODE_ENV=production comes from the image -> secure cookies are the default.
     volumes:
-      # SQLite-Datenbank (inkl. Accounts & Sessions) → Backup = diesen Ordner kopieren
+      # SQLite database (accounts and sessions included) -> back up this folder
       - ./data:/data
     environment:
-      # Secure-Cookies: leer lassen → in Produktion (NODE_ENV=production) automatisch AN.
-      # Nur auf "false" setzen, wenn du die Prod-Images lokal über http://localhost testest.
+      # Secure cookies: leave empty -> automatically ON in production.
+      # Set to "false" only when testing the prod images over http://localhost.
       - COOKIE_SECURE=${COOKIE_SECURE:-}
-      # Gültigkeitsdauer einer Session in Tagen (Sliding-Renewal).
+      # Session lifetime in days (sliding renewal).
       - SESSION_TTL_DAYS=${SESSION_TTL_DAYS:-30}
-      # Selbst-Registrierung erlauben ("true") oder sperren ("false").
+      # Allow ("true") or block ("false") self-registration.
       - ALLOW_REGISTRATION=${ALLOW_REGISTRATION:-true}
-      # Optional: erlaubte Cross-Origin(s) mit Credentials (leer = nur same-origin).
+      # Optional: allowed cross-origin(s) with credentials (empty = same-origin only).
       - CORS_ORIGIN=${CORS_ORIGIN:-}
-      # Instanz-Limits (leer = unbegrenzt). Keine Bezahlschranke, sondern
-      # Missbrauchsschutz für öffentlich erreichbare Instanzen — siehe .env.example.
+      # Instance limits (empty = unlimited). Not a paywall — abuse protection
+      # for publicly reachable instances, see .env.example.
       - MAX_PROJECTS_PER_USER=${MAX_PROJECTS_PER_USER:-}
       - MAX_VIEWS_PER_PROJECT=${MAX_VIEWS_PER_PROJECT:-}
       - MAX_NODES_PER_PROJECT=${MAX_NODES_PER_PROJECT:-}
-      # Schreib-Requests pro Minute und IP (0 = aus).
+      # Write requests per minute and IP (0 = off).
       - RATE_LIMIT_WRITES_PER_MIN=${RATE_LIMIT_WRITES_PER_MIN:-600}
-      # Maximale Body-Größe (nur der Graph-Import braucht viel).
+      # Maximum body size (only the graph import needs a lot).
       - MAX_BODY=${MAX_BODY:-2mb}
       - MAX_IMPORT_BODY=${MAX_IMPORT_BODY:-20mb}
-    # Protokolle rollierend begrenzen: Zugriffslogs enthalten IP-Adressen und
-    # sollen sich nicht unbegrenzt ansammeln (siehe Datenschutzerklärung).
+    # Rotate logs: access logs contain IP addresses and should not pile up
+    # indefinitely (see the privacy policy).
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
-    # Optional: API zusätzlich direkt (ohne Frontend-Proxy) freigeben:
+    # Optional: expose the API directly (bypassing the frontend proxy):
     # ports:
     #   - "3000:3000"
 
@@ -68,11 +68,11 @@ services:
     container_name: labviz-frontend
     restart: unless-stopped
     depends_on:
-      # Erst starten, wenn das Backend laut Healthcheck bereit ist.
+      # Start only once the backend passes its health check.
       backend:
         condition: service_healthy
-    # Protokolle rollierend begrenzen: Zugriffslogs enthalten IP-Adressen und
-    # sollen sich nicht unbegrenzt ansammeln (siehe Datenschutzerklärung).
+    # Rotate logs: access logs contain IP addresses and should not pile up
+    # indefinitely (see the privacy policy).
     logging:
       driver: json-file
       options:

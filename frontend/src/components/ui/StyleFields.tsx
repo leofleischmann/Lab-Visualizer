@@ -32,18 +32,18 @@ export function StyleFields({
 
   return (
     <div className="grid gap-3 sm:grid-cols-[auto_1fr]">
-      <Field label="Symbol">
+      <Field label="Icon">
         <button
           type="button"
           onClick={() => setPicking(true)}
           className="flex h-[34px] w-[34px] items-center justify-center rounded-md border border-slate-700 bg-slate-900 transition-colors hover:border-sky-500"
           style={{ color: color ?? undefined }}
-          title="Symbol wählen"
+          title="Choose icon"
         >
           <EntityIcon icon={icon ?? fallbackIcon} size={16} />
         </button>
       </Field>
-      <Field label="Farbe">
+      <Field label="Color">
         <div className="flex h-[34px] items-center">
           <ColorPicker value={color} onChange={onColorChange} defaultLabel={colorDefaultLabel} />
         </div>
@@ -55,7 +55,7 @@ export function StyleFields({
           fallbackIcon={fallbackIcon}
           onChange={onIconChange}
           onClose={() => setPicking(false)}
-          defaultLabel="Standard-Symbol"
+          defaultLabel="Default icon"
         />
       )}
     </div>

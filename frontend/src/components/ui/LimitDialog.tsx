@@ -18,14 +18,14 @@ export function LimitDialog() {
   if (notice === null) return null;
 
   const rows = [
-    ['Projekte pro Konto', limits?.maxProjectsPerUser],
-    ['Ebenen pro Projekt', limits?.maxViewsPerProject],
-    ['Nodes pro Projekt', limits?.maxNodesPerProject],
+    ['Projects per account', limits?.maxProjectsPerUser],
+    ['Levels per project', limits?.maxViewsPerProject],
+    ['Nodes per project', limits?.maxNodesPerProject],
   ] as const;
   const configured = rows.filter(([, value]) => typeof value === 'number');
 
   return (
-    <Modal title="Grenze dieser Instanz erreicht" onClose={close}>
+    <Modal title="Instance limit reached" onClose={close}>
       {notice && (
         <div className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-200">
           {notice}
@@ -33,8 +33,8 @@ export function LimitDialog() {
       )}
 
       <p className="text-xs leading-relaxed text-slate-400">
-        Das ist keine Bezahlschranke: Lab Visualizer ist vollständig kostenlos und quelloffen.
-        Diese Grenzen gelten nur für den geteilten Server, damit er für alle nutzbar bleibt.
+        This is not a paywall: Lab Visualizer is entirely free and open source. These limits
+        apply only to this shared server so it stays usable for everyone.
       </p>
 
       {configured.length > 0 && (
@@ -50,12 +50,12 @@ export function LimitDialog() {
 
       <div className="mt-4 rounded-lg border border-sky-500/40 bg-sky-500/5 p-3">
         <h3 className="flex items-center gap-1.5 text-xs font-semibold text-sky-300">
-          <Server size={13} /> Ohne Limits: selbst hosten
+          <Server size={13} /> No limits: self-host it
         </h3>
         <p className="mt-1.5 text-[11px] leading-relaxed text-slate-400">
-          Auf einer eigenen Instanz gibt es keine Obergrenzen. Ein{' '}
+          Your own instance has no limits at all. A single{' '}
           <code className="rounded bg-slate-800 px-1 py-0.5 text-[10px]">docker compose up</code>{' '}
-          genügt — deine Daten kannst du hier exportieren und dort importieren.
+          is enough — export your data here and import it there.
         </p>
         <a
           href={REPO_URL}
@@ -63,7 +63,7 @@ export function LimitDialog() {
           rel="noreferrer"
           className="mt-2.5 inline-flex items-center gap-1.5 rounded-md bg-sky-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-sky-400"
         >
-          <ExternalLink size={12} /> Zur Anleitung auf GitHub
+          <ExternalLink size={12} /> Setup guide on GitHub
         </a>
       </div>
     </Modal>

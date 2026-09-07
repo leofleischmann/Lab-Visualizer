@@ -17,10 +17,10 @@ import { Modal } from '../ui/Modal';
  * backend/src/share.js (Token & Ablauf), share/SharedApp.tsx.
  */
 const EXPIRY_OPTIONS = [
-  { label: 'Läuft nicht ab', days: null },
-  { label: '7 Tage', days: 7 },
-  { label: '30 Tage', days: 30 },
-  { label: '90 Tage', days: 90 },
+  { label: 'Never expires', days: null },
+  { label: '7 days', days: 7 },
+  { label: '30 days', days: 30 },
+  { label: '90 days', days: 90 },
 ] as const;
 
 const shareUrl = (token: string) => `${window.location.origin}/s/${token}`;
@@ -39,7 +39,7 @@ export function ShareDialog({ project, onClose }: { project: Project; onClose: (
     void api
       .listShares(project.id)
       .then((l) => !cancelled && setLinks(l))
-      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : 'Fehler'));
+      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : 'Error'));
     return () => {
       cancelled = true;
     };
@@ -59,20 +59,20 @@ export function ShareDialog({ project, onClose }: { project: Project; onClose: (
       setLabel('');
       setCopied(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Anlegen fehlgeschlagen');
+      setError(e instanceof Error ? e.message : 'Could not create the link');
     } finally {
       setBusy(false);
     }
   };
 
   const revoke = async (link: ShareLink) => {
-    if (!window.confirm('Diesen Link widerrufen? Wer ihn hat, sieht das Projekt danach nicht mehr.'))
+    if (!window.confirm('Revoke this link? Anyone holding it loses access to the project.'))
       return;
     try {
       await api.revokeShare(project.id, link.id);
       setLinks((l) => (l ?? []).filter((x) => x.id !== link.id));
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Widerrufen fehlgeschlagen');
+      setError(e instanceof Error ? e.message : 'Could not revoke the link');
     }
   };
 
@@ -83,19 +83,19 @@ export function ShareDialog({ project, onClose }: { project: Project; onClose: (
     } catch {
       // Zwischenablage kann gesperrt sein (kein HTTPS, verweigerte Freigabe) —
       // der Link steht ohnehin als markierbarer Text im Dialog.
-      setError('Kopieren nicht möglich — Link bitte von Hand markieren.');
+      setError('Copying failed — please select the link manually.');
     }
   };
 
-  const dateOf = (iso: string) => new Date(iso).toLocaleDateString('de-DE');
+  const dateOf = (iso: string) => new Date(iso).toLocaleDateString();
 
   return (
-    <Modal title={`„${project.name}" teilen`} onClose={onClose} maxWidth="max-w-lg">
+    <Modal title={`Share “${project.name}”`} onClose={onClose} maxWidth="max-w-lg">
       <div className="space-y-5">
         <p className="flex items-start gap-2 rounded-md border border-slate-800 bg-slate-950/50 px-2.5 py-2 text-[11px] leading-relaxed text-slate-400">
           <Eye size={13} className="mt-0.5 shrink-0 text-amber-300" />
-          Wer den Link hat, kann dieses Projekt <strong className="text-slate-200">ansehen</strong> —
-          ohne Konto, mit allen Ebenen und Notizen. Ändern oder löschen kann er nichts.
+          Anyone with the link can <strong className="text-slate-200">view</strong> this project —
+          without an account, including every level and note. They cannot change or delete anything.
         </p>
 
         {error && (
@@ -107,7 +107,7 @@ export function ShareDialog({ project, onClose }: { project: Project; onClose: (
         {fresh && (
           <div className="rounded-md border border-sky-500/50 bg-sky-500/10 p-2.5">
             <p className="mb-1.5 text-[11px] font-medium text-sky-200">
-              Neuer Link — jetzt kopieren, er wird später nicht mehr angezeigt.
+              New link — copy it now, it is never shown again.
             </p>
             <div className="flex gap-1.5">
               <input
@@ -119,11 +119,11 @@ export function ShareDialog({ project, onClose }: { project: Project; onClose: (
               <button
                 type="button"
                 onClick={() => void copy(shareUrl(fresh))}
-                title="Link kopieren"
+                title="Copy link"
                 className="flex shrink-0 items-center gap-1 rounded-md bg-sky-600 px-2.5 text-[11px] font-medium text-white hover:bg-sky-500"
               >
                 {copied ? <Check size={12} /> : <Copy size={12} />}
-                {copied ? 'Kopiert' : 'Kopieren'}
+                {copied ? 'Copied' : 'Copy'}
               </button>
             </div>
           </div>
@@ -131,13 +131,13 @@ export function ShareDialog({ project, onClose }: { project: Project; onClose: (
 
         <div className="space-y-2">
           <span className="block text-[11px] font-medium uppercase tracking-wide text-slate-500">
-            Neuen Link anlegen
+            Create a new link
           </span>
           <div className="flex gap-1.5">
             <input
               value={label}
               onChange={(e) => setLabel(e.target.value)}
-              placeholder={'Beschreibung (optional), z. B. „Für das Team"'}
+              placeholder={'Description (optional), e.g. “For the team”'}
               className="min-w-0 flex-1 rounded-md border border-slate-700 bg-slate-950/70 px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:border-sky-500 focus:outline-none"
             />
             <select
@@ -158,19 +158,19 @@ export function ShareDialog({ project, onClose }: { project: Project; onClose: (
               className="flex shrink-0 items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-500 disabled:bg-slate-800 disabled:text-slate-500"
             >
               {busy ? <Loader2 size={13} className="animate-spin" /> : <Link2 size={13} />}
-              Anlegen
+              Create
             </button>
           </div>
         </div>
 
         <div>
           <span className="mb-2 block text-[11px] font-medium uppercase tracking-wide text-slate-500">
-            Bestehende Links
+            Existing links
           </span>
           {links === null ? (
-            <p className="text-[11px] text-slate-600">Wird geladen …</p>
+            <p className="text-[11px] text-slate-600">Loading …</p>
           ) : links.length === 0 ? (
-            <p className="text-[11px] text-slate-600">Dieses Projekt ist nicht freigegeben.</p>
+            <p className="text-[11px] text-slate-600">This project is not shared.</p>
           ) : (
             <div className="space-y-1">
               {links.map((link) => (
@@ -181,20 +181,20 @@ export function ShareDialog({ project, onClose }: { project: Project; onClose: (
                   <Link2 size={13} className="shrink-0 text-slate-500" />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-xs text-slate-200">
-                      {link.label || 'Ohne Beschreibung'}
+                      {link.label || 'No description'}
                     </span>
                     <span className="block text-[10px] text-slate-500">
-                      seit {dateOf(link.createdAt)}
-                      {link.expiresAt ? ` · läuft ab ${dateOf(link.expiresAt)}` : ' · unbefristet'}
+                      since {dateOf(link.createdAt)}
+                      {link.expiresAt ? ` · expires ${dateOf(link.expiresAt)}` : ' · no expiry'}
                       {link.lastSeenAt
-                        ? ` · zuletzt geöffnet ${dateOf(link.lastSeenAt)}`
-                        : ' · noch nicht geöffnet'}
+                        ? ` · last opened ${dateOf(link.lastSeenAt)}`
+                        : ' · never opened'}
                     </span>
                   </span>
                   <button
                     type="button"
                     onClick={() => void revoke(link)}
-                    title="Link widerrufen"
+                    title="Revoke link"
                     className="shrink-0 rounded p-1 text-slate-500 transition-colors hover:bg-red-500/10 hover:text-red-400"
                   >
                     <Trash2 size={13} />

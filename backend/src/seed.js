@@ -33,7 +33,7 @@ export const SEED_FOOTPRINT = {
 
 export function seedExampleForUser(db, userId) {
   const project = store.createProject(db, userId, {
-    name: `${registrationTemplate.label} (Beispiel)`,
+    name: `${registrationTemplate.label} (example)`,
     color: registrationTemplate.color,
     icon: registrationTemplate.icon,
     packs: registrationTemplate.packs,

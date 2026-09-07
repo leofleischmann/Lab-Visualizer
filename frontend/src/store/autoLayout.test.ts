@@ -82,7 +82,7 @@ describe('Auto-Align ist rückgängig zu machen', () => {
 
     const past = useGraphStore.getState().past;
     expect(past).toHaveLength(1);
-    expect(past[0]).toMatchObject({ label: 'Auto-Align', viewId: 'v' });
+    expect(past[0]).toMatchObject({ label: 'Auto-align', viewId: 'v' });
   });
 
   test('Undo stellt Positionen, Zonengrösse und manuelles Routing wieder her', async () => {

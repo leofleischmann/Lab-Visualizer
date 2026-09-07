@@ -80,7 +80,7 @@ export function createApp({ dbFile } = {}) {
   app.use('/api/assets', auth, assetsRouter(db));
 
   app.use('/api', (req, res) => {
-    res.status(404).json({ error: `Unbekannter Endpunkt: ${req.method} ${req.originalUrl}` });
+    res.status(404).json({ error: `Unknown endpoint: ${req.method} ${req.originalUrl}` });
   });
 
   // Zentraler Error-Handler → einheitliche JSON-Fehler
@@ -93,13 +93,13 @@ export function createApp({ dbFile } = {}) {
         .json({ error: err.message, details: err.details, ...(err.code ? { code: err.code } : {}) });
     }
     if (err?.type === 'entity.parse.failed') {
-      return res.status(400).json({ error: 'Ungültiges JSON im Request-Body' });
+      return res.status(400).json({ error: 'Invalid JSON in request body' });
     }
     if (err?.type === 'entity.too.large') {
-      return res.status(413).json({ error: 'Request-Body zu groß' });
+      return res.status(413).json({ error: 'Request body too large' });
     }
     console.error(err);
-    res.status(500).json({ error: 'Interner Serverfehler' });
+    res.status(500).json({ error: 'Internal server error' });
   });
 
   return { app, db };
