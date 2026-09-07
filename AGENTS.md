@@ -451,6 +451,31 @@ Kategorien und Edge-Kinds sind **Referenzwerte** — beliebige Strings sind erla
 Unbekannte Kategorien werden in der UI mit Fallback-Icon gerendert. Status dagegen sind
 ein **geschlossenes Enum**; ein unbekannter Wert wird mit 400 abgelehnt.
 
+### Freigabelinks (read-only)
+
+Ein Link macht **genau ein Projekt** ohne Konto lesbar.
+
+| Methode | Pfad | Beschreibung |
+|---|---|---|
+| `GET` | `/projects/:id/shares` | Links des Projekts (ohne Token) |
+| `POST` | `/projects/:id/shares` | `{ label?, expiresAt? }` → `201` **mit** `token` |
+| `DELETE` | `/projects/:id/shares/:shareId` | Widerrufen |
+| `GET` | `/share/:token` | **Ohne Anmeldung:** Projekt, Ebenen, Nodes, Kanten, Katalog |
+| `GET` | `/share/:token/assets/:id` | **Ohne Anmeldung:** Bild dieses Projekts |
+
+- Das Klartext-**Token gibt es genau einmal**, in der Antwort auf `POST`. Gespeichert
+  wird nur sein sha256-Hash (wie bei den Sitzungen). Ein verlorener Link lässt sich
+  nicht wiederherstellen, nur ersetzen.
+- `GET /share/:token` liefert **alle Ebenen auf einmal**, damit der Betrachter ohne
+  weitere Anfragen durch die Drill-down-Hierarchie navigieren kann.
+- Die Antwort enthält **nichts über den Besitzer** und keine anderen Projekte.
+- Bilder sind nur abrufbar, wenn dieses Projekt sie auch benutzt — sonst wäre ein
+  Link ein Leseschlüssel für die ganze Bildbibliothek des Kontos.
+- Unbekannt, abgelaufen oder widerrufen ergibt jeweils **404**, nicht 403: die
+  Antwort soll nicht verraten, ob ein Token je gültig war.
+- Über diesen Weg lässt sich **nichts ändern**: der Router bietet nur GET.
+- Ein Projekt zu löschen entfernt seine Links mit.
+
 ### Bilder
 
 Hochgeladene Bilder dienen als eigenes Node-Symbol und als Bild in Notizen.
@@ -747,6 +772,7 @@ Vollständige Liste: `GET /meta/catalog` (alle Packs) bzw. `GET /projects/:id/ca
 | `backend/src/catalog/` | Kern + Domain-Packs (Kategorien, Edge-Kinds, Felddefinitionen) |
 | `backend/src/templates/` | Startvorlagen für neue Projekte |
 | `backend/src/assets.js` | Bild-Typ-Erkennung und Auslieferungs-Header |
+| `backend/src/share.js` | Freigabe-Token, Hashing und Ablauf |
 | `backend/src/routes/*.js` | Route-Definitionen (inkl. `auth.js`) |
 | `frontend/src/api/types.ts` | TypeScript-Typen (Frontend) |
 

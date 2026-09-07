@@ -90,6 +90,12 @@ Live-Vorschau.
   **SVG** speichern, für Wiki, Ticket oder Folie. Aufgenommen wird immer der *ganze*
   Graph, unabhängig vom aktuellen Zoom; Auswahl, Fokus-Modus und Suchhervorhebung
   bleiben draußen. Läuft komplett im Browser.
+- **Read-only-Freigabelink** — ein Projekt per Link teilen, **ohne Konto** beim
+  Gegenüber: `…/s/<token>` zeigt dieselbe Canvas mit allen Ebenen, Notizen und
+  Bildern, aber gesperrt — kein Anlegen, kein Ändern, kein Löschen. Links tragen
+  eine Beschreibung, laufen optional ab und sind jederzeit widerrufbar. Gespeichert
+  wird nur der Hash des Tokens; der Link selbst ist nach dem Anlegen nicht mehr
+  abrufbar.
 - **Export / Import & Projekte teilen** — kompletter Graph als JSON-Backup, einzelne
   Projekte separat exportieren und bei einem anderen Konto **als neues Projekt
   hinzufügen** (Merge-Import, kollisionsfrei mit neuen IDs) — ideal für Teams.
@@ -204,6 +210,9 @@ beschränkt** — fremde IDs verhalten sich wie „nicht vorhanden" (`404`).
 | `GET/PATCH/PUT/DELETE` | `/api/nodes/:id` | Node lesen / ändern / löschen |
 | `POST` | `/api/nodes/positions` | Bulk-Positionsupdate (`{positions:[{id,x,y,width?,height?}]}`) |
 | `GET` | `/api/edges?nodeId=&viewId=&projectId=` | Verbindungen (Filter wie bei `/nodes`) |
+| `GET`/`POST` | `/api/projects/:id/shares` | Freigabelinks auflisten / anlegen |
+| `DELETE` | `/api/projects/:id/shares/:shareId` | Link widerrufen |
+| `GET` | `/api/share/:token` | **Ohne Anmeldung:** Lesestand eines Projekts |
 | `GET`/`POST` | `/api/assets` | Bildbibliothek auflisten / hochladen |
 | `GET`/`DELETE` | `/api/assets/:id` | Bild ausliefern / löschen |
 | `POST` | `/api/edges` | Verbindung anlegen (`{sourceId, targetId, …}`) |

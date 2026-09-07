@@ -234,6 +234,12 @@ export const assetCreateSchema = z.object({
   dataUrl: z.string().min(1).max(8_000_000),
 });
 
+/** Anlegen eines Freigabelinks. Beides optional: ohne Angabe laeuft er nie ab. */
+export const shareCreateSchema = z.object({
+  label: z.string().trim().max(200).default(''),
+  expiresAt: z.string().datetime().nullable().optional(),
+});
+
 export const layoutSchema = z.object({
   viewId: idSchema.optional(),
   maxCols: z.number().int().min(1).max(10).default(5),

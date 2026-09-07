@@ -35,6 +35,7 @@ export function ViewBar() {
   const setActiveView = useGraphStore((s) => s.setActiveView);
   const createView = useGraphStore((s) => s.createView);
   const removeView = useGraphStore((s) => s.removeView);
+  const readOnly = useGraphStore((s) => s.readOnly);
 
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<View | null>(null);
@@ -102,7 +103,7 @@ export function ViewBar() {
       </nav>
 
       <div className="ml-auto flex shrink-0 items-center gap-1">
-        {active && (
+        {active && !readOnly && (
           <button
             type="button"
             onClick={() => void addChild(active.id)}
@@ -155,6 +156,7 @@ export function ViewBar() {
                       {view.name}
                     </span>
                   </button>
+                  {!readOnly && (
                   <button
                     type="button"
                     onClick={() => void addChild(view.id)}
@@ -163,6 +165,8 @@ export function ViewBar() {
                   >
                     <Plus size={12} />
                   </button>
+                  )}
+                  {!readOnly && (
                   <button
                     type="button"
                     onClick={() => {
@@ -174,7 +178,8 @@ export function ViewBar() {
                   >
                     <Settings2 size={12} />
                   </button>
-                  {views.length > 1 && (
+                  )}
+                  {views.length > 1 && !readOnly && (
                     <button
                       type="button"
                       onClick={() => void del(view)}
@@ -187,13 +192,15 @@ export function ViewBar() {
                 </div>
               ))}
             </div>
-            <button
-              type="button"
-              onClick={() => void addRoot()}
-              className="mt-1 flex w-full items-center gap-1.5 rounded-md border-t border-slate-800 px-2 py-1.5 text-[11px] font-medium text-slate-400 hover:text-sky-300"
-            >
-              <Plus size={12} /> Neue Hauptebene
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => void addRoot()}
+                className="mt-1 flex w-full items-center gap-1.5 rounded-md border-t border-slate-800 px-2 py-1.5 text-[11px] font-medium text-slate-400 hover:text-sky-300"
+              >
+                <Plus size={12} /> Neue Hauptebene
+              </button>
+            )}
           </div>
         </>
       )}

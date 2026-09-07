@@ -21,8 +21,22 @@ export const assetIdOf = (icon: string): string => icon.slice(ASSET_PREFIX.lengt
 
 export const assetIconRef = (id: string): string => `${ASSET_PREFIX}${id}`;
 
+/**
+ * Basis-URL für Bilder. Im Normalbetrieb `/api/assets`; in der Leseansicht
+ * eines Freigabelinks `/api/share/<token>/assets`, weil der Betrachter kein
+ * Konto hat. Modulweit statt als Prop, damit nicht jede Icon-Darstellung den
+ * Token durchreichen muss — er ist pro Seitenaufruf ohnehin konstant.
+ *
+ * Gesetzt von: components/share/SharedApp.tsx (beim Start der Leseansicht).
+ */
+let assetBase = '/api/assets';
+
+export function setAssetBase(base: string): void {
+  assetBase = base;
+}
+
 /** URL, unter der ein Bild ausgeliefert wird. Immer same-origin (siehe CSP). */
-export const assetUrl = (id: string): string => `/api/assets/${encodeURIComponent(id)}`;
+export const assetUrl = (id: string): string => `${assetBase}/${encodeURIComponent(id)}`;
 
 export function EntityIcon({
   icon,

@@ -53,6 +53,21 @@ CREATE TABLE IF NOT EXISTS projects (
 );
 CREATE INDEX IF NOT EXISTS idx_projects_user ON projects(user_id);
 
+-- Read-only-Freigabelinks auf ein Projekt.
+--
+-- Wie bei sessions steht hier NUR der sha256-Hash des Tokens; das Klartext-
+-- Token existiert allein im Link und wird nach dem Anlegen nie wieder
+-- ausgegeben. Wer die Datenbank liest, kann daraus keinen gueltigen Link bauen.
+CREATE TABLE IF NOT EXISTS share_links (
+  id           TEXT PRIMARY KEY,       -- sha256(token) hex
+  project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  label        TEXT NOT NULL DEFAULT '',
+  created_at   TEXT NOT NULL,
+  expires_at   TEXT,                   -- NULL = laeuft nicht ab
+  last_seen_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_share_links_project ON share_links(project_id);
+
 CREATE TABLE IF NOT EXISTS views (
   id            TEXT PRIMARY KEY,
   project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

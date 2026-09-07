@@ -149,6 +149,18 @@ type GraphStore = {
   past: HistoryEntry[];
   future: HistoryEntry[];
   catalog: Catalog | null;
+  /**
+   * Leseansicht eines Freigabelinks: kein Konto, keine Bearbeitung. Die UI
+   * blendet damit alles Schreibende aus (Palette, Daten-Menü, Speichern-Knöpfe)
+   * und die Canvas schaltet auf reines Ansehen.
+   */
+  readOnly: boolean;
+  /**
+   * Im Lesemodus liegt der GANZE Projektstand hier: der Freigabelink liefert
+   * alle Ebenen auf einmal, damit der Betrachter ohne weitere Anfragen (und
+   * ohne Konto) durch die Drill-down-Hierarchie navigieren kann.
+   */
+  sharedGraph: { nodes: ApiNode[]; edges: ApiEdge[] } | null;
   selection: Selection;
   hoverNodeId: string | null;
   focus: FocusSet;
@@ -168,6 +180,8 @@ type GraphStore = {
   limitNotice: string | null;
 
   load: () => Promise<void>;
+  /** Lädt ein freigegebenes Projekt und schaltet den Store auf Lesen um. */
+  loadShared: (token: string) => Promise<void>;
   reload: () => Promise<void>;
   setSearch: (term: string) => void;
   setError: (message: string | null) => void;
@@ -224,6 +238,14 @@ type GraphStore = {
   undo: () => Promise<void>;
   redo: () => Promise<void>;
 };
+
+/** Nodes und Kanten einer Ebene aus dem kompletten Freigabe-Stand herausschneiden. */
+function sliceSharedView(nodes: ApiNode[], edges: ApiEdge[], viewId: string | null) {
+  return {
+    nodes: orderForFlow(nodes.filter((n) => n.viewId === viewId).map(toFlowNode)),
+    edges: edges.filter((e) => e.viewId === viewId).map(toFlowEdge),
+  };
+}
 
 const errorMessage = (err: unknown) =>
   err instanceof Error ? err.message : 'Unbekannter Fehler';
@@ -292,6 +314,8 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   past: [],
   future: [],
   catalog: null,
+  readOnly: false,
+  sharedGraph: null,
   selection: null,
   hoverNodeId: null,
   focus: null,
@@ -392,6 +416,41 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     }
   },
 
+  loadShared: async (token) => {
+    set({ loading: true, error: null });
+    try {
+      const shared = await api.sharedProject(token);
+      const rootId = pickRootView(shared.views);
+      const viewId = rootId ?? shared.views[0]?.id ?? null;
+      logCatalog(shared.catalog, shared.project.id);
+      console.debug('[Debug graph]: Freigabelink geladen', {
+        projekt: shared.project.name,
+        ebenen: shared.views.length,
+        nodes: shared.nodes.length,
+      });
+      set({
+        readOnly: true,
+        sharedGraph: { nodes: shared.nodes, edges: shared.edges },
+        catalog: shared.catalog,
+        projects: [shared.project],
+        activeProjectId: shared.project.id,
+        views: shared.views,
+        activeViewId: viewId,
+        ...sliceSharedView(shared.nodes, shared.edges, viewId),
+        selection: null,
+        hoverNodeId: null,
+        focus: null,
+        past: [],
+        future: [],
+        search: '',
+        loading: false,
+      });
+    } catch (err) {
+      set({ loading: false });
+      fail(err);
+    }
+  },
+
   setActiveProject: async (id) => {
     if (id === get().activeProjectId) return;
     try {
@@ -474,6 +533,18 @@ export const useGraphStore = create<GraphStore>((set, get) => {
 
   setActiveView: async (id) => {
     if (id === get().activeViewId) return;
+    // Im Lesemodus liegt bereits alles vor — kein Nachladen, keine Anmeldung.
+    const shared = get().sharedGraph;
+    if (shared) {
+      set({
+        activeViewId: id,
+        ...sliceSharedView(shared.nodes, shared.edges, id),
+        selection: null,
+        hoverNodeId: null,
+        focus: null,
+      });
+      return;
+    }
     try {
       const graph = await api.graph(id);
       writeLast('view', graph.viewId ?? id);
@@ -534,6 +605,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
 
   drillInto: async (nodeId) => {
     const target = get().nodes.find((n) => n.id === nodeId)?.data.entity.linkedViewId;
+    console.debug('[Debug graph]: Drill-down', nodeId, '->', target ?? '(keine Detailebene)');
     if (target) await get().setActiveView(target);
   },
 

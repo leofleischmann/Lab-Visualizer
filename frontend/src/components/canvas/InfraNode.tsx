@@ -14,6 +14,7 @@ function InfraNodeComponent({ id, data, selected }: NodeProps<FlowNode>) {
   const search = useGraphStore((s) => s.search);
   // Fokus-Modus: außerhalb des Fokus (Node + Nachbarn) wird gedimmt
   const dimmed = useGraphStore((s) => (s.focus ? !s.focus.nodeIds.has(id) : false));
+  const drillInto = useGraphStore((s) => s.drillInto);
 
   const category = categoryOf(catalog, entity.category);
   const status = statusOf(catalog, entity.status);
@@ -39,6 +40,9 @@ function InfraNodeComponent({ id, data, selected }: NodeProps<FlowNode>) {
       )}
       style={{ borderLeftWidth: 4, borderLeftColor: color }}
       title={isPortal ? 'Doppelklick öffnet die Detailebene' : undefined}
+      // Hier statt ueber ReactFlows onNodeDoubleClick: das feuert nicht, wenn
+      // Nodes nicht ziehbar sind (Leseansicht eines Freigabelinks).
+      onDoubleClick={isPortal ? () => void drillInto(id) : undefined}
     >
       <ConnectionHandles visible={!!selected} />
       <ConnectionDropTarget />

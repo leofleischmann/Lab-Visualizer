@@ -11,6 +11,7 @@ function ZoneNodeComponent({ id, data, selected }: NodeProps<FlowNode>) {
   const entity = data.entity;
   const catalog = useGraphStore((s) => s.catalog);
   const applyZoneGeometry = useGraphStore((s) => s.applyZoneGeometry);
+  const drillInto = useGraphStore((s) => s.drillInto);
 
   // Zonen waren fest in Slate-Grau gezeichnet, obwohl Nodes eine Farbe tragen.
   // Ohne eigene Farbe pro Zone sähen ohnehin alle gleich aus — die Kategorie
@@ -37,6 +38,10 @@ function ZoneNodeComponent({ id, data, selected }: NodeProps<FlowNode>) {
       />
       <ConnectionHandles visible={!!selected} />
       <div
+        // Siehe InfraNode: der Drill-down haengt nicht an ReactFlows
+        // onNodeDoubleClick, weil das ohne Ziehbarkeit nicht feuert.
+        onDoubleClick={entity.linkedViewId ? () => void drillInto(id) : undefined}
+        title={entity.linkedViewId ? 'Doppelklick öffnet die Detailebene' : undefined}
         className={clsx(
           'group h-full w-full rounded-2xl border-2 border-dashed transition-colors',
           selected && 'border-sky-400/80 bg-sky-950/20',

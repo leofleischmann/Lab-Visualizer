@@ -10,6 +10,7 @@ import { nodesRouter } from './routes/nodes.js';
 import { edgesRouter } from './routes/edges.js';
 import { graphRouter } from './routes/graph.js';
 import { assetsRouter } from './routes/assets.js';
+import { shareRouter } from './routes/share.js';
 import { metaRouter } from './routes/meta.js';
 import { assertLimitsAllowRegistration } from './limits.js';
 import { SEED_FOOTPRINT } from './seed.js';
@@ -62,9 +63,11 @@ export function createApp({ dbFile } = {}) {
     res.json({ status: 'ok', time: new Date().toISOString() });
   });
 
-  // Öffentlich: Auth (Registrierung/Login) und der statische Katalog.
+  // Öffentlich: Auth (Registrierung/Login), der statische Katalog und die
+  // Leseansicht freigegebener Projekte. Der Share-Router bietet nur GET.
   app.use('/api/auth', authRouter(db));
   app.use('/api/meta', metaRouter());
+  app.use('/api/share', shareRouter(db));
 
   // Ab hier: Anmeldung erforderlich; req.userId wird gesetzt.
   const auth = requireAuth(db);

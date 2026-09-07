@@ -3,6 +3,7 @@ import clsx from 'clsx';
 import { ImagePlus, Loader2 } from 'lucide-react';
 import { api } from '../../api/client';
 import { assetUrl } from '../../lib/icons';
+import { useReadOnly } from './controls';
 
 // Erst beim Öffnen der Vorschau nachladen — spart ~200 kB im Erst-Bundle.
 const MarkdownPreview = lazy(() => import('./MarkdownPreview'));
@@ -13,7 +14,9 @@ type Props = {
 };
 
 export function MarkdownEditor({ value, onChange }: Props) {
-  const [tab, setTab] = useState<'write' | 'preview'>('write');
+  const readOnly = useReadOnly();
+  // Im Lesemodus gleich die Vorschau zeigen — der Rohtext hilft dort nicht.
+  const [tab, setTab] = useState<'write' | 'preview'>(readOnly ? 'preview' : 'write');
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -71,6 +74,7 @@ export function MarkdownEditor({ value, onChange }: Props) {
           </button>
         ))}
         <span className="flex-1" />
+        {!readOnly && (
         <button
           type="button"
           disabled={uploading}
@@ -81,6 +85,7 @@ export function MarkdownEditor({ value, onChange }: Props) {
           {uploading ? <Loader2 size={12} className="animate-spin" /> : <ImagePlus size={12} />}
           Bild
         </button>
+        )}
         <input
           ref={fileInput}
           type="file"
@@ -104,6 +109,7 @@ export function MarkdownEditor({ value, onChange }: Props) {
           onChange={(e) => onChange(e.target.value)}
           rows={8}
           spellCheck={false}
+          readOnly={readOnly}
           placeholder="Notizen in Markdown … (Tabellen, Listen, Code-Blöcke)"
           className="block w-full resize-y bg-transparent p-2.5 font-mono text-xs leading-relaxed text-slate-200 placeholder:text-slate-600 focus:outline-none"
         />

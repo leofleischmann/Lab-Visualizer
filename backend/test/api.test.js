@@ -67,13 +67,156 @@ test('health check', async () => {
   assert.equal(res.body.status, 'ok');
 });
 
-// ── Bilder (eigene Icons, Bilder in Notizen) ────────────────────
-
 /** 1x1-PNG, das kleinste gueltige Bild. */
 const PNG_DATA_URL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 const svgDataUrl = (body = '<svg xmlns="http://www.w3.org/2000/svg"/>') =>
   `data:image/svg+xml;base64,${Buffer.from(body).toString('base64')}`;
+
+// ── Read-only-Freigabelinks ─────────────────────────────────────
+
+/** Aufruf OHNE jedes Cookie — so sieht die Welt einen Freigabelink. */
+async function anon(base, method, path) {
+  const res = await fetch(`${base}${path}`, { method });
+  const ct = res.headers.get('content-type') ?? '';
+  return {
+    status: res.status,
+    body: ct.includes('json') ? await res.json().catch(() => null) : null,
+    headers: res.headers,
+  };
+}
+
+test('share: Link macht genau ein Projekt ohne Konto lesbar', async () => {
+  const { call, base, close } = await freshApp();
+  try {
+    // freshApp legt ein LEERES Projekt an — für den Lesestand braucht es Inhalt.
+    const projectId = (await call('POST', '/api/projects', {
+      name: 'Zum Teilen',
+      template: 'homelab',
+    })).body.id;
+    const created = await call('POST', `/api/projects/${projectId}/shares`, { label: 'Team' });
+    assert.equal(created.status, 201);
+    assert.ok(created.body.token, 'Token fehlt in der Antwort');
+
+    // Das Klartext-Token gibt es GENAU EINMAL. Danach kennt der Server nur den Hash.
+    const listed = (await call('GET', `/api/projects/${projectId}/shares`)).body;
+    assert.equal(listed.length, 1);
+    assert.equal(listed[0].token, undefined, 'Token darf nicht erneut ausgegeben werden');
+    assert.notEqual(listed[0].id, created.body.token, 'gespeichert wird der Hash, nicht das Token');
+
+    const shared = await anon(base, 'GET', `/api/share/${created.body.token}`);
+    assert.equal(shared.status, 200);
+    assert.equal(shared.body.project.id, projectId);
+    assert.ok(shared.body.nodes.length > 0);
+    // Alle Ebenen auf einmal: der Betrachter soll ohne Konto drillen können.
+    assert.ok(shared.body.views.length > 1);
+    assert.ok(shared.body.catalog.categories.length > 0);
+    // Nichts über den Besitzer und keine anderen Projekte.
+    assert.equal(shared.body.project.userId, undefined);
+    assert.ok(!JSON.stringify(shared.body).includes('@test.local'));
+  } finally {
+    close();
+  }
+});
+
+test('share: der Link gibt nur GET her und verrät keine anderen Projekte', async () => {
+  const { call, base, close } = await freshApp();
+  try {
+    const projectId = (await call('GET', '/api/projects')).body[0].id;
+    const geheim = (await call('POST', '/api/projects', { name: 'Geheim' })).body;
+    const token = (await call('POST', `/api/projects/${projectId}/shares`, {})).body.token;
+
+    const shared = await anon(base, 'GET', `/api/share/${token}`);
+    assert.ok(!JSON.stringify(shared.body).includes(geheim.id), 'fremdes Projekt im Payload');
+
+    // Schreiben ist über diesen Weg nicht vorgesehen.
+    for (const method of ['POST', 'PATCH', 'PUT', 'DELETE']) {
+      const res = await anon(base, method, `/api/share/${token}`);
+      assert.ok(res.status >= 400, `${method} lieferte ${res.status}`);
+    }
+    // Und die normalen Endpunkte bleiben ohne Anmeldung zu.
+    assert.equal((await anon(base, 'GET', '/api/nodes')).status, 401);
+    assert.equal((await anon(base, 'GET', '/api/projects')).status, 401);
+    assert.equal((await anon(base, 'GET', '/api/assets')).status, 401);
+  } finally {
+    close();
+  }
+});
+
+test('share: Bilder nur, wenn das Projekt sie benutzt', async () => {
+  const { call, base, close } = await freshApp();
+  try {
+    const projectId = (await call('GET', '/api/projects')).body[0].id;
+    const viewId = (await call('GET', `/api/views?projectId=${projectId}`)).body[0].id;
+    await call('POST', '/api/nodes', { id: 'mit-bild', name: 'Mit Bild', viewId });
+    const used = (await call('POST', '/api/assets', { name: 'benutzt.png', dataUrl: PNG_DATA_URL })).body;
+    const unused = (await call('POST', '/api/assets', { name: 'privat.png', dataUrl: PNG_DATA_URL })).body;
+    await call('PATCH', '/api/nodes/mit-bild', { icon: `asset:${used.id}` });
+
+    const token = (await call('POST', `/api/projects/${projectId}/shares`, {})).body.token;
+    assert.equal((await anon(base, 'GET', `/api/share/${token}/assets/${used.id}`)).status, 200);
+    // Sonst wäre ein Freigabelink ein Leseschlüssel für die ganze Bildbibliothek.
+    assert.equal((await anon(base, 'GET', `/api/share/${token}/assets/${unused.id}`)).status, 404);
+  } finally {
+    close();
+  }
+});
+
+test('share: unbekannt, abgelaufen und widerrufen sind alle 404', async () => {
+  const { call, base, close } = await freshApp();
+  try {
+    const projectId = (await call('GET', '/api/projects')).body[0].id;
+
+    // 404 statt 403: die Antwort soll nicht verraten, ob ein Token je galt.
+    assert.equal((await anon(base, 'GET', '/api/share/voelligerunsinn')).status, 404);
+
+    const expired = (await call('POST', `/api/projects/${projectId}/shares`, {
+      expiresAt: '2020-01-01T00:00:00.000Z',
+    })).body;
+    assert.equal((await anon(base, 'GET', `/api/share/${expired.token}`)).status, 404);
+
+    const live = (await call('POST', `/api/projects/${projectId}/shares`, {})).body;
+    assert.equal((await anon(base, 'GET', `/api/share/${live.token}`)).status, 200);
+    assert.equal((await call('DELETE', `/api/projects/${projectId}/shares/${live.id}`)).status, 200);
+    assert.equal((await anon(base, 'GET', `/api/share/${live.token}`)).status, 404);
+  } finally {
+    close();
+  }
+});
+
+test('share: fremde Konten können Links weder sehen noch anlegen noch widerrufen', async () => {
+  const a = await freshApp();
+  const b = await freshApp();
+  try {
+    const projectId = (await a.call('GET', '/api/projects')).body[0].id;
+    const link = (await a.call('POST', `/api/projects/${projectId}/shares`, {})).body;
+
+    assert.equal((await b.call('GET', `/api/projects/${projectId}/shares`)).status, 404);
+    assert.equal((await b.call('POST', `/api/projects/${projectId}/shares`, {})).status, 404);
+    assert.equal((await b.call('DELETE', `/api/projects/${projectId}/shares/${link.id}`)).status, 404);
+    // Der Link des anderen bleibt gültig — Fremdzugriff darf ihn nicht kippen.
+    assert.equal((await anon(a.base, 'GET', `/api/share/${link.token}`)).status, 200);
+  } finally {
+    a.close();
+    b.close();
+  }
+});
+
+test('share: Projekt löschen entfernt seine Links', async () => {
+  const { call, base, close } = await freshApp();
+  try {
+    const extra = (await call('POST', '/api/projects', { name: 'Wegwerf' })).body;
+    const token = (await call('POST', `/api/projects/${extra.id}/shares`, {})).body.token;
+    assert.equal((await anon(base, 'GET', `/api/share/${token}`)).status, 200);
+
+    assert.equal((await call('DELETE', `/api/projects/${extra.id}`)).status, 200);
+    assert.equal((await anon(base, 'GET', `/api/share/${token}`)).status, 404);
+  } finally {
+    close();
+  }
+});
+
+// ── Bilder (eigene Icons, Bilder in Notizen) ────────────────────
 
 test('nodes: eigenes Symbol und eigene Farbe überschreiben die Kategorie', async () => {
   const { call, close } = await freshApp();

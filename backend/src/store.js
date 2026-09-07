@@ -3,6 +3,7 @@ import { ApiError } from './validation.js';
 import { ensureRootView } from './db.js';
 import { computeLayout } from './layout.js';
 import { decodeDataUrl } from './assets.js';
+import { createShareToken, hashShareToken, isExpired } from './share.js';
 import { normalizePacks, DEFAULT_PACKS } from './catalog/index.js';
 import {
   assertCanCreateProject,
@@ -264,6 +265,113 @@ export function deleteAsset(db, userId, id) {
     return cleared;
   });
   return { clearedNodes: tx() };
+}
+
+// ── Freigabelinks (read-only) ───────────────────────────────────
+
+function rowToShareLink(row) {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    label: row.label,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    lastSeenAt: row.last_seen_at,
+  };
+}
+
+export function listShareLinks(db, userId, projectId) {
+  getProject(db, userId, projectId); // 404, falls fremd/fehlt
+  return db
+    .prepare('SELECT * FROM share_links WHERE project_id = ? ORDER BY created_at DESC')
+    .all(projectId)
+    .map(rowToShareLink);
+}
+
+/**
+ * Legt einen Freigabelink an und gibt das Klartext-Token EINMALIG zurueck.
+ * Gespeichert wird nur sein Hash — ein verlorener Link laesst sich nicht
+ * wiederherstellen, nur ersetzen.
+ */
+export function createShareLink(db, userId, projectId, { label = '', expiresAt = null } = {}) {
+  getProject(db, userId, projectId);
+  const { token, hash } = createShareToken();
+  db.prepare(
+    `INSERT INTO share_links (id, project_id, label, created_at, expires_at)
+     VALUES (@id, @project_id, @label, @created_at, @expires_at)`
+  ).run({
+    id: hash,
+    project_id: projectId,
+    label,
+    created_at: now(),
+    expires_at: expiresAt,
+  });
+  return { ...rowToShareLink(db.prepare('SELECT * FROM share_links WHERE id = ?').get(hash)), token };
+}
+
+export function deleteShareLink(db, userId, id) {
+  const row = db
+    .prepare(
+      `SELECT s.* FROM share_links s
+       JOIN projects p ON s.project_id = p.id
+       WHERE s.id = ? AND p.user_id = ?`
+    )
+    .get(id, userId);
+  if (!row) throw new ApiError(404, 'Freigabelink nicht gefunden');
+  db.prepare('DELETE FROM share_links WHERE id = ?').run(id);
+  return { revoked: 1 };
+}
+
+/**
+ * Loest ein Klartext-Token auf. Wirft 404 (nicht 403), wenn es unbekannt oder
+ * abgelaufen ist: ein Angreifer soll aus der Antwort nicht ablesen koennen, ob
+ * ein Token einmal gueltig war.
+ */
+function resolveShareLink(db, token) {
+  const row = db.prepare('SELECT * FROM share_links WHERE id = ?').get(hashShareToken(token));
+  const link = row ? rowToShareLink(row) : null;
+  if (!link || isExpired(link)) throw new ApiError(404, 'Dieser Freigabelink ist ungültig oder abgelaufen');
+  return link;
+}
+
+/**
+ * Der komplette Lesestand eines freigegebenen Projekts.
+ *
+ * Enthaelt bewusst KEINE Angaben zum Besitzer und keine anderen Projekte. Die
+ * Bilder kommen nicht mit; sie werden einzeln ueber die Share-Route abgerufen,
+ * damit der Browser sie cachen kann.
+ */
+export function getSharedProject(db, token) {
+  const link = resolveShareLink(db, token);
+  const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(link.projectId);
+  if (!project) throw new ApiError(404, 'Dieser Freigabelink ist ungültig oder abgelaufen');
+  const userId = project.user_id;
+
+  db.prepare('UPDATE share_links SET last_seen_at = ? WHERE id = ?').run(now(), link.id);
+
+  const { user_id: _ownerId, ...publicProject } = project;
+  return {
+    project: rowToProject(publicProject),
+    views: listViews(db, userId, { projectId: link.projectId }),
+    nodes: listNodes(db, userId, { projectId: link.projectId }),
+    edges: listEdges(db, userId, { projectId: link.projectId }),
+    catalog: null, // setzt die Route (buildCatalog kennt store.js nicht)
+  };
+}
+
+/**
+ * Bild eines freigegebenen Projekts.
+ *
+ * Prueft, dass das Projekt es auch WIRKLICH benutzt — sonst waere ein
+ * Freigabelink ein Leseschluessel fuer die gesamte Bildbibliothek des Kontos.
+ */
+export function getSharedAsset(db, token, assetId) {
+  const link = resolveShareLink(db, token);
+  const project = db.prepare('SELECT user_id FROM projects WHERE id = ?').get(link.projectId);
+  if (!project) throw new ApiError(404, 'Bild nicht gefunden');
+  const used = collectAssetIds(listNodes(db, project.user_id, { projectId: link.projectId }));
+  if (!used.has(assetId)) throw new ApiError(404, 'Bild nicht gefunden');
+  return getAssetWithBytes(db, project.user_id, assetId);
 }
 
 // ── Projects (Projekte) ─────────────────────────────────────────

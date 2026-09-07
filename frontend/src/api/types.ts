@@ -61,6 +61,30 @@ export type Project = {
 
 export type ProjectPatch = Partial<Omit<Project, 'id' | 'createdAt' | 'updatedAt'>>;
 
+/**
+ * Read-only-Freigabelink auf ein Projekt. `token` steht NUR in der Antwort auf
+ * das Anlegen — danach kennt der Server nur noch dessen Hash.
+ */
+export type ShareLink = {
+  id: string;
+  projectId: string;
+  label: string;
+  createdAt: string;
+  expiresAt: string | null;
+  lastSeenAt: string | null;
+  /** Nur beim Anlegen gesetzt. */
+  token?: string;
+};
+
+/** Lesestand eines freigegebenen Projekts (alle Ebenen auf einmal). */
+export type SharedProject = {
+  project: Project;
+  views: View[];
+  nodes: ApiNode[];
+  edges: ApiEdge[];
+  catalog: Catalog;
+};
+
 /** Domain-Pack: thematisches Bündel aus Kategorien, Feldern und Kantenarten. */
 export type Pack = {
   id: string;

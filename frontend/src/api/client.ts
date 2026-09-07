@@ -11,6 +11,8 @@ import type {
   Pack,
   Project,
   ProjectPatch,
+  SharedProject,
+  ShareLink,
   Template,
   User,
   View,
@@ -124,6 +126,24 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(options ?? {}),
     }),
+
+  // ── Freigabelinks (read-only) ─────────────────────────────────
+  listShares: (projectId: string) =>
+    request<ShareLink[]>(`/projects/${encodeURIComponent(projectId)}/shares`),
+  /** Die Antwort enthält das Klartext-Token — es ist danach nicht mehr abrufbar. */
+  createShare: (projectId: string, data: { label?: string; expiresAt?: string | null }) =>
+    request<ShareLink>(`/projects/${encodeURIComponent(projectId)}/shares`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  revokeShare: (projectId: string, shareId: string) =>
+    request<{ revoked: number }>(
+      `/projects/${encodeURIComponent(projectId)}/shares/${encodeURIComponent(shareId)}`,
+      { method: 'DELETE' }
+    ),
+  /** Öffentlich, ohne Anmeldung: der Lesestand eines freigegebenen Projekts. */
+  sharedProject: (token: string) =>
+    request<SharedProject>(`/share/${encodeURIComponent(token)}`),
 
   // ── Bilder (eigene Icons, Bilder in Notizen) ──────────────────
   listAssets: () => request<Asset[]>('/assets'),

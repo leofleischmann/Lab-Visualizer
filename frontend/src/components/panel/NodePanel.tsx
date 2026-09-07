@@ -126,6 +126,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
   const duplicateNode = useGraphStore((s) => s.duplicateNode);
   const createDetailView = useGraphStore((s) => s.createDetailView);
   const setActiveView = useGraphStore((s) => s.setActiveView);
+  const readOnly = useGraphStore((s) => s.readOnly);
 
   const linkedView = views.find((v) => v.id === entity.linkedViewId) ?? null;
 
@@ -238,6 +239,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
           <Field label="Kategorie">
             <select
               value={draft.category}
+              disabled={readOnly}
               onChange={(e) => {
                 if (e.target.value === '__custom__') {
                   const input = window.prompt(
@@ -282,6 +284,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
           <Field label="Status">
             <select
               value={draft.status}
+              disabled={readOnly}
               onChange={(e) => set('status', e.target.value)}
               className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 focus:border-sky-500 focus:outline-none"
             >
@@ -297,6 +300,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
         <Field label="Icon">
           <button
             type="button"
+            disabled={readOnly}
             onClick={() => setPickingIcon(true)}
             className="flex w-full items-center gap-2 rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-left text-xs text-slate-300 transition-colors hover:border-sky-500 hover:text-sky-200"
           >
@@ -326,6 +330,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
         <Field label="Zone / Gruppe">
           <select
             value={draft.parentId}
+            disabled={readOnly}
             onChange={(e) => set('parentId', e.target.value)}
             className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 focus:border-sky-500 focus:outline-none"
           >
@@ -378,6 +383,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
                 >
                   <Layers size={12} /> Ebene öffnen
                 </button>
+                {!readOnly && (
                 <button
                   type="button"
                   onClick={() => void saveNode(entity.id, { linkedViewId: null })}
@@ -385,8 +391,11 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
                 >
                   <X size={12} /> Verknüpfung entfernen
                 </button>
+                )}
               </div>
             </div>
+          ) : readOnly ? (
+            <p className="text-[11px] text-slate-600">Keine Detailebene verknüpft.</p>
           ) : (
             <div className="space-y-2">
               <button
@@ -444,6 +453,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
         />
       )}
 
+      {!readOnly && (
       <footer className="flex items-center gap-2 border-t border-slate-800 px-4 py-3">
         <button
           type="button"
@@ -470,6 +480,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
           <Trash2 size={14} /> Löschen
         </button>
       </footer>
+      )}
     </div>
   );
 }

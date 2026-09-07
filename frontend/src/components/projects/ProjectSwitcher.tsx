@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import clsx from 'clsx';
-import { Check, ChevronDown, Settings2, Plus, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, Settings2, Plus, Share2, Trash2 } from 'lucide-react';
 import type { Project } from '../../api/types';
 import { EntityIcon } from '../../lib/icons';
 import { useGraphStore } from '../../store/graph';
 import { NewProjectDialog } from './NewProjectDialog';
 import { ProjectSettingsDialog } from './ProjectSettingsDialog';
+import { ShareDialog } from '../share/ShareDialog';
 
 /**
  * Projekt-Umschalter in der TopBar: wechselt zwischen komplett getrennten
@@ -23,6 +24,7 @@ export function ProjectSwitcher() {
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Project | null>(null);
+  const [sharing, setSharing] = useState<Project | null>(null);
   const active = projects.find((p) => p.id === activeProjectId) ?? null;
 
   const del = async (id: string, name: string) => {
@@ -96,6 +98,17 @@ export function ProjectSwitcher() {
                   <button
                     type="button"
                     onClick={() => {
+                      setSharing(p);
+                      setOpen(false);
+                    }}
+                    title="Read-only teilen"
+                    className="rounded p-1 text-slate-500 opacity-0 transition-opacity hover:bg-slate-700 hover:text-sky-300 group-hover:opacity-100"
+                  >
+                    <Share2 size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
                       setEditing(p);
                       setOpen(false);
                     }}
@@ -135,6 +148,7 @@ export function ProjectSwitcher() {
       {editing && (
         <ProjectSettingsDialog project={editing} onClose={() => setEditing(null)} />
       )}
+      {sharing && <ShareDialog project={sharing} onClose={() => setSharing(null)} />}
     </div>
   );
 }

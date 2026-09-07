@@ -1,5 +1,6 @@
 import clsx from 'clsx';
 import { Check } from 'lucide-react';
+import { useReadOnly } from '../panel/controls';
 
 /**
  * Farbwahl aus einer festen Palette.
@@ -35,10 +36,15 @@ export function ColorPicker({
   onChange: (color: string | null) => void;
   defaultLabel?: string;
 }) {
+  const readOnly = useReadOnly();
+  // Im Lesemodus nur die gesetzte Farbe zeigen, nicht die ganze Palette.
+  const swatches = readOnly ? PALETTE.filter((c) => c === value) : PALETTE;
   return (
     <div className="flex flex-wrap items-center gap-1.5">
+      {(!readOnly || value === null) && (
       <button
         type="button"
+        disabled={readOnly}
         onClick={() => onChange(null)}
         title={defaultLabel}
         className={clsx(
@@ -50,10 +56,12 @@ export function ColorPicker({
       >
         {defaultLabel}
       </button>
-      {PALETTE.map((color) => (
+      )}
+      {swatches.map((color) => (
         <button
           key={color}
           type="button"
+          disabled={readOnly}
           onClick={() => onChange(color)}
           title={color}
           className={clsx(

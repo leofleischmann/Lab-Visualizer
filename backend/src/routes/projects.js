@@ -1,6 +1,11 @@
 import { Router } from 'express';
 import * as store from '../store.js';
-import { projectCreateSchema, projectUpdateSchema, parseOrThrow } from '../validation.js';
+import {
+  projectCreateSchema,
+  projectUpdateSchema,
+  shareCreateSchema,
+  parseOrThrow,
+} from '../validation.js';
 import { buildCatalog } from '../catalog/index.js';
 import { getTemplate } from '../templates/index.js';
 import { applyTemplate } from '../templates/apply.js';
@@ -52,6 +57,25 @@ export function projectsRouter(db) {
   router.get('/:id/catalog', (req, res) => {
     const project = store.getProject(db, req.userId, req.params.id);
     res.json(buildCatalog(project.packs));
+  });
+
+  // ── Freigabelinks ─────────────────────────────────────────────
+  // GET /api/projects/:id/shares — bestehende Links (ohne Token!)
+  router.get('/:id/shares', (req, res) => {
+    res.json(store.listShareLinks(db, req.userId, req.params.id));
+  });
+
+  // POST /api/projects/:id/shares — legt einen Link an. Das Klartext-Token
+  // steht NUR in dieser einen Antwort; gespeichert wird nur sein Hash.
+  router.post('/:id/shares', (req, res) => {
+    const data = parseOrThrow(shareCreateSchema, req.body ?? {});
+    res.status(201).json(store.createShareLink(db, req.userId, req.params.id, data));
+  });
+
+  // DELETE /api/projects/:id/shares/:shareId — Link widerrufen
+  router.delete('/:id/shares/:shareId', (req, res) => {
+    store.getProject(db, req.userId, req.params.id); // 404, falls fremd
+    res.json(store.deleteShareLink(db, req.userId, req.params.shareId));
   });
 
   const update = (req, res) => {

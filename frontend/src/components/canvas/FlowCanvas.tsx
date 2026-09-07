@@ -50,12 +50,13 @@ export function FlowCanvas() {
   const onEdgesChange = useGraphStore((s) => s.onEdgesChange);
   const connect = useGraphStore((s) => s.connect);
   const reconnectEdge = useGraphStore((s) => s.reconnectEdge);
+  // Leseansicht eines Freigabelinks: ansehen und aufklappen ja, ändern nein.
+  const readOnly = useGraphStore((s) => s.readOnly);
   const syncSelection = useGraphStore((s) => s.syncSelection);
   const setHoverNode = useGraphStore((s) => s.setHoverNode);
   const removeNode = useGraphStore((s) => s.removeNode);
   const removeEdge = useGraphStore((s) => s.removeEdge);
   const createNode = useGraphStore((s) => s.createNode);
-  const drillInto = useGraphStore((s) => s.drillInto);
 
   const { screenToFlowPosition, getViewport } = useReactFlow();
   const [guides, setGuides] = useState<AlignmentGuide[]>([]);
@@ -70,16 +71,17 @@ export function FlowCanvas() {
   const handleNodeMouseLeave = useCallback(() => setHoverNode(null), [setHoverNode]);
 
   // Doppelklick auf ein Portal-Node → in dessen verlinkte Detailebene wechseln.
-  const handleNodeDoubleClick = useCallback(
-    (_event: React.MouseEvent, node: FlowNode) => {
-      if (node.data.entity.linkedViewId) void drillInto(node.id);
-    },
-    [drillInto]
-  );
-
   /** Node-Drag: an Kanten/Zentren anderer Nodes ausrichten (Hilfslinien). */
   const handleNodesChange = useCallback(
     (changes: NodeChange<FlowNode>[]) => {
+      // Leseansicht: Auswahl MUSS durch, sonst öffnet das Detail-Panel nicht
+      // (React Flow verwaltet die Auswahl sonst nur intern und der Store
+      // erfährt nichts davon). Positionsänderungen werden hier verworfen —
+      // `persistPositions` würde sonst schreiben wollen.
+      if (readOnly) {
+        onNodesChange(changes.filter((c) => c.type !== 'position'));
+        return;
+      }
       const dragChanges = changes.filter(
         (c) => c.type === 'position' && c.dragging && c.position
       );
@@ -118,7 +120,7 @@ export function FlowCanvas() {
 
       onNodesChange(changes);
     },
-    [getViewport, nodes, onNodesChange]
+    [getViewport, nodes, onNodesChange, readOnly]
   );
 
   const handleSelectionChange = useCallback(
@@ -212,23 +214,36 @@ export function FlowCanvas() {
       edgeTypes={edgeTypes}
       onNodesChange={handleNodesChange}
       onEdgesChange={onEdgesChange}
-      onConnect={connect}
-      onReconnect={handleReconnect}
+      onConnect={readOnly ? undefined : connect}
+      onReconnect={readOnly ? undefined : handleReconnect}
+      // React Flow haengt den Doppelklick-Weg an die Ziehbarkeit: mit
+      // nodesDraggable={false} feuert onNodeDoubleClick nicht mehr. Der
+      // Drill-down sitzt deshalb in den Node-Komponenten selbst (InfraNode,
+      // ZoneNode) und funktioniert in beiden Betriebsarten gleich.
+      nodesDraggable={!readOnly}
+      nodesConnectable={!readOnly}
+      edgesFocusable={!readOnly}
+      // Auswählen bleibt erlaubt: nur so lässt sich das Detail-Panel öffnen.
+      elementsSelectable
       onSelectionChange={handleSelectionChange}
-      onBeforeDelete={handleBeforeDelete}
-      onNodesDelete={handleNodesDelete}
-      onEdgesDelete={handleEdgesDelete}
+      onBeforeDelete={readOnly ? undefined : handleBeforeDelete}
+      onNodesDelete={readOnly ? undefined : handleNodesDelete}
+      onEdgesDelete={readOnly ? undefined : handleEdgesDelete}
       onNodeMouseEnter={handleNodeMouseEnter}
       onNodeMouseLeave={handleNodeMouseLeave}
-      onNodeDoubleClick={handleNodeDoubleClick}
-      onDragOver={handleDragOver}
-      onDrop={handleDrop}
+      onDragOver={readOnly ? undefined : handleDragOver}
+      onDrop={readOnly ? undefined : handleDrop}
       defaultEdgeOptions={{ type: 'infra' }}
       connectionMode={ConnectionMode.Loose}
       connectionLineType={ConnectionLineType.SmoothStep}
       connectionLineStyle={{ stroke: '#38bdf8', strokeWidth: 1.5 }}
       connectionRadius={36}
-      deleteKeyCode={['Delete', 'Backspace']}
+      deleteKeyCode={readOnly ? null : ['Delete', 'Backspace']}
+      // Doppelklick gehoert dem Drill-down, nicht dem Zoom. Ohne das zoomt die
+      // Flaeche beim zweiten Klick weg und der Node bekommt das Ereignis nie
+      // (in der Leseansicht faellt das auf, weil ReactFlows eigener
+      // Doppelklick-Weg dort ohnehin nicht greift).
+      zoomOnDoubleClick={false}
       fitView
       fitViewOptions={{ padding: 0.15 }}
       minZoom={0.08}
