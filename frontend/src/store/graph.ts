@@ -7,6 +7,7 @@ import {
   type NodeChange,
 } from '@xyflow/react';
 import { api, ApiRequestError } from '../api/client';
+import { isRoutingCustomized } from '../lib/edge/routing';
 import { useAuthStore } from './auth';
 import type {
   ApiEdge,
@@ -940,9 +941,52 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   },
 
   autoLayout: async () => {
+    const viewId = get().activeViewId;
+    if (!viewId) return false;
+    // Zustand VOR dem Layout sichern. Auto-Align ordnet nicht nur Nodes neu:
+    // es setzt auch Zonengrössen UND verwirft manuelles Kanten-Routing
+    // (applyLayout in backend/src/store.js). Ein Undo muss alle drei
+    // zurückholen, sonst bleibt die Handarbeit an den Kanten verloren.
+    const before = get().nodes.map((n) => ({
+      id: n.id,
+      x: n.data.entity.position.x,
+      y: n.data.entity.position.y,
+      width: n.data.entity.width,
+      height: n.data.entity.height,
+      isZone: n.data.entity.category === 'group',
+    }));
+    const routings = get()
+      .edges.map((e) => e.data!.entity)
+      .filter((e) => isRoutingCustomized(e.routing))
+      .map((e) => ({ id: e.id, routing: e.routing }));
+
     try {
-      await api.autoLayout({ viewId: get().activeViewId ?? undefined });
+      await api.autoLayout({ viewId });
       await get().reload();
+      get().record({
+        label: 'Auto-Align',
+        viewId,
+        undo: async () => {
+          // Zonen über updateNode: der Positions-Endpunkt lässt `width`/`height`
+          // per coalesce unangetastet, wenn null übergeben wird — eine Zone, die
+          // vorher KEINE Grösse hatte, behielte sonst die vom Layout gesetzte.
+          const zones = before.filter((b) => b.isZone);
+          const rest = before.filter((b) => !b.isZone);
+          if (rest.length) {
+            await api.updatePositions(rest.map(({ id, x, y }) => ({ id, x, y })));
+          }
+          for (const z of zones) {
+            await api.updateNode(z.id, {
+              position: { x: z.x, y: z.y },
+              width: z.width,
+              height: z.height,
+            });
+          }
+          for (const r of routings) await api.updateEdge(r.id, { routing: r.routing });
+        },
+        // Das Layout ist deterministisch — dieselbe Ebene ergibt dasselbe Ergebnis.
+        redo: async () => void (await api.autoLayout({ viewId })),
+      });
       return true;
     } catch (err) {
       fail(err);

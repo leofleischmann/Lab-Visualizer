@@ -11,33 +11,49 @@
  * 6. Überlappende Koordinaten werden aufgelöst
  */
 
+/**
+ * Massangaben in Canvas-Pixeln.
+ *
+ * NODE_W/NODE_H sind die TATSAECHLICHE Groesse eines Nodes in der UI und muessen
+ * zu frontend/src/components/canvas/InfraNode.tsx passen (dort `w-[230px]`; die
+ * Hoehe schwankt je nach angezeigten Feldern zwischen ~64 und ~92 px, hier
+ * bewusst der obere Wert). Aendert sich die Node-Breite im Frontend, gehoert
+ * dieser Wert nachgezogen — sonst stimmen alle Abstaende nicht mehr.
+ *
+ * Die uebrigen Werte sind ABSTAENDE, keine Groessen:
+ *   CELL_X/CELL_Y   Rasterschritt fuer Kinder in einer Zone (Node + Luecke)
+ *   PAD / PAD_TOP   Innenabstand einer Zone; oben mehr wegen des Zonentitels
+ *   ENTITY_GAP_X    Luecke zwischen zwei Einheiten derselben Schicht
+ *   LAYER_GAP_Y     Luecke zwischen zwei Schichten (Platz fuer Kantenlabels)
+ *
+ * Die Schrittweiten ergeben sich daraus als NODE_W + ENTITY_GAP_X = 350 bzw.
+ * NODE_H + LAYER_GAP_Y = 222 und entsprechen damit dem von Hand gesetzten
+ * Beispielprojekt (300-360 bzw. 180-200).
+ */
 const PROFILES = {
   default: {
+    NODE_W: 230,
+    NODE_H: 92,
     CELL_X: 340,
     CELL_Y: 180,
-    PAD_X: 56,
-    PAD_Y: 80,
-    ENTITY_GAP_X: 160,
-    LAYER_GAP_Y: 220,
+    PAD: 56,
+    PAD_TOP: 80,
+    ENTITY_GAP_X: 120,
+    LAYER_GAP_Y: 130,
     LANE_STEP: 28,
   },
   wide: {
+    NODE_W: 230,
+    NODE_H: 92,
     CELL_X: 420,
     CELL_Y: 220,
-    PAD_X: 72,
-    PAD_Y: 96,
-    ENTITY_GAP_X: 200,
-    LAYER_GAP_Y: 280,
+    PAD: 72,
+    PAD_TOP: 96,
+    ENTITY_GAP_X: 190,
+    LAYER_GAP_Y: 190,
     LANE_STEP: 36,
   },
 };
-
-export const CELL_X = PROFILES.default.CELL_X;
-export const CELL_Y = PROFILES.default.CELL_Y;
-export const PAD_X = PROFILES.default.PAD_X;
-export const PAD_Y = PROFILES.default.PAD_Y;
-export const ENTITY_GAP_X = PROFILES.default.ENTITY_GAP_X;
-export const LAYER_GAP_Y = PROFILES.default.LAYER_GAP_Y;
 
 function isGroup(node) {
   return node.category === 'group';
@@ -340,15 +356,13 @@ function externalOutCount(nodeId, edges, childSet) {
 }
 
 function layoutZoneChildren(parentId, childIds, edges, byId, entityOrder, maxCols, metrics) {
-  const { CELL_X, CELL_Y, PAD_X, PAD_Y, LANE_STEP } = metrics;
+  const { NODE_W, NODE_H, CELL_X, CELL_Y, PAD, PAD_TOP, LANE_STEP } = metrics;
   if (!childIds.length) {
-    return { positions: new Map(), width: 400, height: 200 };
+    return { positions: new Map(), width: PAD * 2 + NODE_W, height: PAD_TOP + PAD + NODE_H };
   }
 
   const { adj, rev, hasInternal, childSet } = buildIntraZoneGraph(childIds, edges);
   const positions = new Map();
-  let width = 0;
-  let height = 0;
 
   if (hasInternal) {
     const columns = assignIntraZoneColumns(childIds, adj, rev).map((column) =>
@@ -357,43 +371,46 @@ function layoutZoneChildren(parentId, childIds, edges, byId, entityOrder, maxCol
         (id) => childDegree(id, adj, rev, edges, childSet)
       )
     );
-    let x = PAD_X;
-    let maxHeight = 0;
+    let x = PAD;
     for (const column of columns) {
-      let y = PAD_Y;
+      let y = PAD_TOP;
       for (const id of column) {
         positions.set(id, { x, y });
         y += CELL_Y + externalOutCount(id, edges, childSet) * LANE_STEP;
       }
-      maxHeight = Math.max(maxHeight, y + 48);
       x += CELL_X;
     }
-    width = x + PAD_X;
-    height = maxHeight;
   } else {
     const ordered = orderByCenterHeavy(
       orderRowIds(childIds, edges, byId, parentId, entityOrder, adj, rev, childSet),
       (id) => childDegree(id, adj, rev, edges, childSet)
     );
     const rows = chunkRow(ordered, defaultCols(ordered.length, maxCols));
-    let y = PAD_Y;
-    let maxRowWidth = 0;
+    let y = PAD_TOP;
     for (const row of rows) {
       const centered = orderByCenterHeavy(row, (id) => childDegree(id, adj, rev, edges, childSet));
-      let x = PAD_X;
+      let x = PAD;
       for (const id of centered) {
         positions.set(id, { x, y });
         x += CELL_X;
       }
-      maxRowWidth = Math.max(maxRowWidth, x + PAD_X);
       y += CELL_Y;
     }
-    width = maxRowWidth;
-    height = y + 48;
   }
 
   resolveOverlaps(positions, CELL_X, CELL_Y);
-  return { positions, width, height };
+
+  // Groesse aus den tatsaechlichen Kindpositionen, NACH dem Aufloesen von
+  // Ueberlappungen. Frueher wurde der volle Rasterschritt der letzten Spalte
+  // bzw. Zeile mitgezaehlt — die Zone war dadurch rechts und unten um fast
+  // eine ganze Zelle zu gross.
+  let maxRight = 0;
+  let maxBottom = 0;
+  for (const { x, y } of positions.values()) {
+    maxRight = Math.max(maxRight, x + NODE_W);
+    maxBottom = Math.max(maxBottom, y + NODE_H);
+  }
+  return { positions, width: maxRight + PAD, height: maxBottom + PAD };
 }
 
 export function computeLayout(nodes, edges, options = {}) {
@@ -430,15 +447,20 @@ export function computeLayout(nodes, edges, options = {}) {
       entitySize.set(entityId, { width, height });
       childLayout.set(entityId, positions);
     } else if (isGroup(node)) {
+      // Leere Zone: Platz fuer genau einen Node, damit sie sichtbar bleibt.
       entitySize.set(entityId, {
-        width: profile.PAD_X * 2 + profile.CELL_X,
-        height: profile.PAD_Y * 2 + profile.CELL_Y + 48,
+        width: profile.PAD * 2 + profile.NODE_W,
+        height: profile.PAD_TOP + profile.PAD + profile.NODE_H,
       });
     } else {
-      entitySize.set(entityId, {
-        width: profile.CELL_X + profile.PAD_X * 2,
-        height: profile.CELL_Y + profile.PAD_Y * 2,
-      });
+      // Freistehender Node: seine Grundflaeche ist die des Nodes, sonst nichts.
+      // Frueher standen hier CELL_* (Rasterschritt, enthaelt schon eine Luecke)
+      // PLUS PAD_* (Innenabstand einer Zone) — beides fuer einen blanken Node
+      // bedeutungslos. Zusammen mit ENTITY_GAP_X/LAYER_GAP_Y wurde die
+      // Grundflaeche dadurch dreifach gezaehlt: 452x340 statt 230x92, was bei
+      // wenigen Nodes zu Luecken von ~380 px waagerecht und ~480 px senkrecht
+      // fuehrte.
+      entitySize.set(entityId, { width: profile.NODE_W, height: profile.NODE_H });
     }
   }
 
