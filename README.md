@@ -78,6 +78,15 @@ Live-Vorschau.
 - **KI-Agenten:** vollständige API-Doku in [AGENTS.md](AGENTS.md)
 - **Suche** — filtert live über Name, IP, Hostname, URL, OS und Custom Fields; die
   globale Suche springt in die richtige Ebene und **zentriert den Treffer**.
+- **Eigene Icons & Bilder** — jedem Node lässt sich statt des Kategorie-Symbols ein
+  **eigenes Bild** geben (PNG, JPEG, WebP, SVG): echte Produktlogos machen ein Diagramm
+  auf einen Blick lesbar. Bilder lassen sich ebenso in **Notizen** einfügen. Sie liegen
+  in der Datenbank dieser Instanz, werden **nie von außen nachgeladen** und reisen im
+  Projekt-Export mit, sodass eine geteilte Kopie ihre Icons behält.
+- **Diagramm als Bild** — die aktuelle Ebene als **PNG** (doppelte Auflösung) oder
+  **SVG** speichern, für Wiki, Ticket oder Folie. Aufgenommen wird immer der *ganze*
+  Graph, unabhängig vom aktuellen Zoom; Auswahl, Fokus-Modus und Suchhervorhebung
+  bleiben draußen. Läuft komplett im Browser.
 - **Export / Import & Projekte teilen** — kompletter Graph als JSON-Backup, einzelne
   Projekte separat exportieren und bei einem anderen Konto **als neues Projekt
   hinzufügen** (Merge-Import, kollisionsfrei mit neuen IDs) — ideal für Teams.
@@ -192,6 +201,8 @@ beschränkt** — fremde IDs verhalten sich wie „nicht vorhanden" (`404`).
 | `GET/PATCH/PUT/DELETE` | `/api/nodes/:id` | Node lesen / ändern / löschen |
 | `POST` | `/api/nodes/positions` | Bulk-Positionsupdate (`{positions:[{id,x,y,width?,height?}]}`) |
 | `GET` | `/api/edges?nodeId=&viewId=&projectId=` | Verbindungen (Filter wie bei `/nodes`) |
+| `GET`/`POST` | `/api/assets` | Bildbibliothek auflisten / hochladen |
+| `GET`/`DELETE` | `/api/assets/:id` | Bild ausliefern / löschen |
 | `POST` | `/api/edges` | Verbindung anlegen (`{sourceId, targetId, …}`) |
 | `GET/PATCH/PUT/DELETE` | `/api/edges/:id` | Verbindung lesen / ändern / löschen |
 
@@ -241,7 +252,8 @@ dann von der Vorlage, `packs` überschreibt sie.
 
 **Node-Felder:** `name` (Pflicht), `category`, `status`
 (`active|inactive|planned|maintenance|error|unknown`), `parentId` (Zone/Gruppe),
-`position{x,y}`, `width/height` (Zonen), `notes` (Markdown), `fields` (String→String,
+`position{x,y}`, `width/height` (Zonen), `icon` (Symbolname oder `asset:<id>`;
+`null` = Kategorie-Symbol), `notes` (Markdown), `fields` (String→String,
 Schlüssel und Typen aus `/api/meta/catalog`), `customFields` (String→String, frei).
 **Edge-Felder:** `sourceId`, `targetId` (Pflicht), `label`, `kind`, `lineStyle`
 (`solid|dashed|dotted`), `animated`, `notes`, `customFields`.

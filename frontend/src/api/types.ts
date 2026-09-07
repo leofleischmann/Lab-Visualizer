@@ -26,6 +26,20 @@ export type InstanceLimits = {
   maxProjectsPerUser: number | null;
   maxViewsPerProject: number | null;
   maxNodesPerProject: number | null;
+  maxAssetsPerUser: number | null;
+};
+
+/**
+ * Hochgeladenes Bild (eigenes Node-Icon oder Bild in einer Notiz). Die Bytes
+ * kommen nie über diese API, sondern über GET /api/assets/:id — so kann der
+ * Browser sie cachen.
+ */
+export type Asset = {
+  id: string;
+  name: string;
+  mime: string;
+  byteSize: number;
+  createdAt: string;
 };
 
 /** Projekt: komplett getrennter Arbeitsbereich (z. B. „Homelab", „Arbeit"). */
@@ -97,6 +111,11 @@ export type ApiNode = {
   position: Position;
   width: number | null;
   height: number | null;
+  /**
+   * Eigenes Icon statt des Kategorie-Icons: ein Name aus dem Icon-Mapping
+   * (`iconOf`) oder `asset:<id>` für ein hochgeladenes Bild. null = Kategorie.
+   */
+  icon: string | null;
   /**
    * Typisierte Felder (IP, Hostname, Plattform, ...). Welche Schlüssel es gibt,
    * definiert allein der Katalog des Backends (`Catalog.fields`) — das Frontend

@@ -67,6 +67,199 @@ test('health check', async () => {
   assert.equal(res.body.status, 'ok');
 });
 
+// ── Bilder (eigene Icons, Bilder in Notizen) ────────────────────
+
+/** 1x1-PNG, das kleinste gueltige Bild. */
+const PNG_DATA_URL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+const svgDataUrl = (body = '<svg xmlns="http://www.w3.org/2000/svg"/>') =>
+  `data:image/svg+xml;base64,${Buffer.from(body).toString('base64')}`;
+
+test('assets: Typ kommt aus den Magic Bytes, nicht aus der Angabe des Clients', async () => {
+  const { call, close } = await freshApp();
+  try {
+    const png = await call('POST', '/api/assets', { name: 'Logo.png', dataUrl: PNG_DATA_URL });
+    assert.equal(png.status, 201);
+    assert.equal(png.body.mime, 'image/png');
+
+    // Ein als PNG deklariertes SVG wird als SVG erkannt. Wuerde die Angabe des
+    // Clients uebernommen, liefe ein aktives Format unter falscher Flagge.
+    const disguised = await call('POST', '/api/assets', {
+      name: 'getarnt.png',
+      dataUrl: `data:image/png;base64,${Buffer.from('<svg onload="alert(1)"/>').toString('base64')}`,
+    });
+    assert.equal(disguised.status, 201);
+    assert.equal(disguised.body.mime, 'image/svg+xml');
+
+    // Was kein Bild ist, wird abgelehnt.
+    for (const payload of [
+      `data:text/html;base64,${Buffer.from('<html><script>x</script></html>').toString('base64')}`,
+      `data:application/json;base64,${Buffer.from('{"a":1}').toString('base64')}`,
+      'kein-data-url',
+    ]) {
+      assert.equal(
+        (await call('POST', '/api/assets', { name: 'x', dataUrl: payload })).status,
+        400,
+        `${payload.slice(0, 30)} haette abgelehnt werden muessen`
+      );
+    }
+  } finally {
+    close();
+  }
+});
+
+test('assets: Ausliefern setzt die Header, die einen direkten Aufruf entschaerfen', async () => {
+  const { base, cookie, close } = await freshApp();
+  try {
+    const created = await fetch(`${base}/api/assets`, {
+      method: 'POST',
+      headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Kreis.svg', dataUrl: svgDataUrl() }),
+    }).then((r) => r.json());
+
+    const res = await fetch(`${base}/api/assets/${created.id}`, { headers: { Cookie: cookie } });
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('content-type'), 'image/svg+xml');
+    // Ohne diese drei koennte ein direkt aufgerufenes SVG Skripte ausfuehren.
+    assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+    const csp = res.headers.get('content-security-policy');
+    assert.ok(csp?.includes("default-src 'none'"), `CSP fehlt: ${csp}`);
+    assert.ok(csp?.includes('sandbox'), `sandbox fehlt: ${csp}`);
+    assert.ok(res.headers.get('cache-control')?.includes('immutable'));
+
+    // Unveraendert -> 304, der Browser spart die Bytes.
+    const etag = res.headers.get('etag');
+    const again = await fetch(`${base}/api/assets/${created.id}`, {
+      headers: { Cookie: cookie, 'If-None-Match': etag },
+    });
+    assert.equal(again.status, 304);
+  } finally {
+    close();
+  }
+});
+
+test('assets: gehören genau einem Konto', async () => {
+  const a = await freshApp();
+  const b = await freshApp();
+  try {
+    const mine = (await a.call('POST', '/api/assets', { name: 'm.png', dataUrl: PNG_DATA_URL })).body;
+    // Fremdes Konto sieht es weder in der Liste noch beim direkten Zugriff.
+    assert.deepEqual((await b.call('GET', '/api/assets')).body, []);
+    assert.equal((await b.call('GET', `/api/assets/${mine.id}`)).status, 404);
+    assert.equal((await b.call('DELETE', `/api/assets/${mine.id}`)).status, 404);
+  } finally {
+    a.close();
+    b.close();
+  }
+});
+
+test('assets: Löschen löst die Icon-Referenz, statt sie ins Leere zeigen zu lassen', async () => {
+  const { call, close } = await freshApp();
+  try {
+    const asset = (await call('POST', '/api/assets', { name: 'i.png', dataUrl: PNG_DATA_URL })).body;
+    await call('POST', '/api/nodes', { id: 'mit-icon', name: 'Mit Icon', icon: `asset:${asset.id}` });
+    assert.equal((await call('GET', '/api/nodes/mit-icon')).body.icon, `asset:${asset.id}`);
+
+    const del = await call('DELETE', `/api/assets/${asset.id}`);
+    assert.equal(del.status, 200);
+    assert.equal(del.body.clearedNodes, 1);
+    // Node zeigt wieder das Icon seiner Kategorie.
+    assert.equal((await call('GET', '/api/nodes/mit-icon')).body.icon, null);
+  } finally {
+    close();
+  }
+});
+
+test('assets: Projekt-Export führt nur die genutzten Bilder mit', async () => {
+  const { call, close } = await freshApp();
+  try {
+    const used = (await call('POST', '/api/assets', { name: 'benutzt.png', dataUrl: PNG_DATA_URL })).body;
+    const inNote = (await call('POST', '/api/assets', { name: 'notiz.svg', dataUrl: svgDataUrl() })).body;
+    await call('POST', '/api/assets', { name: 'ungenutzt.png', dataUrl: PNG_DATA_URL });
+
+    await call('POST', '/api/nodes', {
+      id: 'n-icon', name: 'Icon', icon: `asset:${used.id}`,
+      notes: `Bild: ![](/api/assets/${inNote.id})`,
+    });
+
+    const projectId = (await call('GET', '/api/projects')).body[0].id;
+    const exported = (await call('GET', `/api/graph/export?projectId=${projectId}`)).body;
+    // Icon UND Notiz-Referenz zaehlen, das ungenutzte Bild nicht.
+    assert.deepEqual(exported.assets.map((a) => a.id).sort(), [used.id, inNote.id].sort());
+
+    // Backup-Export (ohne projectId) nimmt die ganze Bibliothek mit.
+    const all = (await call('GET', '/api/graph/export')).body;
+    assert.equal(all.assets.length, 3);
+  } finally {
+    close();
+  }
+});
+
+test('assets: Merge-Import vergibt neue IDs und schreibt Icon und Notiz um', async () => {
+  const a = await freshApp();
+  const b = await freshApp();
+  try {
+    const asset = (await a.call('POST', '/api/assets', { name: 'l.png', dataUrl: PNG_DATA_URL })).body;
+    await a.call('POST', '/api/nodes', {
+      id: 'geteilt', name: 'Geteilt', icon: `asset:${asset.id}`,
+      notes: `![](/api/assets/${asset.id})`,
+    });
+    const projectId = (await a.call('GET', '/api/projects')).body[0].id;
+    const exported = (await a.call('GET', `/api/graph/export?projectId=${projectId}`)).body;
+
+    // Anderes Konto importiert additiv.
+    assert.equal((await b.call('POST', '/api/graph/import', { mode: 'merge', ...exported })).status, 200);
+    const copied = (await b.call('GET', '/api/assets')).body;
+    assert.equal(copied.length, 1);
+    assert.notEqual(copied[0].id, asset.id, 'IDs müssen neu vergeben werden');
+
+    const node = (await b.call('GET', '/api/nodes')).body.find((n) => n.name === 'Geteilt');
+    assert.equal(node.icon, `asset:${copied[0].id}`);
+    assert.ok(node.notes.includes(`/api/assets/${copied[0].id}`), 'Notiz nicht umgeschrieben');
+    assert.ok(!node.notes.includes(asset.id), 'alte Bild-ID steht noch in der Notiz');
+    // Und das Bild ist beim neuen Konto auch wirklich abrufbar. Roher fetch,
+    // weil der Test-Helfer jede Antwort als JSON liest — hier kommen Bytes.
+    const served = await fetch(`${b.base}/api/assets/${copied[0].id}`, {
+      headers: { Cookie: b.cookie },
+    });
+    assert.equal(served.status, 200);
+    assert.equal(served.headers.get('content-type'), 'image/png');
+  } finally {
+    a.close();
+    b.close();
+  }
+});
+
+test('assets: zu grosse Datei wird abgelehnt', async () => {
+  const app = await freshApp();
+  try {
+    await withLimits({ MAX_ASSET_BYTES: 100 }, async () => {
+      const big = `data:image/png;base64,${Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        Buffer.alloc(500),
+      ]).toString('base64')}`;
+      const res = await app.call('POST', '/api/assets', { name: 'gross.png', dataUrl: big });
+      assert.equal(res.status, 413);
+    });
+  } finally {
+    app.close();
+  }
+});
+
+test('assets: MAX_ASSETS_PER_USER begrenzt die Bibliothek', async () => {
+  const app = await freshApp();
+  try {
+    await withLimits({ MAX_ASSETS_PER_USER: 1 }, async () => {
+      assert.equal((await app.call('POST', '/api/assets', { name: 'a.png', dataUrl: PNG_DATA_URL })).status, 201);
+      const second = await app.call('POST', '/api/assets', { name: 'b.png', dataUrl: PNG_DATA_URL });
+      assert.equal(second.status, 403);
+      assert.equal(second.body.code, 'limit_reached');
+    });
+  } finally {
+    app.close();
+  }
+});
+
 // ── Domain-Packs & Templates ────────────────────────────────────
 
 test('packs: Projekt sieht nur die Kategorien/Felder seiner Packs', async () => {
@@ -1256,6 +1449,7 @@ test('limits: Standard ist unbegrenzt — ohne Env greift keine Grenze', async (
       maxProjectsPerUser: null,
       maxViewsPerProject: null,
       maxNodesPerProject: null,
+      maxAssetsPerUser: null,
     });
   } finally {
     app.close();
@@ -1469,6 +1663,7 @@ test('auth: /me liefert Nutzer + Instanz-Limits; Passwort ändern beendet andere
       maxProjectsPerUser: null,
       maxViewsPerProject: null,
       maxNodesPerProject: null,
+      maxAssetsPerUser: null,
     });
     const cookie1 = reg.setCookie.split(';')[0];
 

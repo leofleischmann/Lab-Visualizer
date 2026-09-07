@@ -215,6 +215,8 @@ type GraphStore = {
   importGraph: (payload: GraphPayload, mode?: 'replace' | 'merge') => Promise<boolean>;
   clearGraph: () => Promise<boolean>;
   autoLayout: () => Promise<boolean>;
+  /** Führt `fn` aus, während flüchtige Bedienzustände neutralisiert sind. */
+  withNeutralCanvas: <T>(fn: () => Promise<T>) => Promise<T>;
 
   record: (entry: HistoryEntry) => void;
   undo: () => Promise<void>;
@@ -793,6 +795,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       position: { x: source.position.x + 40, y: source.position.y + 40 },
       width: source.width,
       height: source.height,
+      icon: source.icon,
       fields: { ...source.fields },
       notes: source.notes,
       customFields: { ...source.customFields },
@@ -991,6 +994,43 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     } catch (err) {
       fail(err);
       return false;
+    }
+  },
+
+  /**
+   * Auswahl, Fokus-Modus und Suchhervorhebung für die Dauer von `fn` abschalten.
+   *
+   * Gedacht für den Bildexport: ohne das landet der aktuelle Bedienzustand im
+   * Dokument — ein ausgewählter Node behält seinen Rahmen, und der Fokus-Modus
+   * dimmt alles ausserhalb der Nachbarschaft auf 30 % herunter. Das Bild soll
+   * das Diagramm zeigen, nicht, wo gerade der Mauszeiger stand.
+   *
+   * Beeinflusst: components/canvas/InfraNode.tsx (dimmt anhand von `focus` und
+   * `search`), components/DataMenu.tsx (Bildexport).
+   */
+  withNeutralCanvas: async (fn) => {
+    const { selection, focus, hoverNodeId, search, nodes } = get();
+    const hadSelection = nodes.some((n) => n.selected);
+    set({
+      selection: null,
+      focus: null,
+      hoverNodeId: null,
+      search: '',
+      nodes: hadSelection ? nodes.map((n) => ({ ...n, selected: false })) : nodes,
+    });
+    // Übergänge stilllegen: sonst entsteht das Bild mitten in der
+    // Opazitäts-Animation und gerade abgewählte Nodes sind noch halb
+    // durchsichtig (Regel `.labviz-capturing` in index.css).
+    document.body.classList.add('labviz-capturing');
+    // Zwei Frames warten, damit React die Änderung gezeichnet UND der Browser
+    // sie mit abgeschalteten Übergängen angewendet hat — html-to-image liest
+    // das DOM, nicht den State.
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    try {
+      return await fn();
+    } finally {
+      document.body.classList.remove('labviz-capturing');
+      set({ selection, focus, hoverNodeId, search, nodes });
     }
   },
 

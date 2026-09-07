@@ -9,6 +9,7 @@ import { viewsRouter } from './routes/views.js';
 import { nodesRouter } from './routes/nodes.js';
 import { edgesRouter } from './routes/edges.js';
 import { graphRouter } from './routes/graph.js';
+import { assetsRouter } from './routes/assets.js';
 import { metaRouter } from './routes/meta.js';
 import { assertLimitsAllowRegistration } from './limits.js';
 import { SEED_FOOTPRINT } from './seed.js';
@@ -72,6 +73,7 @@ export function createApp({ dbFile } = {}) {
   app.use('/api/nodes', auth, nodesRouter(db));
   app.use('/api/edges', auth, edgesRouter(db));
   app.use('/api/graph', auth, graphRouter(db));
+  app.use('/api/assets', auth, assetsRouter(db));
 
   app.use('/api', (req, res) => {
     res.status(404).json({ error: `Unbekannter Endpunkt: ${req.method} ${req.originalUrl}` });

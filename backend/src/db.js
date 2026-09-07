@@ -21,6 +21,22 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 
+-- Hochgeladene Bilder (eigene Node-Icons, Bilder in Notizen).
+-- Bewusst IN der Datenbank statt auf der Platte: Projekte werden als JSON
+-- zwischen Konten geteilt (Merge-Import). Lägen die Bilder daneben im
+-- Dateisystem, verlöre eine geteilte Kopie ihre Icons; so reisen sie im Export
+-- mit und das Backup bleibt "Datei kopieren".
+CREATE TABLE IF NOT EXISTS assets (
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name       TEXT NOT NULL,
+  mime       TEXT NOT NULL,
+  byte_size  INTEGER NOT NULL,
+  bytes      BLOB NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_assets_user ON assets(user_id);
+
 CREATE TABLE IF NOT EXISTS projects (
   id            TEXT PRIMARY KEY,
   user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -64,6 +80,10 @@ CREATE TABLE IF NOT EXISTS nodes (
   pos_y          REAL NOT NULL DEFAULT 0,
   width          REAL,
   height         REAL,
+  -- Eigenes Icon statt des Kategorie-Icons. Entweder ein Name aus dem
+  -- Icon-Mapping des Frontends (z. B. 'server') oder 'asset:<id>' fuer ein
+  -- hochgeladenes Bild. NULL = Icon der Kategorie.
+  icon           TEXT,
   -- Typisierte Felder (IP, Hostname, Plattform, ...) als JSON-Objekt. Die Struktur
   -- definiert ausschliesslich backend/src/catalog/ (Kern + Domain-Packs) -- ein Feld
   -- kostet dort einen Eintrag und hier KEINE Schemaaenderung.

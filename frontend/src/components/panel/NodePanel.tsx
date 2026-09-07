@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Copy, Layers, Plus, Save, Trash2, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Copy, ImagePlus, Layers, Plus, Save, Trash2, X } from 'lucide-react';
 import clsx from 'clsx';
 import type { ApiNode, FieldDef, NodePatch } from '../../api/types';
 import {
   categoryOf,
   groupedCategories,
   groupedFields,
-  iconOf,
   isInactiveCategory,
   orphanFields,
   ORPHAN_GROUP,
 } from '../../lib/catalog';
+import { EntityIcon } from '../../lib/icons';
+import { IconPicker } from './IconPicker';
 import { absolutePosition, useGraphStore } from '../../store/graph';
 import { CustomFieldsEditor, toRecord, toRows, type FieldRow } from './CustomFieldsEditor';
 import { MarkdownEditor } from './MarkdownEditor';
@@ -21,6 +22,8 @@ type Draft = {
   category: string;
   status: string;
   parentId: string;
+  /** Eigenes Icon; null = Icon der Kategorie. */
+  icon: string | null;
   /** Typisierte Felder (Schlüssel aus dem Backend-Katalog). */
   fields: Record<string, string>;
   notes: string;
@@ -33,6 +36,7 @@ const toDraft = (entity: ApiNode): Draft => ({
   category: entity.category,
   status: entity.status,
   parentId: entity.parentId ?? '',
+  icon: entity.icon,
   fields: { ...entity.fields },
   notes: entity.notes,
   customRows: toRows(entity.customFields),
@@ -129,7 +133,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
   }, [entity.id, entity.updatedAt]);
 
   const category = categoryOf(catalog, draft.category);
-  const Icon = iconOf(category.icon);
+  const [pickingIcon, setPickingIcon] = useState(false);
 
   const zoneOptions = useMemo(
     () =>
@@ -176,6 +180,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
       name: draft.name.trim() || entity.name,
       category: draft.category,
       status: draft.status,
+      icon: draft.icon,
       fields,
       notes: draft.notes,
       customFields: toRecord(draft.customRows),
@@ -210,7 +215,7 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
           style={{ backgroundColor: `${category.color}22`, color: category.color }}
         >
-          <Icon size={18} />
+          <EntityIcon icon={draft.icon ?? category.icon} size={18} />
         </span>
         <div className="min-w-0">
           <h2 className="truncate text-sm font-semibold text-slate-100">{entity.name}</h2>
@@ -282,6 +287,25 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
             </select>
           </Field>
         </div>
+
+        <Field label="Icon">
+          <button
+            type="button"
+            onClick={() => setPickingIcon(true)}
+            className="flex w-full items-center gap-2 rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-left text-xs text-slate-300 transition-colors hover:border-sky-500 hover:text-sky-200"
+          >
+            <span
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded"
+              style={{ backgroundColor: `${category.color}1e`, color: category.color }}
+            >
+              <EntityIcon icon={draft.icon ?? category.icon} size={14} />
+            </span>
+            <span className="flex-1 truncate">
+              {draft.icon ? 'Eigenes Icon' : `Standard (${category.label})`}
+            </span>
+            <ImagePlus size={13} className="shrink-0 text-slate-500" />
+          </button>
+        </Field>
 
         <Field label="Zone / Gruppe">
           <select
@@ -394,6 +418,15 @@ export function NodePanel({ entity }: { entity: ApiNode }) {
           {new Date(entity.updatedAt).toLocaleString('de-DE')}
         </p>
       </div>
+
+      {pickingIcon && (
+        <IconPicker
+          value={draft.icon}
+          fallbackIcon={category.icon}
+          onChange={(icon) => set('icon', icon)}
+          onClose={() => setPickingIcon(false)}
+        />
+      )}
 
       <footer className="flex items-center gap-2 border-t border-slate-800 px-4 py-3">
         <button

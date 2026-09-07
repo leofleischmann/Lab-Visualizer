@@ -3,7 +3,8 @@ import { type NodeProps } from '@xyflow/react';
 import clsx from 'clsx';
 import { Layers } from 'lucide-react';
 import type { FlowNode } from '../../api/types';
-import { categoryOf, iconOf, matchesSearch, nodeBadges, statusOf } from '../../lib/catalog';
+import { categoryOf, matchesSearch, nodeBadges, statusOf } from '../../lib/catalog';
+import { EntityIcon } from '../../lib/icons';
 import { useGraphStore } from '../../store/graph';
 import { ConnectionDropTarget, ConnectionHandles } from './handles';
 
@@ -16,7 +17,8 @@ function InfraNodeComponent({ id, data, selected }: NodeProps<FlowNode>) {
 
   const category = categoryOf(catalog, entity.category);
   const status = statusOf(catalog, entity.status);
-  const Icon = iconOf(category.icon);
+  // Ein eigenes Icon am Node schlaegt das der Kategorie.
+  const icon = entity.icon ?? category.icon;
   const match = search.trim() ? matchesSearch(entity, search.trim()) : null;
   const isPortal = !!entity.linkedViewId;
   const badges = nodeBadges(catalog, entity);
@@ -52,7 +54,7 @@ function InfraNodeComponent({ id, data, selected }: NodeProps<FlowNode>) {
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
           style={{ backgroundColor: `${category.color}22`, color: category.color }}
         >
-          <Icon size={17} strokeWidth={1.8} />
+          <EntityIcon icon={icon} size={17} title={category.label} />
         </span>
         <div className="min-w-0 flex-1">
           <div className="truncate text-[13px] font-semibold leading-tight text-slate-100">

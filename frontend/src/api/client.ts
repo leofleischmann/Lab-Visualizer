@@ -6,6 +6,7 @@ import type {
   GraphPayload,
   NodePatch,
   InstanceLimits,
+  Asset,
   LegalDocument,
   Pack,
   Project,
@@ -123,6 +124,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(options ?? {}),
     }),
+
+  // ── Bilder (eigene Icons, Bilder in Notizen) ──────────────────
+  listAssets: () => request<Asset[]>('/assets'),
+  /** `dataUrl` = base64-Data-URL. Der Typ wird serverseitig an den Magic Bytes
+   *  erkannt, nicht am hier genannten. */
+  createAsset: (name: string, dataUrl: string) =>
+    request<Asset>('/assets', { method: 'POST', body: JSON.stringify({ name, dataUrl }) }),
+  deleteAsset: (id: string) =>
+    request<{ clearedNodes: number }>(`/assets/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   listProjects: () => request<Project[]>('/projects'),
   /** `template` baut zusätzlich den Startinhalt auf (siehe /meta/templates). */
