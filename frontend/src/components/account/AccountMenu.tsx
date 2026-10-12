@@ -1,9 +1,11 @@
 import { useState, type FormEvent } from 'react';
 import {
   AlertTriangle,
+  BookOpen,
   Check,
   ChevronDown,
   KeyRound,
+  KeySquare,
   LogOut,
   RotateCw,
   Trash2,
@@ -12,10 +14,11 @@ import {
 import { useAuthStore } from '../../store/auth';
 import { Modal } from '../ui/Modal';
 import { LegalLinks } from '../ui/LegalLinks';
+import { ApiKeysDialog } from './ApiKeysDialog';
 
 /**
- * Konto-Menü in der TopBar: Passwort ändern, Konto löschen, Abmelden —
- * plus die Obergrenzen dieser Instanz, falls welche gesetzt sind.
+ * Konto-Menü in der TopBar: API-Keys & MCP, API-Doku, Passwort ändern, Konto
+ * löschen, Abmelden - plus die Obergrenzen dieser Instanz, falls welche gesetzt sind.
  */
 export function AccountMenu() {
   const user = useAuthStore((s) => s.user);
@@ -23,7 +26,7 @@ export function AccountMenu() {
   const limits = useAuthStore((s) => s.limits);
 
   const [open, setOpen] = useState(false);
-  const [dialog, setDialog] = useState<'password' | 'delete' | null>(null);
+  const [dialog, setDialog] = useState<'apiKeys' | 'password' | 'delete' | null>(null);
 
   if (!user) return null;
 
@@ -66,10 +69,30 @@ export function AccountMenu() {
             <button
               type="button"
               onClick={() => {
-                setDialog('password');
+                setDialog('apiKeys');
                 setOpen(false);
               }}
               className="mt-1 flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-xs text-slate-300 transition-colors hover:bg-slate-800"
+            >
+              <KeySquare size={13} className="text-slate-500" /> API keys & MCP
+            </button>
+            <a
+              href="/docs"
+              target="_blank"
+              rel="noopener"
+              onClick={() => setOpen(false)}
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-xs text-slate-300 transition-colors hover:bg-slate-800"
+            >
+              <BookOpen size={13} className="text-slate-500" /> API documentation
+            </a>
+            <div className="my-1 border-t border-slate-800" />
+            <button
+              type="button"
+              onClick={() => {
+                setDialog('password');
+                setOpen(false);
+              }}
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-xs text-slate-300 transition-colors hover:bg-slate-800"
             >
               <KeyRound size={13} className="text-slate-500" /> Change password
             </button>
@@ -99,6 +122,7 @@ export function AccountMenu() {
         </>
       )}
 
+      {dialog === 'apiKeys' && <ApiKeysDialog onClose={() => setDialog(null)} />}
       {dialog === 'password' && <PasswordDialog onClose={() => setDialog(null)} />}
       {dialog === 'delete' && <DeleteAccountDialog onClose={() => setDialog(null)} />}
     </div>

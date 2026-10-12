@@ -2,8 +2,11 @@ import express from 'express';
 import cors from 'cors';
 import { createDb, purgeExpiredSessions } from './db.js';
 import { ApiError } from './validation.js';
-import { requireAuth, originGuard, rateLimit } from './auth.js';
+import { requireAuth, requireSession, originGuard, rateLimit } from './auth.js';
 import { authRouter } from './routes/auth.js';
+import { apiKeysRouter } from './routes/apiKeys.js';
+import { mcpRouter, mcpErrorHandler } from './routes/mcp.js';
+import { systemRouter } from './routes/system.js';
 import { projectsRouter } from './routes/projects.js';
 import { viewsRouter } from './routes/views.js';
 import { nodesRouter } from './routes/nodes.js';
@@ -14,7 +17,6 @@ import { shareRouter } from './routes/share.js';
 import { metaRouter } from './routes/meta.js';
 import { assertLimitsAllowRegistration } from './limits.js';
 import { SEED_FOOTPRINT } from './seed.js';
-import { getAppVersion } from './version.js';
 
 /**
  * Erstellt die Express-App inkl. Datenbank.
@@ -60,28 +62,38 @@ export function createApp({ dbFile } = {}) {
     );
   }
 
-  app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', version: getAppVersion(), time: new Date().toISOString() });
-  });
-
-  // Öffentlich: Auth (Registrierung/Login), der statische Katalog und die
-  // Leseansicht freigegebener Projekte. Der Share-Router bietet nur GET.
-  app.use('/api/auth', authRouter(db));
-  app.use('/api/meta', metaRouter());
-  app.use('/api/share', shareRouter(db));
-
-  // Ab hier: Anmeldung erforderlich; req.userId wird gesetzt.
+  // Mount-Tabelle: Pfad, vorgeschaltete Prüfungen und Router an EINER Stelle.
+  // test/openapi.test.js läuft über diese Tabelle und prüft, dass jede Route in
+  // der OpenAPI-Spezifikation (backend/src/openapi.js) dokumentiert ist.
+  //
+  //   öffentlich      Health, OpenAPI, Auth (Registrierung/Login), statischer
+  //                   Katalog, Leseansicht freigegebener Projekte (nur GET)
+  //   eigene Prüfung  MCP: nur API-Key (siehe routes/mcp.js)
+  //   auth            Session ODER API-Key; ein read-Key nur lesend
+  //   session         API-Key-Verwaltung: nie mit einem Key selbst
   const auth = requireAuth(db);
-  app.use('/api/projects', auth, projectsRouter(db));
-  app.use('/api/views', auth, viewsRouter(db));
-  app.use('/api/nodes', auth, nodesRouter(db));
-  app.use('/api/edges', auth, edgesRouter(db));
-  app.use('/api/graph', auth, graphRouter(db));
-  app.use('/api/assets', auth, assetsRouter(db));
+  const mounts = [
+    { path: '/api', router: systemRouter() },
+    { path: '/api/auth', router: authRouter(db) },
+    { path: '/api/meta', router: metaRouter() },
+    { path: '/api/share', router: shareRouter(db) },
+    { path: '/api/mcp', router: mcpRouter(db) },
+    { path: '/api/projects', guards: [auth], router: projectsRouter(db) },
+    { path: '/api/views', guards: [auth], router: viewsRouter(db) },
+    { path: '/api/nodes', guards: [auth], router: nodesRouter(db) },
+    { path: '/api/edges', guards: [auth], router: edgesRouter(db) },
+    { path: '/api/graph', guards: [auth], router: graphRouter(db) },
+    { path: '/api/assets', guards: [auth], router: assetsRouter(db) },
+    { path: '/api/api-keys', guards: [auth, requireSession], router: apiKeysRouter(db) },
+  ];
+  for (const { path, guards = [], router } of mounts) app.use(path, ...guards, router);
 
   app.use('/api', (req, res) => {
     res.status(404).json({ error: `Unknown endpoint: ${req.method} ${req.originalUrl}` });
   });
+
+  // MCP antwortet auch bei kaputtem JSON im JSON-RPC-Format.
+  app.use('/api/mcp', mcpErrorHandler);
 
   // Zentraler Error-Handler → einheitliche JSON-Fehler
   // eslint-disable-next-line no-unused-vars
@@ -102,5 +114,5 @@ export function createApp({ dbFile } = {}) {
     res.status(500).json({ error: 'Internal server error' });
   });
 
-  return { app, db };
+  return { app, db, mounts };
 }

@@ -21,7 +21,7 @@ occasionally take longer — a reminder is perfectly fine.
 
 ## In scope
 
-- Bypassing authentication or session handling
+- Bypassing authentication, session handling or API key scopes
 - Reading data from other accounts (isolation is a core promise)
 - Injection (SQL, XSS via node fields, Markdown notes or custom fields)
 - CSRF, session fixation, privilege escalation
@@ -42,6 +42,8 @@ essentials:
 
 - **Always serve over HTTPS** and set `COOKIE_SECURE=true`.
 - Set `ALLOW_REGISTRATION=false` if the instance is yours alone.
+- Give scripts and AI agents `read` API keys unless they must write, set an
+  expiry, and revoke keys you no longer use.
 - Set caps on public instances (`MAX_PROJECTS_PER_USER`,
   `MAX_VIEWS_PER_PROJECT`, `MAX_NODES_PER_PROJECT`).
 - Back up `data/` regularly — it holds every account.

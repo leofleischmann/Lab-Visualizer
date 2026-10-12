@@ -1,5 +1,7 @@
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
+import { resolveApiKey, API_KEY_PREFIX } from './apiKeys.js';
+import { debugLog } from './debug.js';
 
 const scrypt = promisify(crypto.scrypt);
 
@@ -157,39 +159,170 @@ export function clearSessionCookie(req, res) {
 export const sessionCookieName = COOKIE_NAME;
 
 // ── Middleware ──────────────────────────────────────────────────
+//
+// Zwei Wege zur Anmeldung, beide setzen req.userId / req.userEmail / req.auth:
+//
+//   Session-Cookie `sid`          Browser-UI. req.auth = { method: 'session', scope: 'write' }
+//   Authorization: Bearer lvk_…   Skripte, Integrationen, MCP (backend/src/apiKeys.js).
+//                                 req.auth = { method: 'apiKey', scope, keyId }
+//
+// Als API-Key zählt NUR `Authorization: Bearer lvk_…`. Andere Header (Basic-Auth
+// eines vorgeschalteten Reverse-Proxys, Bearer-Token eines OAuth2-Proxys) werden
+// ignoriert: der Browser schickt sie dort bei JEDEM Request mit, die Web-UI
+// muss dann weiter über ihr Cookie laufen - und der CSRF-Schutz darf für sie
+// nicht entfallen (Basic-Auth hängt der Browser auch an fremde Formulare an).
+//
+// Ein gesendeter API-Key hat Vorrang und fällt NIE auf das Cookie zurück:
+// ein ungültiger Key ist ein 401, auch wenn zufällig eine Session besteht -
+// sonst würde ein falsch konfiguriertes Skript unbemerkt mit Browser-Rechten laufen.
+//
+// Beeinflusst: backend/src/app.js (welche Route welche Middleware bekommt),
+// backend/src/routes/auth.js (/auth/me), backend/src/mcp/ (nur Bearer),
+// backend/src/openapi.js (securitySchemes und x-auth je Operation).
 
-/** Verlangt eine gültige Session; setzt req.userId / req.userEmail oder antwortet 401. */
+/** Methoden, die ein `read`-Key benutzen darf. */
+const READ_METHODS = new Set(['GET', 'HEAD']);
+
+/**
+ * API-Key aus dem Authorization-Header (`Bearer lvk_…`), sonst null. Ob der Key
+ * gültig ist, prüft erst resolveApiKey.
+ */
+export function apiKeyFromRequest(req) {
+  const match = /^Bearer\s+(\S+)\s*$/i.exec(req.get('authorization') ?? '');
+  return match && match[1].startsWith(API_KEY_PREFIX) ? match[1] : null;
+}
+
+/** 401 für einen fehlenden oder ungültigen API-Key (RFC 6750). */
+function rejectApiKey(res, message) {
+  res.set('WWW-Authenticate', 'Bearer realm="Lab Visualizer", error="invalid_token"');
+  return res.status(401).json({ error: message });
+}
+
+/**
+ * Löst den Bearer-Header auf und setzt req.auth. Antwortet selbst mit 401 und
+ * liefert dann false.
+ */
+function applyApiKey(db, req, res, token) {
+  const key = resolveApiKey(db, token);
+  if (!key) {
+    debugLog('auth', 'rejected API key', { path: req.originalUrl });
+    rejectApiKey(res, 'Invalid or expired API key');
+    return false;
+  }
+  req.userId = key.userId;
+  req.userEmail = key.email;
+  req.auth = { method: 'apiKey', scope: key.scope, keyId: key.keyId };
+  return true;
+}
+
+/**
+ * Verlangt eine gültige Session ODER einen API-Key. Ein `read`-Key darf nur
+ * lesende Methoden benutzen (403 + code "insufficient_scope").
+ */
 export function requireAuth(db) {
   return (req, res, next) => {
+    const apiKey = apiKeyFromRequest(req);
+    if (apiKey !== null) {
+      if (!applyApiKey(db, req, res, apiKey)) return;
+      if (req.auth.scope === 'read' && !READ_METHODS.has(req.method)) {
+        return res.status(403).json({
+          error: 'This API key is read-only. Create a key with the "write" scope to change data.',
+          code: 'insufficient_scope',
+        });
+      }
+      return next();
+    }
     const token = parseCookies(req)[COOKIE_NAME];
     const session = resolveSession(db, token);
     if (!session) {
       clearSessionCookie(req, res);
-      return res.status(401).json({ error: 'Nicht angemeldet' });
+      // Ein fremder Authorization-Header deutet auf einen falsch übergebenen Key hin.
+      const hint = req.get('authorization') ? ' - send an API key as "Authorization: Bearer lvk_…"' : '';
+      return res.status(401).json({ error: `Not signed in${hint}` });
     }
     if (session.renewed) setSessionCookie(req, res, token);
     req.userId = session.userId;
     req.userEmail = session.email;
+    req.auth = { method: 'session', scope: 'write' };
     next();
   };
 }
 
 /**
+ * Nur mit Session, nie mit API-Key: für die Verwaltung der Keys selbst. Läuft
+ * NACH requireAuth.
+ */
+export function requireSession(req, res, next) {
+  if (req.auth?.method !== 'session') {
+    return res.status(403).json({
+      error: 'API keys cannot be managed with an API key. Sign in to the web app instead.',
+      code: 'session_required',
+    });
+  }
+  next();
+}
+
+/**
+ * Nur API-Key (Bearer), keine Session: für den MCP-Server. MCP-Clients sind
+ * Programme; ein Cookie-Zugang würde dort nur CSRF und DNS-Rebinding eine Tür
+ * öffnen. Der Scope wird nicht an der HTTP-Methode geprüft (MCP ist immer
+ * POST), sondern pro Tool (backend/src/mcp/tools.js).
+ */
+export function requireApiKey(db) {
+  return (req, res, next) => {
+    const apiKey = apiKeyFromRequest(req);
+    if (apiKey === null) {
+      return rejectApiKey(res, 'An API key is required: send "Authorization: Bearer lvk_…"');
+    }
+    if (!applyApiKey(db, req, res, apiKey)) return;
+    next();
+  };
+}
+
+/** Zusätzlich erlaubte Cross-Origins (CORS_ORIGIN, kommagetrennt). */
+function allowedCrossOrigins() {
+  return (process.env.CORS_ORIGIN ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Darf ein Request mit diesem Origin-Header schreiben? Ohne Origin (curl,
+ * Skripte) ja; sonst muss er zum Host passen oder in CORS_ORIGIN stehen.
+ * Ohne den CORS_ORIGIN-Abgleich wäre die Option für schreibende Requests
+ * wirkungslos: der Browser darf dann zwar quer zugreifen, der Guard lehnt aber ab.
+ *
+ * Beeinflusst: originGuard (CSRF) und backend/src/routes/mcp.js (Origin-Prüfung,
+ * von der MCP-Spezifikation verlangt).
+ */
+export function isOriginAllowed(req) {
+  const origin = req.get('origin');
+  if (!origin) return true;
+  let parsed;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    return false;
+  }
+  return parsed.host === req.get('host') || allowedCrossOrigins().includes(parsed.origin);
+}
+
+/**
  * CSRF-Schutz: Bei zustandsändernden Methoden muss der Origin (falls vom Browser
  * gesendet) zum Host passen. Programmatische Clients (curl, Skripte) senden keinen
- * Origin und werden durchgelassen — sie benötigen ohnehin ein gültiges Session-Cookie.
+ * Origin und werden durchgelassen - sie benötigen ohnehin gültige Zugangsdaten.
+ *
+ * Requests mit API-Key (`Bearer lvk_…`) sind nicht CSRF-fähig: ein Browser hängt
+ * einen Bearer-Header nie von selbst an, und eine fremde Seite kann ihn nur über
+ * einen CORS-Preflight setzen, den der Server ohne CORS_ORIGIN nicht beantwortet.
+ * Sie werden daher nicht am Origin gemessen (nötig für browserbasierte
+ * Integrationen). Ein Basic-Auth-Header zählt ausdrücklich NICHT dazu.
  */
 export function originGuard(req, res, next) {
   if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
-  const origin = req.get('origin');
-  if (!origin) return next();
-  let originHost;
-  try {
-    originHost = new URL(origin).host;
-  } catch {
-    return res.status(403).json({ error: 'Invalid Origin header' });
-  }
-  if (originHost !== req.get('host')) {
+  if (apiKeyFromRequest(req) !== null) return next();
+  if (!isOriginAllowed(req)) {
     return res.status(403).json({ error: 'Origin not allowed (CSRF protection)' });
   }
   next();

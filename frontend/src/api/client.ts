@@ -1,5 +1,8 @@
 import type {
   ApiEdge,
+  ApiKey,
+  ApiKeyScope,
+  AuthInfo,
   ApiNode,
   Catalog,
   EdgePatch,
@@ -70,7 +73,7 @@ type AuthResponse = { user: User; limits: InstanceLimits };
 
 export const api = {
   // ── Auth ──────────────────────────────────────────────────────
-  me: () => request<AuthResponse>('/auth/me'),
+  me: () => request<AuthResponse & { auth: AuthInfo }>('/auth/me'),
   register: (email: string, password: string) =>
     request<AuthResponse>('/auth/register', {
       method: 'POST',
@@ -92,6 +95,20 @@ export const api = {
       method: 'DELETE',
       body: JSON.stringify({ password }),
     }),
+
+  // ── API-Keys (nur mit Session verwaltbar) ─────────────────────
+  listApiKeys: () => request<ApiKey[]>('/api-keys'),
+  /** Die Antwort enthält den Key (`token`) - er ist danach nicht mehr abrufbar. */
+  createApiKey: (data: { name: string; scope: ApiKeyScope; expiresAt?: string | null }) =>
+    request<ApiKey>('/api-keys', { method: 'POST', body: JSON.stringify(data) }),
+  revokeApiKey: (id: string) =>
+    request<{ revoked: number }>(`/api-keys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  /**
+   * OpenAPI-Spezifikation der Instanz (öffentlich). Grundlage der Doku-Seite
+   * /docs; bewusst untypisiert, die Form beschreibt lib/openapi.ts.
+   */
+  openApi: () => request<unknown>('/openapi.json'),
 
   /**
    * Katalog eines Projekts — auf dessen Domain-Packs eingeschränkt. Die UI nutzt

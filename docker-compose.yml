@@ -48,6 +48,8 @@ services:
       # Maximum body size (only the graph import needs a lot).
       - MAX_BODY=${MAX_BODY:-2mb}
       - MAX_IMPORT_BODY=${MAX_IMPORT_BODY:-20mb}
+      # "[Debug …]" lines in the backend log (API keys, MCP calls). Empty = off.
+      - DEBUG_LOG=${DEBUG_LOG:-}
     # Rotate logs: access logs contain IP addresses and should not pile up
     # indefinitely (see the privacy policy).
     logging:
