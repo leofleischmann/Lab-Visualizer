@@ -14,14 +14,18 @@
 #
 # Related: .github/workflows/release.yml, the Dockerfiles (ARG VERSION),
 # GET /api/health (APP_VERSION, backend only).
+#
+# Every variable the backend reads must be passed through below, otherwise a
+# value in .env never reaches the container. backend/test/config.test.js checks
+# this against process.env usages in backend/src/.
 
 services:
   backend:
-    image: ghcr.io/leofleischmann/lab-visualizer-backend:${BACKEND_VERSION:-1.0.0}
+    image: ghcr.io/leofleischmann/lab-visualizer-backend:${BACKEND_VERSION:-1.1.0}
     build:
       context: ./backend
       args:
-        VERSION: ${BACKEND_VERSION:-1.0.0}
+        VERSION: ${BACKEND_VERSION:-1.1.0}
     container_name: labviz-backend
     restart: unless-stopped
     # NODE_ENV=production comes from the image -> secure cookies are the default.
@@ -43,11 +47,19 @@ services:
       - MAX_PROJECTS_PER_USER=${MAX_PROJECTS_PER_USER:-}
       - MAX_VIEWS_PER_PROJECT=${MAX_VIEWS_PER_PROJECT:-}
       - MAX_NODES_PER_PROJECT=${MAX_NODES_PER_PROJECT:-}
+      - MAX_ASSETS_PER_USER=${MAX_ASSETS_PER_USER:-}
+      # Largest image upload in bytes (empty = 1048576). Must fit into MAX_BODY
+      # including the one-third base64 overhead.
+      - MAX_ASSET_BYTES=${MAX_ASSET_BYTES:-}
       # Write requests per minute and IP (0 = off).
       - RATE_LIMIT_WRITES_PER_MIN=${RATE_LIMIT_WRITES_PER_MIN:-600}
       # Maximum body size (only the graph import needs a lot).
       - MAX_BODY=${MAX_BODY:-2mb}
       - MAX_IMPORT_BODY=${MAX_IMPORT_BODY:-20mb}
+      # Legal texts (empty = /data/legal inside the volume).
+      - LEGAL_DIR=${LEGAL_DIR:-}
+      # "[Debug …]" lines in the backend log (API keys, MCP calls). Empty = off.
+      - DEBUG_LOG=${DEBUG_LOG:-}
     # Rotate logs: access logs contain IP addresses and should not pile up
     # indefinitely (see the privacy policy).
     logging:
@@ -60,11 +72,11 @@ services:
     #   - "3000:3000"
 
   frontend:
-    image: ghcr.io/leofleischmann/lab-visualizer-frontend:${FRONTEND_VERSION:-1.0.0}
+    image: ghcr.io/leofleischmann/lab-visualizer-frontend:${FRONTEND_VERSION:-1.1.0}
     build:
       context: ./frontend
       args:
-        VERSION: ${FRONTEND_VERSION:-1.0.0}
+        VERSION: ${FRONTEND_VERSION:-1.1.0}
     container_name: labviz-frontend
     restart: unless-stopped
     depends_on:

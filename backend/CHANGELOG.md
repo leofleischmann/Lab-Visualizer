@@ -8,6 +8,29 @@ Single source of truth: `backend/VERSION` (must match `backend/package.json`).
 The section for the current version becomes the GitHub release notes
 (`.github/workflows/release.yml`).
 
+## [Unreleased]
+
+## [1.1.0] - 2026-10-12
+
+### Added
+- **API keys** (`lvk_…`, `Authorization: Bearer`) with `read`/`write` scope and
+  optional expiry, managed via `/api/api-keys` (session only). Only the SHA-256
+  hash is stored; keys cannot manage the account or other keys.
+- **MCP server** at `POST /api/mcp` (Streamable HTTP, stateless, protocol
+  2024-11-05 to 2025-11-25) with 19 tools for projects, levels, nodes, edges,
+  catalog and auto-layout. API key only; the scope decides the tool list.
+- **OpenAPI 3.1** at `GET /api/openapi.json`, request schemas generated from
+  the Zod schemas. Tests ensure every route is documented and response shapes
+  match.
+- `GET /api/auth/me` reports how a request is authenticated (`auth`).
+- `DEBUG_LOG=true` prints `[Debug …]` lines.
+
+### Fixed
+- Writes from an origin listed in `CORS_ORIGIN` were rejected by the CSRF guard.
+- `docker-compose.yml` did not pass `MAX_ASSETS_PER_USER`, `MAX_ASSET_BYTES` and
+  `LEGAL_DIR` to the container, so values from `.env` had no effect. A test now
+  checks every variable the backend reads.
+
 ## [1.0.0] - 2026-09-07
 
 First versioned backend release.

@@ -29,7 +29,7 @@ body:
     attributes:
       label: Versions
       description: Backend and frontend version (VERSION files or image tags).
-      placeholder: "Backend 1.0.0 / Frontend 1.0.0"
+      placeholder: "Backend 1.1.0 / Frontend 1.1.0"
   - type: dropdown
     id: deployment
     attributes:

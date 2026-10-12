@@ -38,6 +38,10 @@ cd frontend && npm test && npm run build
   A test that fails without your fix is worth more than three that always pass.
 - **Data isolation.** Every access goes through `userId`. A new query must check
   ownership — other people's IDs return `404`, not `403`.
+- **Documented API.** A new or changed route belongs in
+  `backend/src/openapi.js` (request bodies come from `validation.js`
+  automatically); `backend/test/openapi.test.js` fails otherwise. New
+  capabilities agents should use get an MCP tool in `backend/src/mcp/tools.js`.
 - **Comments explain the why**, not the what. The existing code is commented in
   German; please keep it that way so the codebase stays consistent. Everything
   user-facing (UI strings, docs) is English.

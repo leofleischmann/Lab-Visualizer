@@ -5,8 +5,8 @@ their dependencies on an interactive canvas — from homelabs and cloud setups t
 software and process landscapes. Multi-user, offline-capable, MIT-licensed.
 
 ![Stack](https://img.shields.io/badge/Stack-React%20%2B%20Express%20%2B%20SQLite-38bdf8)
-![Backend](https://img.shields.io/badge/Backend-1.0.0-38bdf8)
-![Frontend](https://img.shields.io/badge/Frontend-1.0.0-38bdf8)
+![Backend](https://img.shields.io/badge/Backend-1.1.0-38bdf8)
+![Frontend](https://img.shields.io/badge/Frontend-1.1.0-38bdf8)
 ![License](https://img.shields.io/badge/License-MIT-38bdf8)
 
 ![Lab Visualizer — overview level with drill-down hierarchy](docs/screenshot.png)
@@ -66,8 +66,9 @@ The SQLite database lives in `./data/labviz.db` — back up by copying the whole
   everything as JSON, or export a single project and merge-import it elsewhere.
 - **Accounts** — email/password, scrypt hashes, server-side sessions. Each
   person sees only their own projects. See [Security](#security).
-- **API-first** — every UI action goes through the REST API. Full reference for
-  scripts and AI agents: [AGENTS.md](AGENTS.md).
+- **API-first & MCP** - every UI action goes through the REST API (OpenAPI 3.1,
+  docs at `/docs`). API keys with read/write scope, plus a built-in MCP server
+  so AI agents can read and document your infrastructure.
 
 <details>
 <summary><b>Deep-dive panel</b> — typed fields, Markdown notes, focus mode</summary>
@@ -99,57 +100,27 @@ The SQLite database lives in `./data/labviz.db` — back up by copying the whole
 
 ```
 backend/src/     server.js · app.js · auth.js · db.js · store.js (all business logic)
-                 catalog/ (core + domain packs) · templates/ · routes/ · test/
+                 apiKeys.js · openapi.js · mcp/ · catalog/ · templates/ · routes/
 frontend/src/    store/graph.ts (canvas ⇄ API) · components/{canvas,panel,views,share}
                  lib/catalog.ts · lib/icons.tsx · lib/diagramImage.ts
 ```
 
-## REST API
+## API & MCP
 
-Base URL `http://localhost:8080/api`. Everything except `/health`,
-`/meta/catalog`, `/meta/legal` and `/auth/*` requires a session cookie (`sid`);
-without one the API answers `401`. All data endpoints are scoped to the signed-in
-user — other people's IDs behave as if they do not exist (`404`).
+Create an API key in the account menu (*API keys & MCP*) and send it as
+`Authorization: Bearer lvk_…`. Keys are `read` or `write` and never touch
+account settings.
 
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/auth/register` · `/auth/login` · `/auth/logout` | Account and session |
-| `GET` | `/auth/me` | Current user plus instance limits |
-| `POST`/`DELETE` | `/auth/password` · `/auth/account` | Change password / delete account |
-| `GET` | `/health` · `/meta/catalog` · `/meta/legal` | Public |
-| `GET` | `/meta/packs` · `/meta/templates` | Available domain packs / templates |
-| `GET`/`POST`/`PATCH`/`DELETE` | `/projects[/:id]` | Projects (`template` on create) |
-| `GET` | `/projects/:id/catalog` | Catalog of that project's packs |
-| `GET`/`POST`/`DELETE` | `/projects/:id/shares[/:shareId]` | Share links |
-| `GET` | `/share/:token` | **No auth:** read-only view of a project |
-| `GET`/`POST`/`PATCH`/`DELETE` | `/views[/:id]` | Levels |
-| `GET`/`POST`/`PATCH`/`PUT`/`DELETE` | `/nodes[/:id]` | Nodes (`?q=&category=&status=`) |
-| `POST` | `/nodes/positions` | Bulk position update |
-| `GET`/`POST`/`PATCH`/`PUT`/`DELETE` | `/edges[/:id]` | Connections |
-| `GET`/`POST`/`DELETE` | `/assets[/:id]` | Image library |
-| `GET`/`POST` | `/graph` · `/graph/export` · `/graph/import` | Full graph, JSON backup, restore/merge |
+- **Docs:** `/docs` on your instance, rendered from `/api/openapi.json`
+- **MCP:** `/api/mcp` for Claude, Cursor, VS Code and other MCP clients
+- **Agent reference:** [AGENTS.md](AGENTS.md)
 
 ```bash
-# Sign in once and keep the session cookie in a jar
-curl -c cookies.txt -X POST http://localhost:8080/api/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{ "email": "you@example.com", "password": "your-password" }'
+curl -H "Authorization: Bearer $LABVIZ_API_KEY" http://localhost:8080/api/projects
 
-# Create a node with a readable ID so scripts can update it later
-curl -b cookies.txt -X POST http://localhost:8080/api/nodes \
-  -H 'Content-Type: application/json' \
-  -d '{ "id": "nginx", "name": "nginx Reverse Proxy", "category": "reverse-proxy",
-        "status": "active", "fields": { "ip": "192.168.2.104", "os": "Debian 12" } }'
-
-# Update the status from a monitoring script
-curl -b cookies.txt -X PATCH http://localhost:8080/api/nodes/nginx \
-  -H 'Content-Type: application/json' -d '{ "status": "error" }'
-
-# Back up your own data
-curl -s -b cookies.txt http://localhost:8080/api/graph/export > backup.json
+claude mcp add --transport http lab-visualizer http://localhost:8080/api/mcp \
+  --header "Authorization: Bearer $LABVIZ_API_KEY"
 ```
-
-Field reference, error codes and agent guidance: **[AGENTS.md](AGENTS.md)**.
 
 ## Configuration
 
@@ -172,6 +143,7 @@ neither committed nor deployed.
 | `RATE_LIMIT_WRITES_PER_MIN` | `600` | Write requests per minute and IP (`0` = off) |
 | `MAX_BODY` / `MAX_IMPORT_BODY` | `2mb` / `20mb` | Request body size |
 | `LEGAL_DIR` | `$DATA_DIR/legal` | Directory holding the legal texts |
+| `DEBUG_LOG` | `false` | `true` logs `[Debug …]` lines (API keys, MCP calls) |
 
 ### Behind a reverse proxy / Cloudflare
 
@@ -217,6 +189,9 @@ names `impressum.md` / `datenschutz.md` still work.)
 - **Sessions** live server-side in SQLite; the cookie holds only a 256-bit
   random token, the database only its SHA-256 hash. `HttpOnly`, `SameSite=Lax`,
   `Secure` over HTTPS. Logout ends the session immediately.
+- **API keys** - 256-bit, only the SHA-256 hash is stored, shown once. A `read`
+  key cannot write; no key can change the password, delete the account or
+  create further keys.
 - **Data isolation** — every project belongs to a user; levels, nodes and edges
   inherit ownership, and every access is checked.
 - **Brute force** — login and registration are rate-limited per IP with generic

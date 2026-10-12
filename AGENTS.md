@@ -4,6 +4,10 @@ REST API reference for automated clients (scripts, monitoring, AI agents).
 Human-readable project info: [README.md](README.md).
 **If docs and code disagree, the code in `backend/src/` wins.**
 
+Machine-readable: `GET /api/openapi.json` (OpenAPI 3.1, generated from the
+validation schemas). Rendered with examples at `/docs` on every instance. AI
+agents can also use the built-in **MCP server** at `/api/mcp` - see [MCP](#mcp).
+
 Lab Visualizer documents infrastructure as a graph: **nodes** (servers,
 containers, services, zones) and **edges** (connections). The UI and this API
 share the same database — every UI action is reproducible over the API.
@@ -15,8 +19,9 @@ Base URL `http://localhost:8080/api` (Docker) or `http://localhost:3000/api`
 
 - **Format** JSON (`Content-Type: application/json`); success without a body is
   `204 No Content`.
-- **Auth** required for every data endpoint, scoped to the signed-in user.
-  Public: `/health`, `/meta/catalog`, `/meta/legal`, `/auth/*`.
+- **Auth** required for every data endpoint, scoped to the account. Use an
+  **API key** (`Authorization: Bearer lvk_…`); browsers use a session cookie.
+  Public: `/health`, `/openapi.json`, `/meta/*`, `/share/*`, `/auth/register|login|logout`.
 - **CORS** off by default (same-origin through the proxy); opt in via `CORS_ORIGIN`.
 - **Body limit** 2 MB per request; `POST /graph/import` accepts 20 MB.
 - **IDs** `^[A-Za-z0-9_.:-]{1,64}$` — readable IDs like `nginx` or `db-primary`
@@ -25,19 +30,32 @@ Base URL `http://localhost:8080/api` (Docker) or `http://localhost:3000/api`
 
 ### Authentication
 
-Server-side sessions over an `HttpOnly` cookie (`sid`). Sign in once, keep the
-cookie, send it with every request:
+**API keys** (recommended for every program). Create one in the web app:
+account menu -> *API keys & MCP*. The key (`lvk_…`) is shown exactly once; only
+its sha256 hash is stored. Send it as a Bearer token:
 
 ```bash
-curl -c cookies.txt -X POST http://localhost:8080/api/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{ "email": "you@example.com", "password": "your-password" }'
-
-curl -b cookies.txt http://localhost:8080/api/graph
+export LABVIZ_API_KEY=lvk_…
+curl -H "Authorization: Bearer $LABVIZ_API_KEY" http://localhost:8080/api/auth/me
 ```
 
-State-changing requests from a browser need an `Origin` header matching the host
-(CSRF protection); cookie-based CLI clients such as `curl` are unaffected.
+| Scope | May do |
+|---|---|
+| `read` | `GET`/`HEAD` on every data endpoint, read-only MCP tools |
+| `write` | Everything on the data endpoints (projects, levels, nodes, edges, graph, images, share links), all MCP tools |
+
+- A sent key (`Bearer lvk_…`) is never ignored: an invalid, revoked or expired
+  key is `401` even if a session cookie is present too. Other `Authorization`
+  headers (e.g. Basic auth of a reverse proxy) are ignored.
+- Keys can **never** change the password, delete the account or manage keys
+  (`/auth/password`, `/auth/account`, `/api-keys`) - those need the web app.
+- `GET /auth/me` returns `auth: { method, scope, keyId }` so a script can check
+  what its key may do. Keys survive password changes; revoke them individually.
+
+**Session cookie** (the web UI). Server-side sessions over an `HttpOnly` cookie
+(`sid`) from `POST /auth/login`. State-changing requests carrying an `Origin`
+header must match the host or `CORS_ORIGIN` (CSRF protection). Requests with a
+Bearer key are exempt - a browser never attaches that header on its own.
 
 ### Errors
 
@@ -48,8 +66,8 @@ State-changing requests from a browser need an `Origin` header matching the host
 | Status | Meaning |
 |---|---|
 | `400` | Validation / invalid reference |
-| `401` | Not signed in (missing or expired session) |
-| `403` | CSRF (wrong origin) **or** instance limit reached (`code: "limit_reached"`) |
+| `401` | Not signed in, or missing/invalid/expired API key |
+| `403` | CSRF (wrong origin), instance limit (`code: "limit_reached"`), read-only key (`code: "insufficient_scope"`) **or** web-app-only endpoint (`code: "session_required"`) |
 | `404` | Not found **or owned by another user** |
 | `409` | ID already exists |
 | `413` | Request body too large |
@@ -251,16 +269,19 @@ every edge** — manual waypoints refer to old positions and would be worthless.
 
 ## Endpoints
 
-### Auth
+### Auth and API keys
 
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/auth/register` | `{email, password}` → `201`, seeds an example project, sets the cookie |
 | `POST` | `/auth/login` | `{email, password}` → `200`, sets the cookie |
 | `POST` | `/auth/logout` | → `204` |
-| `GET` | `/auth/me` | Current user plus the instance `limits` |
-| `POST` | `/auth/password` | `{currentPassword, newPassword}` → `204`, ends other sessions |
-| `DELETE` | `/auth/account` | `{password}` → `204`, deletes all data |
+| `GET` | `/auth/me` | Current user, instance `limits` and `auth` (session or API key + scope) |
+| `POST` | `/auth/password` | `{currentPassword, newPassword}` -> `204`, ends other sessions. Session only |
+| `DELETE` | `/auth/account` | `{password}` -> `204`, deletes all data. Session only |
+| `GET` | `/api-keys` | Own keys (without the secret). Session only |
+| `POST` | `/api-keys` | `{name, scope?, expiresAt?}` -> `201` **with** `token` (once). Session only, max. 50 |
+| `DELETE` | `/api-keys/:id` | Revoke, effective immediately. Session only |
 
 ### Projects and levels
 
@@ -309,7 +330,7 @@ an instance limit mid-build leaves no half project behind.
 | `POST` | `/graph/import` | Replace or merge |
 | `POST` | `/graph/layout` | Auto-align one level |
 
-Export shape: `{ "version": 3, "exportedAt": "…", "projects": [], "views": [],
+Export shape: `{ "version": 4, "exportedAt": "…", "projects": [], "views": [],
 "nodes": [], "edges": [], "assets": [] }`. Exporting one project carries only the
 images that project uses; a full backup carries the whole library.
 
@@ -395,11 +416,12 @@ Uploaded images serve as a node's own icon and as images in notes.
   `Cache-Control: immutable`, an `ETag`, `nosniff` and their own CSP so a
   directly opened SVG cannot execute anything.
 
-### Health and legal texts
+### Health, OpenAPI and legal texts
 
 ```
-GET /health      → { "status": "ok", "version": "1.0.0", "time": "…" }
-GET /meta/legal  → { "documents": [ { "id": "impressum", "title": "Legal notice", "markdown": "…" } ] }
+GET /health        -> { "status": "ok", "version": "1.1.0", "time": "…" }
+GET /openapi.json  -> OpenAPI 3.1 document of this API (public)
+GET /meta/legal    -> { "documents": [ { "id": "impressum", "title": "Legal notice", "markdown": "…" } ] }
 ```
 
 `version` is the **backend** version from `backend/VERSION`; the frontend has its
@@ -409,7 +431,61 @@ none (the normal case when self-hosting).
 
 ---
 
+## MCP
+
+`POST /api/mcp` is a [Model Context Protocol](https://modelcontextprotocol.io)
+server (transport *Streamable HTTP*, stateless, JSON responses; protocol
+versions `2025-11-25` back to `2024-11-05`). It needs an **API key** - session
+cookies are not accepted - and a browser `Origin`, if sent, must match the host
+or `CORS_ORIGIN`. `GET`/`DELETE` answer `405`.
+
+```bash
+claude mcp add --transport http lab-visualizer http://localhost:8080/api/mcp \
+  --header "Authorization: Bearer lvk_…"
+```
+
+Cursor (`.cursor/mcp.json`) / VS Code (`.vscode/mcp.json`, key `servers`, plus
+`"type": "http"`):
+
+```json
+{ "mcpServers": { "lab-visualizer": {
+    "url": "http://localhost:8080/api/mcp",
+    "headers": { "Authorization": "Bearer lvk_…" } } } }
+```
+
+Claude Desktop needs the `mcp-remote` bridge for custom headers; the web app
+(account menu -> *API keys & MCP*) and `/docs` print ready-to-copy configs.
+
+Tools call the same store functions and Zod schemas as the REST routes, so
+validation, ownership and instance limits behave identically. A `read` key only
+gets the read tools listed.
+
+| Tool | Scope | REST equivalent |
+|---|---|---|
+| `list_projects` | read | `GET /projects` |
+| `get_project` | read | `GET /projects/:id` + levels with node/edge counts; `includeContent` adds all nodes and edges |
+| `get_catalog` | read | `GET /projects/:id/catalog` or `/meta/catalog` (without `inactive`) |
+| `get_graph` | read | `GET /graph?viewId=` (plus the level itself) |
+| `search_nodes` | read | `GET /nodes?q=&projectId=&viewId=&category=&status=` (`query` instead of `q`; `limit`, default 100) |
+| `get_node` | read | `GET /nodes/:id` + its edges |
+| `create_project` / `update_project` / `delete_project` | write | `POST`/`PATCH`/`DELETE /projects` |
+| `create_view` / `update_view` / `delete_view` | write | `POST`/`PATCH`/`DELETE /views` |
+| `create_node` / `update_node` / `delete_node` | write | `POST`/`PATCH`/`DELETE /nodes` |
+| `create_edge` / `update_edge` / `delete_edge` | write | `POST`/`PATCH`/`DELETE /edges` |
+| `auto_layout` | write | `POST /graph/layout` |
+
+Update tools take the ID as `projectId` / `viewId` / `nodeId` / `edgeId` plus
+the patch. Tool errors (validation, `404`, limits) come back as a result with
+`isError: true` and `structuredContent: { error, status, code?, details? }` so
+the agent can react; an unknown tool is JSON-RPC error `-32602`. Deliberately
+not exposed: file import/export, image uploads, share links and account
+settings - use REST for those.
+
+---
+
 ## Common workflows
+
+Every request carries `Authorization: Bearer lvk_…` (omitted below).
 
 ```http
 ### Create an infrastructure node
@@ -444,13 +520,14 @@ POST /api/graph/layout
 { "maxCols": 5 }
 ```
 
-Backup and restore (sign in first, see [Authentication](#authentication)):
+Backup and restore (API key with scope `write`, see [Authentication](#authentication)):
 
 ```bash
-curl -s -b cookies.txt http://localhost:8080/api/graph/export -o backup.json
+curl -s -H "Authorization: Bearer $LABVIZ_API_KEY" \
+  http://localhost:8080/api/graph/export -o backup.json
 
 # Restore — replaces your data! The export has no `mode`, so add it.
-curl -b cookies.txt -X POST http://localhost:8080/api/graph/import \
+curl -H "Authorization: Bearer $LABVIZ_API_KEY" -X POST http://localhost:8080/api/graph/import \
   -H 'Content-Type: application/json' -d @backup.json
 ```
 
@@ -469,6 +546,8 @@ curl -b cookies.txt -X POST http://localhost:8080/api/graph/import \
 | What one project sees | `GET /projects/:id/catalog` |
 | Available packs / templates | `GET /meta/packs` · `GET /meta/templates` |
 | Is the API up? | `GET /health` |
+| Machine-readable API description | `GET /openapi.json` |
+| Connect an AI agent | MCP at `/api/mcp` with an API key |
 
 ## Catalog reference
 
@@ -510,14 +589,19 @@ Full list: `GET /meta/catalog`. Which of these are visible depends on
 | File | Contents |
 |---|---|
 | `backend/src/store.js` | CRUD, import, parent logic, row-level authorization |
-| `backend/src/auth.js` | Password hashing (scrypt), sessions, `requireAuth`, CSRF, rate limit |
-| `backend/src/validation.js` | Zod schemas including `register`/`login` |
+| `backend/src/auth.js` | Password hashing (scrypt), sessions, Bearer keys, `requireAuth`, CSRF, rate limit |
+| `backend/src/apiKeys.js` | API keys: creation, hashing, scopes, expiry |
+| `backend/src/validation.js` | Zod schemas - the single source for request shapes, OpenAPI and MCP tool schemas |
+| `backend/src/jsonSchema.js` | Zod -> JSON Schema for OpenAPI and MCP |
+| `backend/src/openapi.js` | OpenAPI 3.1 document (`GET /openapi.json`) |
+| `backend/src/mcp/` | MCP protocol (`server.js`) and tool definitions (`tools.js`) |
 | `backend/src/limits.js` | Optional instance limits and their enforcement |
 | `backend/src/layout.js` | Auto-layout algorithm |
 | `backend/src/catalog/` | Core plus domain packs (categories, edge kinds, fields) |
 | `backend/src/templates/` | Starter templates for new projects |
 | `backend/src/assets.js` | Image type detection and serving headers |
 | `backend/src/share.js` | Share tokens, hashing and expiry |
-| `backend/src/routes/*.js` | Route definitions |
+| `backend/src/routes/*.js` | Route definitions (mount table in `backend/src/app.js`) |
 | `frontend/src/api/types.ts` | TypeScript types |
 | `frontend/src/lib/catalog.ts` | Client-side catalog access: fields, badges, filters |
+| `frontend/src/components/docs/` | The `/docs` page, rendered from `openapi.json` |

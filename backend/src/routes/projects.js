@@ -7,10 +7,7 @@ import {
   parseOrThrow,
 } from '../validation.js';
 import { buildCatalog } from '../catalog/index.js';
-import { getTemplate } from '../templates/index.js';
-import { applyTemplate } from '../templates/apply.js';
-import { assertTemplateFitsLimits } from '../limits.js';
-import { ApiError } from '../validation.js';
+import { createProjectWithTemplate } from '../templates/apply.js';
 
 export function projectsRouter(db) {
   const router = Router();
@@ -24,26 +21,8 @@ export function projectsRouter(db) {
   // Mit `template` wird zusätzlich der Startinhalt aufgebaut (Ebenen, Nodes,
   // Kanten); ohne ausdrückliche `packs` übernimmt das Projekt die des Templates.
   router.post('/', (req, res) => {
-    const { template: templateId, ...data } = parseOrThrow(projectCreateSchema, req.body);
-    if (!templateId) {
-      res.status(201).json(store.createProject(db, req.userId, data));
-      return;
-    }
-    const template = getTemplate(templateId);
-    if (!template) throw new ApiError(400, `Unknown template "${templateId}"`);
-    assertTemplateFitsLimits(template);
-
-    // Projekt und Template-Inhalt in EINER Transaktion: läuft der Aufbau in ein
-    // Limit oder einen Validierungsfehler, bleibt kein halbes Projekt zurück.
-    const created = db.transaction(() => {
-      const project = store.createProject(db, req.userId, {
-        ...data,
-        packs: data.packs ?? template.packs,
-      });
-      applyTemplate(db, req.userId, project, templateId);
-      return store.getProject(db, req.userId, project.id);
-    })();
-    res.status(201).json(created);
+    const data = parseOrThrow(projectCreateSchema, req.body);
+    res.status(201).json(createProjectWithTemplate(db, req.userId, data));
   });
 
   router.get('/:id', (req, res) => {

@@ -87,10 +87,8 @@ export function assertLimitsAllowRegistration(footprint) {
 }
 
 /** Fehler mit maschinenlesbarem Code, damit die UI den Limit-Hinweis zeigen kann. */
-function limitError(message) {
-  const err = new ApiError(403, message);
-  err.code = 'limit_reached';
-  return err;
+export function limitError(message) {
+  return new ApiError(403, message, undefined, 'limit_reached');
 }
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;

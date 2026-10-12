@@ -21,6 +21,23 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 
+-- API-Keys fuer Skripte, Integrationen und den MCP-Server (backend/src/apiKeys.js).
+-- Wie bei sessions und share_links steht hier NUR der sha256-Hash; das
+-- Klartext-Token gibt die API genau einmal beim Anlegen aus. "prefix" (die
+-- ersten Zeichen des Tokens) dient nur dem Wiedererkennen in der UI.
+CREATE TABLE IF NOT EXISTS api_keys (
+  id           TEXT PRIMARY KEY,
+  user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  key_hash     TEXT NOT NULL UNIQUE,     -- sha256(token) hex
+  prefix       TEXT NOT NULL,
+  name         TEXT NOT NULL,
+  scope        TEXT NOT NULL,            -- 'read' | 'write'
+  created_at   TEXT NOT NULL,
+  expires_at   TEXT,                     -- NULL = laeuft nicht ab
+  last_used_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
+
 -- Hochgeladene Bilder (eigene Node-Icons, Bilder in Notizen).
 -- Bewusst IN der Datenbank statt auf der Platte: Projekte werden als JSON
 -- zwischen Konten geteilt (Merge-Import). Lägen die Bilder daneben im
