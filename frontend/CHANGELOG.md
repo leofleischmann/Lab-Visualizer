@@ -10,6 +10,8 @@ The section for the current version becomes the GitHub release notes
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-12
+
 ### Added
 - **API keys & MCP** dialog in the account menu: create (shown once), list and
   revoke keys, with ready-to-copy configs for Claude Code, Claude Desktop,

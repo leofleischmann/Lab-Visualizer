@@ -5,8 +5,8 @@ their dependencies on an interactive canvas — from homelabs and cloud setups t
 software and process landscapes. Multi-user, offline-capable, MIT-licensed.
 
 ![Stack](https://img.shields.io/badge/Stack-React%20%2B%20Express%20%2B%20SQLite-38bdf8)
-![Backend](https://img.shields.io/badge/Backend-1.0.0-38bdf8)
-![Frontend](https://img.shields.io/badge/Frontend-1.0.0-38bdf8)
+![Backend](https://img.shields.io/badge/Backend-1.1.0-38bdf8)
+![Frontend](https://img.shields.io/badge/Frontend-1.1.0-38bdf8)
 ![License](https://img.shields.io/badge/License-MIT-38bdf8)
 
 ![Lab Visualizer — overview level with drill-down hierarchy](docs/screenshot.png)

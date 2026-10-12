@@ -419,7 +419,7 @@ Uploaded images serve as a node's own icon and as images in notes.
 ### Health, OpenAPI and legal texts
 
 ```
-GET /health        -> { "status": "ok", "version": "1.0.0", "time": "…" }
+GET /health        -> { "status": "ok", "version": "1.1.0", "time": "…" }
 GET /openapi.json  -> OpenAPI 3.1 document of this API (public)
 GET /meta/legal    -> { "documents": [ { "id": "impressum", "title": "Legal notice", "markdown": "…" } ] }
 ```

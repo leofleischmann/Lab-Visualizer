@@ -10,6 +10,8 @@ The section for the current version becomes the GitHub release notes
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-12
+
 ### Added
 - **API keys** (`lvk_…`, `Authorization: Bearer`) with `read`/`write` scope and
   optional expiry, managed via `/api/api-keys` (session only). Only the SHA-256

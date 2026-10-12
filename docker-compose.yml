@@ -21,11 +21,11 @@
 
 services:
   backend:
-    image: ghcr.io/leofleischmann/lab-visualizer-backend:${BACKEND_VERSION:-1.0.0}
+    image: ghcr.io/leofleischmann/lab-visualizer-backend:${BACKEND_VERSION:-1.1.0}
     build:
       context: ./backend
       args:
-        VERSION: ${BACKEND_VERSION:-1.0.0}
+        VERSION: ${BACKEND_VERSION:-1.1.0}
     container_name: labviz-backend
     restart: unless-stopped
     # NODE_ENV=production comes from the image -> secure cookies are the default.
@@ -72,11 +72,11 @@ services:
     #   - "3000:3000"
 
   frontend:
-    image: ghcr.io/leofleischmann/lab-visualizer-frontend:${FRONTEND_VERSION:-1.0.0}
+    image: ghcr.io/leofleischmann/lab-visualizer-frontend:${FRONTEND_VERSION:-1.1.0}
     build:
       context: ./frontend
       args:
-        VERSION: ${FRONTEND_VERSION:-1.0.0}
+        VERSION: ${FRONTEND_VERSION:-1.1.0}
     container_name: labviz-frontend
     restart: unless-stopped
     depends_on:
