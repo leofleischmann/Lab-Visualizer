@@ -57,6 +57,9 @@ export function ApiKeysDialog({ onClose }: { onClose: () => void }) {
   }, []);
 
   const create = async () => {
+    // Enter im Namensfeld umgeht den deaktivierten Knopf - ohne diese Sperre
+    // entstünden bei schnellem Tippen zwei Keys.
+    if (busy) return;
     if (!name.trim()) return setError('Please give the key a name, e.g. “Claude Code”.');
     setBusy(true);
     setError(null);

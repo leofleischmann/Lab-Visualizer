@@ -74,6 +74,10 @@ const doc: OpenApiDoc = {
           },
           fields: { type: 'object', additionalProperties: { type: 'string' } },
           tags: { type: 'array', items: { $ref: '#/components/schemas/Tag' } },
+          waypoints: {
+            type: 'array',
+            items: { type: 'object', required: ['x'], properties: { x: { type: 'number' } } },
+          },
         },
       },
     },
@@ -122,10 +126,13 @@ describe('openapi helpers', () => {
       'position.y',
       'fields',
       'tags',
+      'waypoints',
+      'waypoints[].x',
     ]);
     expect(rows[0]).toMatchObject({ required: true, description: 'Display name.' });
     expect(rows.find((r) => r.name === 'position.x')).toMatchObject({ depth: 1, required: true });
     expect(rows.find((r) => r.name === 'tags')?.type).toBe('Tag[]');
+    expect(rows.find((r) => r.name === 'waypoints[].x')).toMatchObject({ depth: 1, required: true });
   });
 
   test('Beispiel-Body: hinterlegtes Beispiel, sonst Gerüst aus Pflichtfeldern', () => {

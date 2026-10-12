@@ -481,7 +481,8 @@ const json = (schema) => ({ 'application/json': { schema } });
 /**
  * Baut eine Operation. `ok` = Schema der Erfolgsantwort (null = kein Body).
  * Fehlerantworten ergeben sich aus Zugriffsstufe, Methode, Pfadparametern
- * und Body; `errors` ergänzt weitere (z. B. Conflict).
+ * und Body; `errors` ergänzt weitere: [Status, Name aus components.responses]
+ * oder [Status, eigene Antwort], wenn ein Code hier etwas Spezielles bedeutet.
  */
 function op(method, spec) {
   const {
@@ -512,7 +513,10 @@ function op(method, spec) {
   if (auth !== 'public') add(401, 'Unauthorized');
   if (auth === 'write' || auth === 'session') add(403, 'Forbidden');
   if (params.some((p) => p.in === 'path')) add(404, 'NotFound');
-  for (const [status, name] of errors) add(status, name);
+  for (const [status, response] of errors) {
+    if (typeof response === 'string') add(status, response);
+    else responses[status] = response;
+  }
   if (method !== 'get') add(429, 'TooManyRequests');
   return {
     tags: [tag],
@@ -574,7 +578,10 @@ function buildPaths() {
         ok: ref('AuthResponse'),
         okStatus: 201,
         okDescription: 'Created; `Set-Cookie: sid=…`',
-        errors: [[403, 'Forbidden'], [409, 'Conflict']],
+        errors: [
+          [403, errorResponse('Registration is disabled on this instance (ALLOW_REGISTRATION=false).')],
+          [409, errorResponse('This email is already registered.')],
+        ],
       }),
     },
     '/auth/login': {
@@ -587,7 +594,7 @@ function buildPaths() {
         body: ref('LoginRequest'),
         ok: ref('AuthResponse'),
         okDescription: 'Signed in; `Set-Cookie: sid=…`',
-        errors: [[401, 'Unauthorized']],
+        errors: [[401, errorResponse('Invalid email or password.')]],
       }),
     },
     '/auth/logout': {
@@ -690,6 +697,7 @@ function buildPaths() {
         description: 'Cascades to its levels, nodes, edges and share links. The last project cannot be deleted (400).',
         params: [id('Project')],
         ok: ref('DeleteResult'),
+        errors: [[400, errorResponse('The last project cannot be deleted.')]],
       }),
     },
     '/projects/{id}/catalog': {
@@ -761,6 +769,7 @@ function buildPaths() {
         params: [pathParam('token', 'Share token.'), id('Image')],
         okDescription: 'The image bytes.',
         okContent: imageContent(),
+        errors: [[304, { description: 'Not modified: `If-None-Match` matched the ETag.' }]],
       }),
     },
 
@@ -803,6 +812,7 @@ function buildPaths() {
           'Cascades to its sub-levels and their nodes and edges. The last level - or one whose subtree covers every level - cannot be deleted (400).',
         params: [id('Level')],
         ok: ref('DeleteResult'),
+        errors: [[400, errorResponse('The last level, or one whose sub-levels cover every level, cannot be deleted.')]],
       }),
     },
 
@@ -975,6 +985,7 @@ function buildPaths() {
         params: [id('Image')],
         okDescription: 'The image bytes.',
         okContent: imageContent(),
+        errors: [[304, { description: 'Not modified: `If-None-Match` matched the ETag.' }]],
       }),
       delete: op('delete', {
         tag: 'Images',

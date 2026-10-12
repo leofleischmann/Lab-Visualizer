@@ -19,6 +19,7 @@
  */
 import { ApiError, parseOrThrow } from '../validation.js';
 import { getAppVersion } from '../version.js';
+import { STATUS_IDS } from '../catalog/index.js';
 import { debugLog } from '../debug.js';
 import { TOOLS_BY_NAME, listToolDescriptors, toolAllowed } from './tools.js';
 
@@ -61,7 +62,7 @@ function instructions(scope) {
     'Before creating nodes or edges, read get_catalog for valid category ids, edge kinds and field keys.',
     'Rules:',
     '- Products are field values, not categories: a Proxmox host is category "hypervisor" with fields.platform "Proxmox VE".',
-    '- All field values are strings; "" means not set. Statuses: active, inactive, planned, maintenance, error, unknown.',
+    `- All field values are strings; "" means not set. Statuses: ${STATUS_IDS.join(', ')}.`,
     '- Zones are nodes with category "group" plus width/height. Create the zone first, then its children with parentId; child positions are relative to the zone.',
     '- Edges only connect nodes on the same level. Connect levels by setting a node\'s linkedViewId to a detail level.',
     '- update_* tools change only the given properties, but fields and customFields are replaced as a whole.',
