@@ -25,6 +25,9 @@ The section for the current version becomes the GitHub release notes
 
 ### Fixed
 - Writes from an origin listed in `CORS_ORIGIN` were rejected by the CSRF guard.
+- `docker-compose.yml` did not pass `MAX_ASSETS_PER_USER`, `MAX_ASSET_BYTES` and
+  `LEGAL_DIR` to the container, so values from `.env` had no effect. A test now
+  checks every variable the backend reads.
 
 ## [1.0.0] - 2026-09-07
 
