@@ -17,6 +17,7 @@ import {
   createSession,
   destroySession,
   resolveSession,
+  requireAuth,
   setSessionCookie,
   clearSessionCookie,
   parseCookies,
@@ -81,21 +82,20 @@ export function authRouter(db) {
     res.status(204).end();
   });
 
-  // GET /api/auth/me — aktueller Nutzer inkl. Instanz-Limits (Frontend-Bootstrap)
-  router.get('/me', (req, res) => {
-    const session = resolveSession(db, parseCookies(req)[sessionCookieName]);
-    if (!session) {
-      clearSessionCookie(req, res);
-      return res.status(401).json({ error: 'Not signed in' });
-    }
-    if (session.renewed) setSessionCookie(req, res, parseCookies(req)[sessionCookieName]);
+  // GET /api/auth/me - aktueller Nutzer inkl. Instanz-Limits (Frontend-Bootstrap).
+  // Geht auch mit API-Key: `auth` verrät einem Skript oder Agenten, was sein Key darf.
+  router.get('/me', requireAuth(db), (req, res) => {
     res.json({
-      user: { id: session.userId, email: session.email },
+      user: { id: req.userId, email: req.userEmail },
       limits: getInstanceLimits(),
+      auth: req.auth,
     });
   });
 
   // POST /api/auth/password — Passwort ändern; beendet alle ANDEREN Sessions.
+  // Wie DELETE /account bewusst NUR per Session-Cookie: ein API-Key (Bearer)
+  // kann weder Passwort noch Konto anfassen (siehe backend/src/apiKeys.js).
+  // API-Keys überleben einen Passwortwechsel; widerrufen werden sie einzeln.
   router.post('/password', limiter, async (req, res, next) => {
     try {
       const token = parseCookies(req)[sessionCookieName];

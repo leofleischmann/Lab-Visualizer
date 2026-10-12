@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createApp } from '../src/app.js';
-import { createSession } from '../src/auth.js';
+import { bootstrapUser, freshApp } from './helpers.js';
 import * as store from '../src/store.js';
 import { seedExampleForUser, SEED_FOOTPRINT } from '../src/seed.js';
 import { TEMPLATES } from '../src/templates/index.js';
@@ -15,25 +15,6 @@ let server;
 let base;
 let db;
 let authCookie;
-
-/**
- * Legt einen Nutzer mit genau EINEM leeren Projekt (+ Root-Ebene) an — ohne den
- * Beispiel-Seed — und öffnet dafür eine Session. Liefert das Cookie.
- * Instanz-Limits sind in Tests standardmäßig aus (keine Env gesetzt); die
- * Limit-Tests setzen sie gezielt für die Dauer des jeweiligen Tests.
- */
-function bootstrapUser(database) {
-  const userId = crypto.randomUUID();
-  const ts = new Date().toISOString();
-  database
-    .prepare(
-      'INSERT INTO users (id, email, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
-    )
-    .run(userId, `u-${userId.slice(0, 8)}@test.local`, 'scrypt$1$00$00', ts, ts);
-  store.createProject(database, userId, { name: 'Test' });
-  const { token } = createSession(database, userId);
-  return { userId, cookie: `sid=${token}` };
-}
 
 before(async () => {
   const created = createApp({ dbFile: ':memory:' });
@@ -953,30 +934,6 @@ test('export/import Roundtrip', async () => {
 
 // ── Ebenen (Views) ──────────────────────────────────────────────
 
-/**
- * Startet eine frische, isolierte App mit einem angemeldeten Nutzer (ein leeres
- * Projekt + Root-Ebene) und liefert einen authentifizierten api-Helper + Cleanup.
- */
-async function freshApp() {
-  const created = createApp({ dbFile: ':memory:' });
-  const { cookie, userId } = bootstrapUser(created.db);
-  const server = created.app.listen(0);
-  await new Promise((resolve) => server.on('listening', resolve));
-  const b = `http://127.0.0.1:${server.address().port}`;
-  const call = async (method, path, body, cookieOverride = cookie) => {
-    const headers = {};
-    if (cookieOverride) headers.Cookie = cookieOverride;
-    if (body) headers['Content-Type'] = 'application/json';
-    const res = await fetch(`${b}${path}`, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    const text = await res.text();
-    return { status: res.status, body: text ? JSON.parse(text) : null };
-  };
-  return { call, base: b, db: created.db, cookie, userId, close: () => { server.close(); created.db.close(); } };
-}
 
 test('views: Root existiert, CRUD, Hierarchie, Cascade-Delete, letzte Ebene geschützt', async () => {
   const { call, close } = await freshApp();

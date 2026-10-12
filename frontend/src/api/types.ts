@@ -18,6 +18,35 @@ export type User = {
   email: string;
 };
 
+/** Scope eines API-Keys: `read` nur lesend, `write` darf Daten ändern. */
+export type ApiKeyScope = 'read' | 'write';
+
+/**
+ * Wie ein Request angemeldet ist (GET /auth/me). Die UI läuft immer über die
+ * Session; `apiKey` sehen nur Skripte und Agenten.
+ */
+export type AuthInfo =
+  | { method: 'session'; scope: 'write' }
+  | { method: 'apiKey'; scope: ApiKeyScope; keyId: string };
+
+/**
+ * API-Key für Skripte, Integrationen und den MCP-Server. `token` steht NUR in
+ * der Antwort auf das Anlegen - danach kennt der Server nur noch dessen Hash.
+ * Beeinflusst: components/account/ApiKeysDialog.tsx, backend/src/apiKeys.js.
+ */
+export type ApiKey = {
+  id: string;
+  name: string;
+  /** Erste Zeichen des Keys (z. B. "lvk_AbCd1234") zum Wiedererkennen. */
+  prefix: string;
+  scope: ApiKeyScope;
+  createdAt: string;
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  /** Nur beim Anlegen gesetzt. */
+  token?: string;
+};
+
 /**
  * Obergrenzen dieser Instanz (`null` = unbegrenzt). Beim Self-Hosting sind
  * standardmäßig alle Werte `null`; öffentliche Instanzen setzen sie per Env.
