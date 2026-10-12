@@ -54,7 +54,9 @@ export function ApiDocs() {
   useEffect(() => {
     if (!doc) return;
     const openFromHash = () => {
-      const el = document.getElementById(decodeURIComponent(window.location.hash.slice(1)));
+      // Die Anker-IDs (op-…, tag-…, schema-…) sind reines ASCII; ein Dekodieren
+      // würde bei einem kaputten Hash wie "#%E0" nur werfen und die Seite abbrechen.
+      const el = document.getElementById(window.location.hash.slice(1));
       if (el instanceof HTMLDetailsElement) el.open = true;
       el?.scrollIntoView({ block: 'start' });
     };

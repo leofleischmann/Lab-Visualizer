@@ -176,9 +176,10 @@ export type SchemaRow = {
 };
 
 /**
- * Eigenschaften eines Objekt-Schemas als Tabellenzeilen. Inline-Objekte werden
- * bis `maxDepth` aufgeklappt, referenzierte Schemas (Node, Edge …) nicht -
- * die stehen als eigener Eintrag im Abschnitt "Schemas".
+ * Eigenschaften eines Objekt-Schemas als Tabellenzeilen. Inline-Objekte und
+ * Arrays aus Inline-Objekten werden bis `maxDepth` aufgeklappt, referenzierte
+ * Schemas (Node, Edge …) nicht - die stehen als eigener Eintrag im Abschnitt
+ * "Schemas".
  */
 export function schemaRows(doc: OpenApiDoc, schema: JsonSchema | undefined, maxDepth = 2): SchemaRow[] {
   const rows: SchemaRow[] = [];
@@ -196,7 +197,10 @@ export function schemaRows(doc: OpenApiDoc, schema: JsonSchema | undefined, maxD
         description: prop.description,
         constraints: constraintsOf(prop),
       });
-      if (!prop.$ref && prop.properties && depth + 1 < maxDepth) walk(prop, name, depth + 1);
+      if (depth + 1 >= maxDepth) continue;
+      if (!prop.$ref && prop.properties) walk(prop, name, depth + 1);
+      // Arrays aus Inline-Objekten (z. B. positions[]) ebenso aufklappen.
+      else if (prop.items && !prop.items.$ref && prop.items.properties) walk(prop.items, `${name}[]`, depth + 1);
     }
   };
   walk(schema, '', 0);
