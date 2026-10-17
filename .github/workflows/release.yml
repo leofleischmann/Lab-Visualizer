@@ -179,7 +179,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "[Debug release]: $COMPONENT $VERSION -> $TAG"
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         if: steps.meta.outputs.skip == 'false'
         with:
           registry: ${{ env.REGISTRY }}
